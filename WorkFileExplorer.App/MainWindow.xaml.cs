@@ -34,7 +34,6 @@ public partial class MainWindow : Window
     private string? _inlineRenameSourcePath;
     private string? _inlineRenameOriginalName;
     private bool _windowLoaded;
-    private bool _memoListAutoOpening;
     private readonly Dictionary<FourPanelSlotViewModel, List<DataGrid>> _fourPanelGrids = new();
     private readonly Dictionary<FourPanelSlotViewModel, List<ListBox>> _fourPanelTileLists = new();
     private readonly Dictionary<ListBox, double> _adaptiveTileSizes = new();
@@ -118,7 +117,9 @@ public partial class MainWindow : Window
 
     private async void OnLeftPanelDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (IsDataGridHeaderInteraction(e.OriginalSource as DependencyObject))
+        var originalSource = e.OriginalSource as DependencyObject;
+        if (IsDataGridHeaderInteraction(originalSource) ||
+            !IsPanelItemDoubleClickSource(sender, originalSource))
         {
             return;
         }
@@ -131,7 +132,9 @@ public partial class MainWindow : Window
 
     private async void OnRightPanelDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (IsDataGridHeaderInteraction(e.OriginalSource as DependencyObject))
+        var originalSource = e.OriginalSource as DependencyObject;
+        if (IsDataGridHeaderInteraction(originalSource) ||
+            !IsPanelItemDoubleClickSource(sender, originalSource))
         {
             return;
         }
@@ -630,7 +633,9 @@ public partial class MainWindow : Window
 
     private async void OnFourPanelDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (IsDataGridHeaderInteraction(e.OriginalSource as DependencyObject))
+        var originalSource = e.OriginalSource as DependencyObject;
+        if (IsDataGridHeaderInteraction(originalSource) ||
+            !IsPanelItemDoubleClickSource(sender, originalSource))
         {
             return;
         }
@@ -985,16 +990,16 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private async void OnLeftPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void OnLeftPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateSelectionSummary(left: true);
-        await TryOpenMemoListSelectionAsync(left: true, sender as FrameworkElement, e);
+        ShowMemoListSelectionMemo(left: true, e);
     }
 
-    private async void OnRightPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void OnRightPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateSelectionSummary(left: false);
-        await TryOpenMemoListSelectionAsync(left: false, sender as FrameworkElement, e);
+        ShowMemoListSelectionMemo(left: false, e);
     }
 
     private void UpdateSelectionSummary(bool left)
@@ -1008,22 +1013,9 @@ public partial class MainWindow : Window
         Vm.UpdateSelectionSummary(left, selectedItems);
     }
 
-    private async Task TryOpenMemoListSelectionAsync(bool left, FrameworkElement? sourceElement, SelectionChangedEventArgs e)
+    private void ShowMemoListSelectionMemo(bool left, SelectionChangedEventArgs e)
     {
-        if (Vm is null || _memoListAutoOpening || !Vm.IsMemoListPanel(left))
-        {
-            return;
-        }
-
-        // When switching back to the memo-list tab, the first row is often auto-selected.
-        // Ignore that initial selection so we do not keep creating duplicate tabs.
-        if (e.RemovedItems.Count == 0 && Mouse.LeftButton != MouseButtonState.Pressed)
-        {
-            return;
-        }
-
-        // Ignore selection restore caused by tab switching/rebinding; open only on user-driven selection.
-        if (sourceElement is null || (!sourceElement.IsKeyboardFocusWithin && !sourceElement.IsMouseOver))
+        if (Vm is null || !Vm.IsMemoListPanel(left))
         {
             return;
         }
@@ -1033,19 +1025,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        _memoListAutoOpening = true;
-        try
+        if (string.IsNullOrWhiteSpace(item.Memo))
         {
-            await Vm.OpenMemoListItemAsync(left, item);
+            Vm.StatusText = $"메모 없음: {item.DisplayName}";
+            return;
         }
-        catch
-        {
-            Vm.StatusText = "메모 항목 열기에 실패했습니다.";
-        }
-        finally
-        {
-            _memoListAutoOpening = false;
-        }
+
+        Vm.StatusText = $"메모: {item.Memo}";
     }
 
     private async void OnLeftPathHistorySelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1499,6 +1485,8 @@ public partial class MainWindow : Window
 
         try
         {
+            // Keep favorite flyouts mutually exclusive.
+            HideFavoriteFolderFlyout();
             _favoriteFileFlyoutNodes.Clear();
             BuildFavoriteFilesTreeNodes(_favoriteFileFlyoutNodes, Vm.GetFavoriteFileCategoriesWithFiles());
             if (_favoriteFileFlyoutNodes.Count == 0)
@@ -1838,6 +1826,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Keep favorite flyouts mutually exclusive.
+        HideFavoriteFilesFlyout();
         _favoriteFlyoutSourceButton = sourceButton;
         FavoriteFolderFlyoutPopup.PlacementTarget = sourceButton;
 
@@ -3636,6 +3626,16 @@ public partial class MainWindow : Window
     private static bool IsDataGridHeaderInteraction(DependencyObject? source)
     {
         return FindAncestor<DataGridColumnHeader>(source) is not null;
+    }
+
+    private static bool IsPanelItemDoubleClickSource(object sender, DependencyObject? source)
+    {
+        return sender switch
+        {
+            DataGrid => FindAncestor<DataGridRow>(source) is not null,
+            ListBox => FindAncestor<ListBoxItem>(source) is not null,
+            _ => false
+        };
     }
 
     private static bool TrySelectItemUnderPointer(ItemsControl control, Point position)
