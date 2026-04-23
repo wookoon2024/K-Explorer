@@ -1,6 +1,7 @@
 ﻿using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -117,7 +118,11 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly Dictionary<string, CachedDirectoryItems> _directoryItemsCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CachedFreeSpaceInfo> _freeSpaceCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _freeSpaceRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FileSystemWatcher> _directoryWatchers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _pendingWatcherRefreshPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _freeSpaceSync = new();
+    private readonly object _watcherSync = new();
+    private bool _watcherRefreshQueued;
 
     private static readonly TimeSpan DirectoryItemsCacheDuration = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan FreeSpaceCacheDuration = TimeSpan.FromSeconds(3);
@@ -3121,6 +3126,206 @@ public sealed class MainWindowViewModel : ObservableObject
             StatusText = "Failed to load folder";
             LiveTrace.Write($"LoadPanelAsync[{side}] exception after {sw.ElapsedMilliseconds}ms: {ex}");
         }
+        finally
+        {
+            TryUpdateDirectoryWatchers();
+        }
+    }
+
+    private void TryUpdateDirectoryWatchers()
+    {
+        try
+        {
+            UpdateDirectoryWatchers();
+        }
+        catch (Exception ex)
+        {
+            LiveTrace.Write($"Watcher update failed: {ex.Message}");
+        }
+    }
+
+    private void UpdateDirectoryWatchers()
+    {
+        var requiredPaths = CollectWatchablePanelPaths();
+        var stalePaths = _directoryWatchers.Keys
+            .Where(path => !requiredPaths.Contains(path))
+            .ToArray();
+
+        foreach (var stalePath in stalePaths)
+        {
+            if (!_directoryWatchers.TryGetValue(stalePath, out var staleWatcher))
+            {
+                continue;
+            }
+
+            staleWatcher.EnableRaisingEvents = false;
+            staleWatcher.Created -= OnDirectoryWatcherChanged;
+            staleWatcher.Changed -= OnDirectoryWatcherChanged;
+            staleWatcher.Deleted -= OnDirectoryWatcherChanged;
+            staleWatcher.Renamed -= OnDirectoryWatcherRenamed;
+            staleWatcher.Dispose();
+            _directoryWatchers.Remove(stalePath);
+        }
+
+        foreach (var path in requiredPaths)
+        {
+            if (_directoryWatchers.ContainsKey(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                var watcher = new FileSystemWatcher(path)
+                {
+                    IncludeSubdirectories = false,
+                    Filter = "*",
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
+                    InternalBufferSize = 64 * 1024
+                };
+                watcher.Created += OnDirectoryWatcherChanged;
+                watcher.Changed += OnDirectoryWatcherChanged;
+                watcher.Deleted += OnDirectoryWatcherChanged;
+                watcher.Renamed += OnDirectoryWatcherRenamed;
+                watcher.EnableRaisingEvents = true;
+                _directoryWatchers[path] = watcher;
+            }
+            catch (Exception ex)
+            {
+                LiveTrace.Write($"Watcher attach failed for '{path}': {ex.Message}");
+            }
+        }
+    }
+
+    private HashSet<string> CollectWatchablePanelPaths()
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddIfWatchable(string? path)
+        {
+            if (!TryNormalizeWatchableDirectory(path, out var normalized))
+            {
+                return;
+            }
+
+            paths.Add(normalized);
+        }
+
+        foreach (var tab in LeftTabs)
+        {
+            AddIfWatchable(tab.Panel.CurrentPath);
+        }
+
+        foreach (var tab in RightTabs)
+        {
+            AddIfWatchable(tab.Panel.CurrentPath);
+        }
+
+        foreach (var slot in _fourPanels)
+        {
+            AddIfWatchable(slot.Panel.CurrentPath);
+        }
+
+        return paths;
+    }
+
+    private bool TryNormalizeWatchableDirectory(string? path, out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        if (string.Equals(path, DriveRootVirtualPath, StringComparison.Ordinal) ||
+            string.Equals(path, MemoListVirtualPath, StringComparison.Ordinal) ||
+            string.Equals(path, FrequentFoldersVirtualPath, StringComparison.Ordinal) ||
+            string.Equals(path, FrequentFilesVirtualPath, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        normalized = _fileSystemService.NormalizePath(path);
+        return _fileSystemService.DirectoryExists(normalized);
+    }
+
+    private void OnDirectoryWatcherChanged(object sender, FileSystemEventArgs e)
+    {
+        if (sender is not FileSystemWatcher watcher)
+        {
+            return;
+        }
+
+        QueueWatcherRefresh(watcher.Path);
+    }
+
+    private void OnDirectoryWatcherRenamed(object sender, RenamedEventArgs e)
+    {
+        if (sender is not FileSystemWatcher watcher)
+        {
+            return;
+        }
+
+        QueueWatcherRefresh(watcher.Path);
+    }
+
+    private void QueueWatcherRefresh(string? path)
+    {
+        if (!TryNormalizeWatchableDirectory(path, out var normalized))
+        {
+            return;
+        }
+
+        lock (_watcherSync)
+        {
+            _pendingWatcherRefreshPaths.Add(normalized);
+            if (_watcherRefreshQueued)
+            {
+                return;
+            }
+
+            _watcherRefreshQueued = true;
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            lock (_watcherSync)
+            {
+                _pendingWatcherRefreshPaths.Clear();
+                _watcherRefreshQueued = false;
+            }
+
+            return;
+        }
+
+        _ = dispatcher.BeginInvoke(async () =>
+        {
+            await Task.Delay(250);
+
+            string[] targets;
+            lock (_watcherSync)
+            {
+                targets = _pendingWatcherRefreshPaths.ToArray();
+                _pendingWatcherRefreshPaths.Clear();
+                _watcherRefreshQueued = false;
+            }
+
+            if (targets.Length == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                LiveTrace.Write($"Watcher refresh: {string.Join(", ", targets)}");
+                await ReloadPanelsForPathsAsync(targets);
+            }
+            catch (Exception ex)
+            {
+                LiveTrace.Write($"Watcher refresh failed: {ex.Message}");
+            }
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void SyncSelectedDrivesFromPaths()
@@ -4495,15 +4700,14 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private static void SelectTopItemAfterLoad(PanelViewModel panel)
     {
-        if (panel.SelectedItem is not null &&
-            !panel.SelectedItem.IsParentDirectory &&
-            panel.Items.Contains(panel.SelectedItem))
+        var parentDirectoryItem = panel.Items.FirstOrDefault(item => item.IsParentDirectory);
+        if (parentDirectoryItem is not null)
         {
+            panel.SelectedItem = parentDirectoryItem;
             return;
         }
 
-        panel.SelectedItem = panel.Items.FirstOrDefault(item => !item.IsParentDirectory)
-            ?? panel.Items.FirstOrDefault();
+        panel.SelectedItem = panel.Items.FirstOrDefault();
     }
 
     private static string? FindNearestSurvivingPath(

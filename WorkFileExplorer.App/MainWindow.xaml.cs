@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using System.ComponentModel;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -31,6 +32,7 @@ public partial class MainWindow : Window
     private bool _ignorePathHistorySelectionChanged;
     private bool _ignoreDriveSelectionChanged;
     private bool _allowInlineNameEdit;
+    private bool _isTileInlineRenameCommitting;
     private string? _inlineRenameSourcePath;
     private string? _inlineRenameOriginalName;
     private DateTime _lastTabInteractionUtc = DateTime.MinValue;
@@ -1543,8 +1545,8 @@ public partial class MainWindow : Window
         }
 
         var maxX = Math.Max(0, ActualWidth - overlayWidth - 12);
-        var x = Math.Clamp(origin.X - 2, 0, maxX);
-        var y = Math.Max(2d, origin.Y + 2);
+        var x = Math.Clamp(origin.X, 0, maxX);
+        var y = Math.Max(0d, origin.Y - 4);
         FavoriteFilesOverlayPanel.Margin = new Thickness(x, y, 0, 0);
     }
 
@@ -1567,8 +1569,8 @@ public partial class MainWindow : Window
         }
 
         var maxX = Math.Max(0, ActualWidth - overlayWidth - 12);
-        var x = Math.Clamp(origin.X - 2, 0, maxX);
-        var y = Math.Max(2d, origin.Y + 2);
+        var x = Math.Clamp(origin.X, 0, maxX);
+        var y = Math.Max(0d, origin.Y - 4);
         FavoriteFolderOverlayPanel.Margin = new Thickness(x, y, 0, 0);
     }
 
@@ -1845,7 +1847,7 @@ public partial class MainWindow : Window
         _favoriteFlyoutNodes.Clear();
         if (!_favoriteFolderRootCache.TryGetValue(item.Path, out var root))
         {
-            root = FavoriteFolderTreeNode.Create(item.Path);
+            root = FavoriteFolderTreeNode.Create(item.Path, HasSubdirectoriesSafe(item.Path));
             _favoriteFolderRootCache[item.Path] = root;
         }
 
@@ -1883,21 +1885,22 @@ public partial class MainWindow : Window
 
         node.IsLoading = true;
 
-        string[] directories;
+        (string Path, bool CanExpand)[] directories;
 
         try
         {
             directories = await Task.Run(() =>
                 Directory.EnumerateDirectories(node.FullPath)
                     .OrderBy(path => path, StringComparer.CurrentCultureIgnoreCase)
+                    .Select(path => (Path: path, CanExpand: HasSubdirectoriesSafe(path)))
                     .ToArray());
         }
         catch
         {
-            directories = Array.Empty<string>();
+            directories = Array.Empty<(string Path, bool CanExpand)>();
         }
 
-        var childNodes = directories.Select(FavoriteFolderTreeNode.Create).ToArray();
+        var childNodes = directories.Select(entry => FavoriteFolderTreeNode.Create(entry.Path, entry.CanExpand)).ToArray();
 
         try
         {
@@ -3397,17 +3400,8 @@ public partial class MainWindow : Window
         {
             var payload = new PanelItemDragPayload(sourcePanel, items);
             _activePanelDragPayload = payload;
-            var data = new DataObject();
-            data.SetData(typeof(PanelItemDragPayload), payload);
             var externalPaths = GetExternalDragPaths(items);
-            if (externalPaths.Length > 0)
-            {
-                data.SetData(DataFormats.FileDrop, externalPaths);
-                if (externalPaths.Length == 1)
-                {
-                    data.SetData(DataFormats.UnicodeText, externalPaths[0]);
-                }
-            }
+            var data = BuildPanelItemDragDataObject(payload, externalPaths);
 
             DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
         }
@@ -4098,12 +4092,54 @@ public partial class MainWindow : Window
 
     private static string[] GetExternalDragPaths(IEnumerable<FileSystemItem> items)
     {
-        return items
+        var candidates = items
             .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
             .Select(item => item.FullPath)
             .Where(path => File.Exists(path) || Directory.Exists(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        var filesOnly = candidates
+            .Where(File.Exists)
+            .ToArray();
+
+        // Prefer file-only payload when possible (Discord/Electron apps are stricter than Explorer).
+        return filesOnly.Length > 0 ? filesOnly : candidates;
+    }
+
+    private static DataObject BuildPanelItemDragDataObject(PanelItemDragPayload payload, IReadOnlyList<string> externalPaths)
+    {
+        var data = new DataObject();
+        // Keep the OLE payload external-process friendly.
+        // Internal move/copy uses _activePanelDragPayload fallback in TryGetPanelItemDragPayload.
+
+        if (externalPaths.Count == 0)
+        {
+            return data;
+        }
+
+        var fileDropList = new StringCollection();
+        foreach (var path in externalPaths)
+        {
+            fileDropList.Add(path);
+        }
+
+        // Prefer native file-drop list API for best compatibility with external apps (Discord/Electron).
+        data.SetFileDropList(fileDropList);
+        data.SetData(DataFormats.FileDrop, externalPaths.ToArray());
+        data.SetData("FileNameW", externalPaths.ToArray());
+        data.SetData("FileName", externalPaths.ToArray());
+
+        // Keep payload minimal for Discord/Electron compatibility.
+        // Hint external targets that this is a copy drag.
+        data.SetData("Preferred DropEffect", CreatePreferredDropEffectData(DragDropEffects.Copy));
+        return data;
+    }
+
+    private static MemoryStream CreatePreferredDropEffectData(DragDropEffects effect)
+    {
+        var bytes = BitConverter.GetBytes((int)effect);
+        return new MemoryStream(bytes);
     }
 
     private sealed class PanelItemDragPayload
@@ -4189,14 +4225,12 @@ public partial class MainWindow : Window
 
         if (Vm.IsTileViewEnabledForPanel(Vm.IsLeftPanelActive))
         {
-            var currentName = item.Name;
-            var newName = Interaction.InputBox("새 이름을 입력하세요.", "이름 바꾸기", currentName);
-            if (string.IsNullOrWhiteSpace(newName))
-            {
-                return;
-            }
-
-            await Vm.RenameSelectedAsync(newName);
+            item.RenameCandidate = item.Name;
+            item.IsInlineRenaming = true;
+            _inlineRenameSourcePath = item.FullPath;
+            _inlineRenameOriginalName = item.Name;
+            _allowInlineNameEdit = true;
+            FocusActiveTileListForInlineRename();
             return;
         }
 
@@ -4714,52 +4748,62 @@ public partial class MainWindow : Window
     {
         _allowInlineNameEdit = false;
 
-        if (Vm is null || sender is not DataGrid grid || e.EditAction != DataGridEditAction.Commit || e.Row.Item is not FileSystemItem item)
+        try
         {
+            if (Vm is null || sender is not DataGrid grid || e.EditAction != DataGridEditAction.Commit || e.Row.Item is not FileSystemItem item)
+            {
+                _inlineRenameSourcePath = null;
+                _inlineRenameOriginalName = null;
+                return;
+            }
+
+            if (!string.Equals(item.FullPath, _inlineRenameSourcePath, StringComparison.OrdinalIgnoreCase))
+            {
+                _inlineRenameSourcePath = null;
+                _inlineRenameOriginalName = null;
+                return;
+            }
+
+            var newName = (item.RenameCandidate ?? string.Empty).Trim();
+            var originalName = _inlineRenameOriginalName ?? item.Name;
             _inlineRenameSourcePath = null;
             _inlineRenameOriginalName = null;
-            return;
-        }
 
-        if (!string.Equals(item.FullPath, _inlineRenameSourcePath, StringComparison.OrdinalIgnoreCase))
-        {
-            _inlineRenameSourcePath = null;
-            _inlineRenameOriginalName = null;
-            return;
-        }
-
-        var newName = (item.RenameCandidate ?? string.Empty).Trim();
-        var originalName = _inlineRenameOriginalName ?? item.Name;
-        _inlineRenameSourcePath = null;
-        _inlineRenameOriginalName = null;
-
-        if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, originalName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        await Vm.RenameSelectedAsync(newName);
-
-        // After inline rename, restore keyboard focus/current cell so Up/Down keeps working immediately.
-        _ = Dispatcher.BeginInvoke(() =>
-        {
-            if (grid.SelectedItem is not FileSystemItem selected)
+            if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, originalName, StringComparison.Ordinal))
             {
                 return;
             }
 
-            var nameColumn = grid.Columns.FirstOrDefault(column =>
-                string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal)) ?? grid.Columns.FirstOrDefault();
-            if (nameColumn is null)
-            {
-                return;
-            }
+            await Vm.RenameSelectedAsync(newName);
 
-            grid.Focus();
-            Keyboard.Focus(grid);
-            grid.CurrentCell = new DataGridCellInfo(selected, nameColumn);
-            grid.ScrollIntoView(selected);
-        }, System.Windows.Threading.DispatcherPriority.Input);
+            // After inline rename, restore keyboard focus/current cell so Up/Down keeps working immediately.
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (grid.SelectedItem is not FileSystemItem selected)
+                {
+                    return;
+                }
+
+                var nameColumn = grid.Columns.FirstOrDefault(column =>
+                    string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal)) ?? grid.Columns.FirstOrDefault();
+                if (nameColumn is null)
+                {
+                    return;
+                }
+
+                grid.Focus();
+                Keyboard.Focus(grid);
+                grid.CurrentCell = new DataGridCellInfo(selected, nameColumn);
+                grid.ScrollIntoView(selected);
+            }, System.Windows.Threading.DispatcherPriority.Input);
+        }
+        catch (Exception ex)
+        {
+            if (Vm is not null)
+            {
+                Vm.StatusText = $"이름 바꾸기 실패: {ex.Message}";
+            }
+        }
     }
 
     private void OnInlineRenameTextBoxLoaded(object sender, RoutedEventArgs e)
@@ -4788,6 +4832,134 @@ public partial class MainWindow : Window
             }
 
             textBox.Select(0, selectLength);
+        }
+    }
+
+    private async void OnInlineRenameTextBoxKeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            try
+            {
+                await CompleteTileInlineRenameAsync(textBox, commit: true);
+            }
+            catch (Exception ex)
+            {
+                if (Vm is not null)
+                {
+                    Vm.StatusText = $"이름 바꾸기 실패: {ex.Message}";
+                }
+            }
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            try
+            {
+                await CompleteTileInlineRenameAsync(textBox, commit: false);
+            }
+            catch (Exception ex)
+            {
+                if (Vm is not null)
+                {
+                    Vm.StatusText = $"이름 바꾸기 취소 처리 실패: {ex.Message}";
+                }
+            }
+        }
+    }
+
+    private async void OnInlineRenameTextBoxLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        try
+        {
+            await CompleteTileInlineRenameAsync(textBox, commit: true);
+        }
+        catch (Exception ex)
+        {
+            if (Vm is not null)
+            {
+                Vm.StatusText = $"이름 바꾸기 실패: {ex.Message}";
+            }
+        }
+    }
+
+    private async Task CompleteTileInlineRenameAsync(TextBox textBox, bool commit)
+    {
+        if (_isTileInlineRenameCommitting)
+        {
+            return;
+        }
+
+        if (Vm is null || textBox.DataContext is not FileSystemItem item || !item.IsInlineRenaming)
+        {
+            return;
+        }
+
+        _isTileInlineRenameCommitting = true;
+        try
+        {
+        var newName = (item.RenameCandidate ?? string.Empty).Trim();
+        var originalName = _inlineRenameOriginalName ?? item.Name;
+        var sourcePath = _inlineRenameSourcePath;
+
+        item.IsInlineRenaming = false;
+        _allowInlineNameEdit = false;
+        _inlineRenameSourcePath = null;
+        _inlineRenameOriginalName = null;
+        FocusActiveTileListForInlineRename();
+
+        if (!commit ||
+            string.IsNullOrWhiteSpace(newName) ||
+            string.IsNullOrWhiteSpace(sourcePath) ||
+            !string.Equals(item.FullPath, sourcePath, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(newName, originalName, StringComparison.Ordinal))
+        {
+            item.RenameCandidate = item.Name;
+            return;
+        }
+
+        await Vm.RenameSelectedAsync(newName);
+        }
+        finally
+        {
+            _isTileInlineRenameCommitting = false;
+        }
+    }
+
+    private void FocusActiveTileListForInlineRename()
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        if (Vm.IsLeftPanelActive)
+        {
+            LeftPanelTilesList.Focus();
+            if (Vm.LeftPanel.SelectedItem is not null)
+            {
+                LeftPanelTilesList.ScrollIntoView(Vm.LeftPanel.SelectedItem);
+            }
+            return;
+        }
+
+        RightPanelTilesList.Focus();
+        if (Vm.RightPanel.SelectedItem is not null)
+        {
+            RightPanelTilesList.ScrollIntoView(Vm.RightPanel.SelectedItem);
         }
     }
 
@@ -5040,7 +5212,7 @@ public partial class MainWindow : Window
 
         private static FavoriteFolderTreeNode Dummy { get; } = new(string.Empty, string.Empty, canExpand: false) { IsLoaded = true };
 
-        public static FavoriteFolderTreeNode Create(string path)
+        public static FavoriteFolderTreeNode Create(string path, bool canExpand)
         {
             var normalized = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var name = Path.GetFileName(normalized);
@@ -5049,8 +5221,20 @@ public partial class MainWindow : Window
                 name = normalized;
             }
 
-            // Avoid pre-scanning subdirectories on hover/open; load on demand at expand time.
-            return new FavoriteFolderTreeNode(path, name, canExpand: true);
+            return new FavoriteFolderTreeNode(path, name, canExpand);
+        }
+    }
+
+    private static bool HasSubdirectoriesSafe(string path)
+    {
+        try
+        {
+            using var e = Directory.EnumerateDirectories(path).GetEnumerator();
+            return e.MoveNext();
+        }
+        catch
+        {
+            return false;
         }
     }
 

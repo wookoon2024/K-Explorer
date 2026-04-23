@@ -1,8 +1,12 @@
-﻿namespace WorkFileExplorer.App.Models;
+﻿using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
-public sealed class FileSystemItem
+namespace WorkFileExplorer.App.Models;
+
+public sealed class FileSystemItem : INotifyPropertyChanged
 {
     private string? _renameCandidate;
+    private bool _isInlineRenaming;
     private const string IconBasePath = "/Assets/Icons/";
     public static bool UseExtensionColors { get; set; } = true;
     public static bool UsePinnedHighlightColor { get; set; } = true;
@@ -268,6 +272,38 @@ public sealed class FileSystemItem
     public string RenameCandidate
     {
         get => string.IsNullOrWhiteSpace(_renameCandidate) ? Name : _renameCandidate!;
-        set => _renameCandidate = value;
+        set
+        {
+            if (string.Equals(_renameCandidate, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _renameCandidate = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsInlineRenaming
+    {
+        get => _isInlineRenaming;
+        set
+        {
+            if (_isInlineRenaming == value)
+            {
+                return;
+            }
+
+            _isInlineRenaming = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }
+

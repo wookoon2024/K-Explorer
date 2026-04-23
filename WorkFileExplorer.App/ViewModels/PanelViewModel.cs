@@ -1,5 +1,4 @@
-﻿using System.Collections.ObjectModel;
-using WorkFileExplorer.App.Models;
+﻿using WorkFileExplorer.App.Models;
 
 namespace WorkFileExplorer.App.ViewModels;
 
@@ -21,7 +20,7 @@ public sealed class PanelViewModel : ObservableObject
         set => SetProperty(ref _currentPath, value);
     }
 
-    public ObservableCollection<FileSystemItem> Items { get; } = new();
+    public RangeObservableCollection<FileSystemItem> Items { get; } = new();
 
     public FileSystemItem? SelectedItem
     {
@@ -141,9 +140,8 @@ public sealed class PanelViewModel : ObservableObject
         {
             _quickFilterText = keyword;
             OnPropertyChanged(nameof(QuickFilterText));
+            ApplyFilterInternal();
         }
-
-        ApplyFilterInternal();
     }
 
     public void ResetQuickFilter()
@@ -207,11 +205,7 @@ public sealed class PanelViewModel : ObservableObject
             return item.Name.Contains(keyword, comparison);
         });
 
-        Items.Clear();
-        foreach (var item in query)
-        {
-            Items.Add(item);
-        }
+        Items.ReplaceRange(query);
 
         var nextSelected = !string.IsNullOrWhiteSpace(previousSelectedPath)
             ? Items.FirstOrDefault(item => string.Equals(item.FullPath, previousSelectedPath, StringComparison.OrdinalIgnoreCase))
@@ -223,3 +217,4 @@ public sealed class PanelViewModel : ObservableObject
         SelectedItem = nextSelected;
     }
 }
+
