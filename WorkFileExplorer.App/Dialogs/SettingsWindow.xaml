@@ -1,0 +1,353 @@
+<Window x:Class="WorkFileExplorer.App.Dialogs.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="환경설정"
+        Width="980"
+        Height="680"
+        MinWidth="900"
+        MinHeight="620"
+        ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterOwner"
+        Background="#E5E5E5"
+        Loaded="OnLoaded">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="BorderBrush" Value="#BFC7D1" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="#F7F9FC" />
+        </Style>
+
+        <Style TargetType="TreeViewItem">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="2" />
+            <Setter Property="IsExpanded" Value="True" />
+        </Style>
+
+        <Style x:Key="BottomActionButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="96" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Row="0"
+                Grid.Column="0"
+                Background="#F3F4F7"
+                BorderBrush="#B8C0CC"
+                BorderThickness="1"
+                CornerRadius="4">
+            <TreeView x:Name="SettingsTreeView"
+                      Margin="8"
+                      BorderThickness="0"
+                      Background="Transparent"
+                      SelectedItemChanged="OnSettingsTreeSelectedItemChanged">
+                <TreeViewItem x:Name="TreeGeneralRoot" Header="일반" IsExpanded="True" IsSelected="True" Tag="general">
+                    <TreeViewItem Header="시작 및 패널 모드" Tag="general" />
+                    <TreeViewItem Header="보기 설정" Tag="general" />
+                </TreeViewItem>
+                <TreeViewItem Header="파일 작업" Tag="file">
+                    <TreeViewItem Header="충돌 처리 방식" Tag="file" />
+                    <TreeViewItem Header="삭제 확인" Tag="file" />
+                </TreeViewItem>
+                <TreeViewItem Header="검색" Tag="search">
+                    <TreeViewItem Header="기본 검색 범위" Tag="search" />
+                    <TreeViewItem Header="하위 폴더 검색 기본값" Tag="search" />
+                </TreeViewItem>
+                <TreeViewItem Header="색상/강조" Tag="color">
+                    <TreeViewItem Header="확장자 색상" Tag="color" />
+                    <TreeViewItem Header="핀 고정 강조" Tag="color" />
+                </TreeViewItem>
+            </TreeView>
+        </Border>
+
+        <Border Grid.Row="0"
+                Grid.Column="2"
+                Background="#EEF2F7"
+                BorderBrush="#B8C0CC"
+                BorderThickness="1"
+                CornerRadius="4">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <Grid Margin="16">
+                    <StackPanel x:Name="SectionGeneralPanel" Visibility="Visible">
+                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="일반 설정" />
+                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="시작 레이아웃과 기본 보기 방식을 설정합니다." />
+
+                        <GroupBox Header="시작 및 패널 모드">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="기본 패널 모드" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
+                                    <RadioButton x:Name="RadioTwoPanel" Content="2패널" Margin="0,0,18,0" />
+                                    <RadioButton x:Name="RadioFourPanel" Content="4패널" />
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,10,0,0" VerticalAlignment="Center" Text="4패널 배치" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,10,0,0" Orientation="Horizontal">
+                                    <RadioButton x:Name="RadioLayout1x4" Content="1x4 (가로)" Margin="0,0,18,0" />
+                                    <RadioButton x:Name="RadioLayout2x2" Content="2x2" />
+                                </StackPanel>
+
+                                <CheckBox x:Name="CheckRememberSession"
+                                          Grid.Row="2"
+                                          Grid.Column="1"
+                                          Margin="0,10,0,0"
+                                          Content="세션 종료 시 탭 경로 복원"
+                                          IsChecked="True" />
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="보기 설정">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="기본 보기 모드" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
+                                    <RadioButton x:Name="RadioDetailsView" Content="상세보기" Margin="0,0,18,0" />
+                                    <RadioButton x:Name="RadioTileView" Content="타일보기" />
+                                </StackPanel>
+                            </Grid>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SectionFilePanel" Visibility="Collapsed">
+                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="파일 작업 설정" />
+                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="복사/이동 시 충돌 처리 방식과 삭제 확인 여부를 설정합니다." />
+
+                        <GroupBox Header="충돌 처리">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="충돌 처리 방식" />
+                                <ComboBox x:Name="ComboConflictPolicy"
+                                          Grid.Row="0"
+                                          Grid.Column="1"
+                                          Width="240"
+                                          Height="26"
+                                          HorizontalAlignment="Left" />
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="삭제 동작">
+                            <Grid Margin="6">
+                                <CheckBox x:Name="CheckConfirmDeleteFileSection"
+                                          Content="삭제 전 확인 창 표시"
+                                          IsChecked="True" />
+                            </Grid>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SectionSearchPanel" Visibility="Collapsed">
+                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="검색 설정" />
+                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="기본 검색 범위와 하위 폴더 검색 기본값을 설정합니다." />
+
+                        <GroupBox Header="기본 검색 옵션">
+                            <Grid Margin="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="기본 검색 범위" />
+                                <ComboBox x:Name="ComboSearchScope"
+                                          Grid.Row="0"
+                                          Grid.Column="1"
+                                          Width="240"
+                                          Height="26"
+                                          HorizontalAlignment="Left">
+                                    <ComboBoxItem Content="Active panel" />
+                                    <ComboBoxItem Content="Both panels" />
+                                </ComboBox>
+
+                                <CheckBox x:Name="CheckSearchRecursive"
+                                          Grid.Row="1"
+                                          Grid.Column="1"
+                                          Margin="0,10,0,0"
+                                          Content="하위 폴더 검색 기본값"
+                                          IsChecked="True" />
+                            </Grid>
+                        </GroupBox>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SectionColorPanel" Visibility="Collapsed">
+                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="색상/강조 설정" />
+                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="확장자별 텍스트 색상과 핀 고정 항목 강조를 설정합니다." />
+
+                        <GroupBox Header="표시 색상">
+                            <Grid Margin="6">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="200" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="180" />
+                                    <ColumnDefinition Width="140" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <CheckBox x:Name="CheckUseExtensionColors"
+                                          Grid.Row="0"
+                                          Grid.ColumnSpan="4"
+                                          Content="확장자별 글자색 사용"
+                                          IsChecked="True" />
+                                <CheckBox x:Name="CheckUsePinnedHighlight"
+                                          Grid.Row="1"
+                                          Grid.ColumnSpan="4"
+                                          Margin="0,8,0,0"
+                                          Content="핀 고정 항목 강조색(노랑) 사용"
+                                          IsChecked="True" />
+
+                                <Border Grid.Row="2"
+                                        Grid.ColumnSpan="4"
+                                        Margin="0,12,0,10"
+                                        BorderBrush="#CCD4DF"
+                                        BorderThickness="0,1,0,0" />
+
+                                <TextBlock Grid.Row="3"
+                                           Grid.ColumnSpan="4"
+                                           Margin="0,0,0,8"
+                                           VerticalAlignment="Top"
+                                           Foreground="#44566D"
+                                           Text="확장자 텍스트 색상 규칙 (.pdf 입력 후 색상 선택)" />
+
+                                <TextBox x:Name="TextExtensionRuleExtension"
+                                         Grid.Row="3"
+                                         Grid.Column="0"
+                                         Height="26"
+                                         Margin="0,24,6,0"
+                                         VerticalAlignment="Top"
+                                         VerticalContentAlignment="Center"
+                                         ToolTip=".pdf 처럼 입력" />
+                                <TextBox x:Name="TextExtensionRuleColor"
+                                         Grid.Row="3"
+                                         Grid.Column="1"
+                                         Height="26"
+                                         Margin="0,24,6,0"
+                                         VerticalAlignment="Top"
+                                         VerticalContentAlignment="Center"
+                                         ToolTip="색상 선택 버튼으로 고르세요"
+                                         IsReadOnly="True" />
+                                <Button Grid.Row="3"
+                                        Grid.Column="2"
+                                        Height="26"
+                                        Width="72"
+                                        Margin="0,24,6,0"
+                                        VerticalAlignment="Top"
+                                        Content="색상 선택"
+                                        Click="OnPickExtensionRuleColorClick" />
+                                <Button Grid.Row="3"
+                                        Grid.Column="3"
+                                        Height="26"
+                                        Width="72"
+                                        Margin="0,24,0,0"
+                                        VerticalAlignment="Top"
+                                        Content="추가/수정"
+                                        Click="OnAddOrUpdateExtensionColorRuleClick" />
+                                <TextBlock x:Name="TextExtensionRuleHint"
+                                           Grid.Row="3"
+                                           Grid.ColumnSpan="4"
+                                           Margin="0,56,0,0"
+                                           VerticalAlignment="Top"
+                                           Foreground="#4B5B70"
+                                           Text="같은 확장자는 색상만 갱신됩니다." />
+
+                                <DataGrid x:Name="ExtensionColorRulesGrid"
+                                          Grid.Row="4"
+                                          Grid.ColumnSpan="4"
+                                          Margin="0,8,0,0"
+                                          AutoGenerateColumns="False"
+                                          CanUserAddRows="False"
+                                          CanUserDeleteRows="False"
+                                          IsReadOnly="True"
+                                          SelectionMode="Single"
+                                          HeadersVisibility="Column">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="확장자" Width="120" Binding="{Binding Extension}" />
+                                        <DataGridTextColumn Header="색상" Width="120" Binding="{Binding Color}" />
+                                        <DataGridTemplateColumn Header="미리보기" Width="100">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="64"
+                                                            Height="14"
+                                                            BorderBrush="#AAB4C2"
+                                                            BorderThickness="1"
+                                                            Background="{Binding Color}" />
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </GroupBox>
+
+                        <StackPanel Margin="0,0,0,0" Orientation="Horizontal">
+                            <Button Width="84"
+                                    Height="26"
+                                    Margin="0,0,6,0"
+                                    Content="선택삭제"
+                                    Click="OnRemoveExtensionColorRuleClick" />
+                            <Button Width="84"
+                                    Height="26"
+                                    Content="전체초기화"
+                                    Click="OnClearExtensionColorRulesClick" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+        </Border>
+
+        <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="1"
+                    Style="{StaticResource BottomActionButtonStyle}"
+                    Content="확인"
+                    IsDefault="True"
+                    Click="OnOkClick" />
+            <Button Grid.Column="2"
+                    Style="{StaticResource BottomActionButtonStyle}"
+                    Margin="0,0,0,0"
+                    Content="취소"
+                    IsCancel="True" />
+        </Grid>
+    </Grid>
+</Window>

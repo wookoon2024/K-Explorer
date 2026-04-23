@@ -1,0 +1,22 @@
+﻿# Build / IDE
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# Logs
+*.log
+live_trace.log
+
+# Local artifacts / bundles
+artifacts/
+transfer_source_20260423/
+transfer_source_20260423.zip
+
+# Vendor cache
+.vendor/
+
+# OS files
+Thumbs.db
+.DS_Store

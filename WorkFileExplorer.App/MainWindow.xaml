@@ -1,0 +1,2168 @@
+﻿<Window x:Class="WorkFileExplorer.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:WorkFileExplorer.App.Controls"
+        mc:Ignorable="d"
+        Title="K탐색기"
+        Icon="/Assets/Icons/pro_icon.png"
+        Width="1600"
+        Height="920"
+        MinWidth="1200"
+        MinHeight="720"
+        Background="#D9D9D9"
+        FontFamily="Segoe UI"
+        PreviewKeyDown="OnWindowPreviewKeyDown">
+    <Window.Resources>
+        <Style x:Key="ToolButtonStyle" TargetType="Button">
+            <Setter Property="Margin" Value="1,0" />
+            <Setter Property="Padding" Value="6,1" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Background" Value="#ECECEC" />
+            <Setter Property="BorderBrush" Value="#9E9E9E" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <Style x:Key="FKeyButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolButtonStyle}">
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Background" Value="#E4E4E4" />
+            <Setter Property="BorderBrush" Value="#8E8E8E" />
+        </Style>
+
+        <Style x:Key="ToolbarIconButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="Auto" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="#D8D8D8" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ToolbarSeparatorStyle" TargetType="Border">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Margin" Value="6,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Background" Value="#8E8E8E" />
+        </Style>
+
+        <Style x:Key="PropertyIconButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Margin" Value="1,0,1,0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderBrush" Value="Transparent" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderBrush" Value="Transparent" />
+                </Trigger>
+                <DataTrigger Binding="{Binding IsParentDirectory}" Value="True">
+                    <Setter Property="IsEnabled" Value="False" />
+                    <Setter Property="Opacity" Value="0.35" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SingleRowTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="#D0D0D0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid SnapsToDevicePixels="True" ClipToBounds="True">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderThickness="0"
+                                    ClipToBounds="True"
+                                    Height="24"
+                                    VerticalAlignment="Top">
+                                <controls:SingleLineTabPanel IsItemsHost="True"
+                                                             Margin="2,0,2,0"
+                                                             Height="24"
+                                                             VerticalAlignment="Top" />
+                            </Border>
+                            <ContentPresenter x:Name="PART_SelectedContentHost"
+                                              Visibility="Collapsed"
+                                              ContentSource="SelectedContent" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DetailsVisibilityStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsTileViewEnabled}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TilesVisibilityStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsTileViewEnabled}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="BorderBrush" Value="#7A7A7A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="GridLinesVisibility" Value="None" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+            <Setter Property="FontFamily" Value="Malgun Gothic" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="SelectionUnit" Value="FullRow" />
+            <Setter Property="CanUserAddRows" Value="False" />
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#E5E5E5" />
+            <Setter Property="Foreground" Value="#202020" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <EventSetter Event="MouseDoubleClick" Handler="OnPanelGridHeaderMouseDoubleClick" />
+        </Style>
+
+        <Style TargetType="DataGridRow">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="ToolTip" Value="{Binding Memo}" />
+            <Setter Property="ToolTipService.ShowDuration" Value="30000" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="250" />
+            <Setter Property="ToolTipService.BetweenShowDelay" Value="100" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+                <DataTrigger Binding="{Binding HasMemo}" Value="False">
+                    <Setter Property="ToolTip" Value="{x:Null}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="DataGridCell">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="1,0,3,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#0078D7" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ItemIconStyle" TargetType="Image">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+        </Style>
+
+        <Style x:Key="ItemNameStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#E8E8E8" />
+        </Style>
+
+        <Style x:Key="TileListStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="BorderBrush" Value="#7A7A7A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <WrapPanel IsItemsHost="True" />
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TileListItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Width" Value="124" />
+            <Setter Property="Height" Value="124" />
+            <Setter Property="Margin" Value="2" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="BorderBrush" Value="#696969" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+            <Setter Property="ToolTip" Value="{Binding Memo}" />
+            <Setter Property="ToolTipService.ShowDuration" Value="30000" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="250" />
+            <Setter Property="ToolTipService.BetweenShowDelay" Value="100" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="BorderBrush" Value="#0A84D6" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+                <DataTrigger Binding="{Binding HasMemo}" Value="False">
+                    <Setter Property="ToolTip" Value="{x:Null}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="CompactListItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Width" Value="Auto" />
+            <Setter Property="MinWidth" Value="220" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Margin" Value="0,0,12,0" />
+            <Setter Property="Padding" Value="2,0" />
+            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ToolTip" Value="{Binding Memo}" />
+            <Setter Property="ToolTipService.ShowDuration" Value="30000" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="250" />
+            <Setter Property="ToolTipService.BetweenShowDelay" Value="100" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+                <DataTrigger Binding="{Binding HasMemo}" Value="False">
+                    <Setter Property="ToolTip" Value="{x:Null}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <DataTemplate x:Key="TileItemTemplate">
+            <Grid Background="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=Background}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Margin="6">
+                    <Image x:Name="TileThumbnail"
+                           Source="{Binding TileImageSource}"
+                           Stretch="Uniform"
+                           SnapsToDevicePixels="True" />
+                    <Viewbox x:Name="TileIconFallback" StretchDirection="DownOnly" Stretch="Uniform" Margin="10">
+                        <Image Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                    </Viewbox>
+                    <Border x:Name="TilePinBadge"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,2,2,0"
+                            Background="#202020"
+                            CornerRadius="2"
+                            Padding="2,0">
+                        <TextBlock Text="📌" FontSize="11" Foreground="#FFD54A" />
+                    </Border>
+                </Grid>
+                <Border Grid.Row="1" Background="Transparent" Padding="4,2">
+                    <TextBlock Text="{Binding DisplayName}"
+                               Foreground="{Binding HighlightColor}"
+                               TextTrimming="CharacterEllipsis"
+                               TextWrapping="NoWrap"
+                               HorizontalAlignment="Center" />
+                </Border>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsImageFile}" Value="True">
+                    <Setter TargetName="TileIconFallback" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsImageFile}" Value="False">
+                    <Setter TargetName="TileThumbnail" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                    <Setter TargetName="TilePinBadge" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <DataTemplate x:Key="CompactListItemTemplate">
+            <Grid Background="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=Background}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Image Grid.Column="0" Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" Margin="2,0,6,0" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding DisplayName}"
+                           Foreground="{Binding HighlightColor}"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </DataTemplate>
+
+        <Style x:Key="LeftPathHostStyle" TargetType="Border">
+            <Setter Property="Background" Value="#F2F2F2" />
+            <Setter Property="BorderBrush" Value="#9A9A9A" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="2" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsLeftPanelActive}" Value="True">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="BorderBrush" Value="#0A84D6" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="RightPathHostStyle" TargetType="Border">
+            <Setter Property="Background" Value="#F2F2F2" />
+            <Setter Property="BorderBrush" Value="#9A9A9A" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="2" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsLeftPanelActive}" Value="False">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="BorderBrush" Value="#0A84D6" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="PathComboBaseStyle" TargetType="ComboBox">
+            <Setter Property="Background" Value="#F2F2F2" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#101010" />
+            <Setter Property="Padding" Value="2,0,2,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid SnapsToDevicePixels="True">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="18" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="PathBg"
+                                    Grid.ColumnSpan="2"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0" />
+                            <TextBox x:Name="PART_EditableTextBox"
+                                     Grid.Column="0"
+                                     Margin="2,0,0,0"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     Foreground="{TemplateBinding Foreground}"
+                                     CaretBrush="{TemplateBinding Foreground}"
+                                     VerticalContentAlignment="Center" />
+                            <ToggleButton Grid.Column="1"
+                                          Focusable="False"
+                                          ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Background="Transparent"
+                                          BorderThickness="0">
+                                <TextBlock Text="▼"
+                                           FontSize="8"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="{TemplateBinding Foreground}" />
+                            </ToggleButton>
+                            <Popup x:Name="Popup"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Slide">
+                                <Border Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        Background="#1F1F1F"
+                                        BorderBrush="#6A6A6A"
+                                        BorderThickness="1">
+                                    <ScrollViewer SnapsToDevicePixels="True" MaxHeight="280">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="LeftPathComboInnerStyle" TargetType="ComboBox" BasedOn="{StaticResource PathComboBaseStyle}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsLeftPanelActive}" Value="True">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="RightPathComboInnerStyle" TargetType="ComboBox" BasedOn="{StaticResource PathComboBaseStyle}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsLeftPanelActive}" Value="False">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FourPanelPathComboInnerStyle" TargetType="ComboBox" BasedOn="{StaticResource PathComboBaseStyle}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsActive}" Value="True">
+                    <Setter Property="Background" Value="#0A84D6" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <DataTemplate x:Key="FourPanelItemTemplate">
+            <Border Margin="2"
+                    BorderBrush="#A8A8A8"
+                    BorderThickness="1"
+                    Background="#D0D0D0"
+                    PreviewMouseLeftButtonDown="OnFourPanelSlotPreviewMouseLeftButtonDown"
+                    DragOver="OnFourPanelSlotDragOver"
+                    Drop="OnFourPanelSlotDrop"
+                    AllowDrop="True">
+                <Grid x:Name="FourPanelsGridLayoutGrid">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Grid.Row="0" Margin="2,2,2,1">
+                        <TextBlock DockPanel.Dock="Right" MinWidth="100" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding FreeSpaceText}" />
+                        <ItemsControl ItemsSource="{Binding DataContext.AvailableDrives, RelativeSource={RelativeSource AncestorType=Window}}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Width="26"
+                                            Height="20"
+                                            Margin="0,0,2,0"
+                                            Content="{Binding}"
+                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ContentControl}}"
+                                            Click="OnFourPanelDriveClick" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+
+                    <Grid Grid.Row="1" Margin="2,0,2,1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="24" />
+                            <ColumnDefinition Width="24" />
+                        </Grid.ColumnDefinitions>
+                        <TabControl Grid.Column="0"
+                                    Style="{StaticResource SingleRowTabControlStyle}"
+                                    Margin="0"
+                                    Height="24"
+                                    ItemsSource="{Binding Tabs}"
+                                    SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                                    PreviewMouseRightButtonDown="OnFourPanelTabPreviewMouseRightButtonDown"
+                                    MouseDoubleClick="OnFourPanelTabsMouseDoubleClick"
+                                    SelectionChanged="OnFourPanelTabSelectionChanged">
+                            <TabControl.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="탭 복제" Click="OnFourPanelTabDuplicateClick" />
+                                    <MenuItem Header="해당 탭 닫기" Click="OnFourPanelTabCloseCurrentClick" />
+                                    <Separator />
+                                    <MenuItem Header="왼쪽 탭 닫기" Click="OnFourPanelTabCloseToLeftClick" />
+                                    <MenuItem Header="오른쪽 탭 닫기" Click="OnFourPanelTabCloseToRightClick" />
+                                    <MenuItem Header="기타 탭 닫기" Click="OnFourPanelTabCloseOthersClick" />
+                                </ContextMenu>
+                            </TabControl.ContextMenu>
+                            <TabControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Title}" Margin="6,0" />
+                                </DataTemplate>
+                            </TabControl.ItemTemplate>
+                            <TabControl.ContentTemplate>
+                                <DataTemplate>
+                                    <Grid />
+                                </DataTemplate>
+                            </TabControl.ContentTemplate>
+                        </TabControl>
+                        <Button Grid.Column="1" Width="24" Height="22" Margin="2,1,0,1" Content="+" Click="OnFourPanelAddTabClick" />
+                        <Button Grid.Column="2" Width="24" Height="22" Margin="2,1,0,1" Content="-" Click="OnFourPanelCloseTabClick" />
+                    </Grid>
+
+                    <DockPanel Grid.Row="2" Margin="2,0,2,1">
+                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="\" ToolTip="홈 폴더" Click="OnFourPanelHomeClick" />
+                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="." ToolTip="상위 폴더" Click="OnFourPanelParentClick" />
+                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnFourPanelBackClick" />
+                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnFourPanelForwardClick" />
+                        <Button DockPanel.Dock="Right" Width="44" Height="22" Margin="2,0,0,0" Content="즐겨찾기" Click="OnFourPanelFavoriteClick" />
+                        <Border Margin="0">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#F2F2F2" />
+                                    <Setter Property="BorderBrush" Value="#9A9A9A" />
+                                    <Setter Property="BorderThickness" Value="2" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                            <Setter Property="Background" Value="#0A84D6" />
+                                            <Setter Property="BorderBrush" Value="#0A84D6" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <ComboBox Style="{StaticResource FourPanelPathComboInnerStyle}"
+                                      IsEditable="True"
+                                      Text="{Binding Panel.CurrentPath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                      ItemsSource="{Binding SelectedTab.HistoryCandidates}"
+                                      SelectionChanged="OnFourPanelPathHistorySelectionChanged"
+                                      KeyDown="OnFourPanelPathHistoryKeyDown" />
+                        </Border>
+                    </DockPanel>
+
+                    <Grid Grid.Row="3" Margin="2,0,2,0">
+                        <DataGrid Tag="{Binding}"
+                                  ItemsSource="{Binding Panel.Items}"
+                                  SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Extended"
+                                  Loaded="OnFourPanelGridLoaded"
+                                  PreviewMouseLeftButtonDown="OnFourPanelPreviewMouseLeftButtonDown"
+                                  PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                                  DragOver="OnPanelItemsDragOver"
+                                  Drop="OnPanelItemsDrop"
+                                  AllowDrop="True"
+                                  MouseDoubleClick="OnFourPanelDoubleClick"
+                                  GotFocus="OnFourPanelFocus"
+                                  SelectionChanged="OnFourPanelSelectionChanged">
+                            <DataGrid.Style>
+                                <Style TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedTab.IsTileViewEnabled}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.Style>
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Header="이름" Width="*" SortMemberPath="Name">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Margin="1,0,0,0">
+                                                <TextBlock Text="📌" Margin="0,0,3,0" Visibility="Collapsed" Foreground="#FFD54A">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <Image Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                                                <TextBlock Style="{StaticResource ItemNameStyle}" Text="{Binding DisplayName}" Foreground="{Binding HighlightColor}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="크기" Width="82" Binding="{Binding SizeDisplay}" />
+                                <DataGridTextColumn Header="날짜" Width="140" Binding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm:ss}" />
+                                <DataGridTemplateColumn Header="속성" Width="88" IsReadOnly="True">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="메모 편집" Click="OnPropertyMemoIconClick">
+                                                    <TextBlock Text="📝" FontSize="11">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="#666666" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#9FCBFF" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding HasMemo}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#66B3FF" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Button>
+                                                <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="핀 고정/해제" Click="OnPropertyPinIconClick">
+                                                    <TextBlock Text="📌" FontSize="11">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="#666666" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#FFE28A" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#FFD54A" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Button>
+                                                <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="파일 즐겨찾기/해제" Click="OnPropertyFavoriteIconClick">
+                                                    <TextBlock Text="★" FontSize="11">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="#666666" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#FF8FC0" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#FF4FA3" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Button>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <ListBox Tag="{Binding}"
+                                 ItemsSource="{Binding Panel.Items}"
+                                 SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
+                                 SelectionMode="Extended"
+                                 Loaded="OnFourPanelTileListLoaded"
+                                 SizeChanged="OnAdaptiveTileListSizeChanged"
+                                 PreviewMouseLeftButtonDown="OnFourPanelPreviewMouseLeftButtonDown"
+                                 PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                                 DragOver="OnPanelItemsDragOver"
+                                 Drop="OnPanelItemsDrop"
+                                 AllowDrop="True"
+                                 MouseDoubleClick="OnFourPanelDoubleClick"
+                                 GotFocus="OnFourPanelFocus"
+                                 SelectionChanged="OnFourPanelSelectionChanged">
+                            <ListBox.Style>
+                                <Style TargetType="ListBox" BasedOn="{StaticResource TileListStyle}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Setter Property="ItemTemplate" Value="{StaticResource TileItemTemplate}" />
+                                    <Setter Property="ItemContainerStyle" Value="{StaticResource TileListItemStyle}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedTab.IsTileViewEnabled}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SelectedTab.IsCompactListViewEnabled}" Value="True">
+                                            <Setter Property="ItemTemplate" Value="{StaticResource CompactListItemTemplate}" />
+                                            <Setter Property="ItemContainerStyle" Value="{StaticResource CompactListItemStyle}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ListBox.Style>
+                        </ListBox>
+                    </Grid>
+                    <Border Grid.Row="4" Margin="2,0,2,2" Background="#D8D8D8" BorderBrush="#A8A8A8" BorderThickness="1,1,1,1" Padding="2,1">
+                        <DockPanel LastChildFill="True">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="{}{"
+                                              ToolTip="일치시작"
+                                              IsChecked="{Binding Panel.QuickFilterStartsWith, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="{}}"
+                                              ToolTip="일치"
+                                              IsChecked="{Binding Panel.QuickFilterExactMatch, Mode=TwoWay}" />
+                                <ToggleButton Width="30"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="Aa"
+                                              ToolTip="대소문자 구분"
+                                              IsChecked="{Binding Panel.QuickFilterCaseSensitive, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="F"
+                                              ToolTip="파일 포함"
+                                              IsChecked="{Binding Panel.QuickFilterIncludeFiles, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="D"
+                                              ToolTip="디렉토리 포함"
+                                              IsChecked="{Binding Panel.QuickFilterIncludeDirectories, Mode=TwoWay}" />
+                                <Button Width="24"
+                                        Height="22"
+                                        Margin="2,0,0,0"
+                                        Content="X"
+                                        ToolTip="초기화"
+                                        Tag="{Binding Panel}"
+                                        Click="OnFourPanelFilterResetClick" />
+                            </StackPanel>
+                            <Grid Margin="0,0,2,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#2A2A2A" FontSize="11" Text="파일리스트 내 검색" />
+                                <TextBox Grid.Column="1"
+                                         MinWidth="50"
+                                         Tag="{Binding Panel}"
+                                         VerticalContentAlignment="Center"
+                                         HorizontalAlignment="Stretch"
+                                         Text="{Binding Panel.QuickFilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         TextChanged="OnFourPanelQuickFilterTextChanged"
+                                         ToolTip="파일/디렉토리 이름 필터" />
+                            </Grid>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel LastChildFill="True">
+        <Menu DockPanel.Dock="Top" Background="#E6E6E6" FontSize="12">
+            <MenuItem Header="파일(F)">
+                <MenuItem Header="열기" InputGestureText="Enter" Click="OnFileMenuOpenClick" />
+                <Separator />
+                <MenuItem Header="복사" InputGestureText="F5" Click="OnCopyClick" />
+                <MenuItem Header="이동" InputGestureText="F6" Click="OnMoveClick" />
+                <MenuItem Header="삭제" InputGestureText="Del" Click="OnDeleteClick" />
+                <MenuItem Header="이름 바꾸기" InputGestureText="F2" Click="OnRenameClick" />
+                <MenuItem Header="새 폴더" InputGestureText="F7" Click="OnNewFolderClick" />
+                <Separator />
+                <MenuItem Header="핀 고정/해제" Click="OnTogglePinClick" />
+                <MenuItem Header="파일 즐겨찾기/해제" Click="OnToggleFavoriteClick" />
+                <MenuItem Header="메모 편집" Click="OnEditMemoClick" />
+                <MenuItem Header="메모 목록 보기" Click="OnOpenMemoListClick" />
+                <Separator />
+                <MenuItem Header="속성" InputGestureText="Alt+Enter" Click="OnFileMenuPropertiesClick" />
+                <MenuItem Header="검색" InputGestureText="Ctrl+F" Click="OnSearchClick" />
+                <Separator />
+                <MenuItem Header="종료" InputGestureText="Alt+X" Click="OnFileMenuExitClick" />
+            </MenuItem>
+            <MenuItem Header="선택(M)">
+                <MenuItem Header="전체 선택" InputGestureText="Ctrl+A" Click="OnSelectAllClick" />
+                <MenuItem Header="선택 해제" InputGestureText="Esc" Click="OnSelectNoneClick" />
+            </MenuItem>
+            <MenuItem Header="명령(C)">
+                <MenuItem Header="열기" InputGestureText="Enter" Click="OnFileMenuOpenClick" />
+                <Separator />
+                <MenuItem Header="복사" InputGestureText="F5" Click="OnCopyClick" />
+                <MenuItem Header="이동" InputGestureText="F6" Click="OnMoveClick" />
+                <MenuItem Header="삭제" InputGestureText="Del" Click="OnDeleteClick" />
+                <MenuItem Header="이름 바꾸기" InputGestureText="F2" Click="OnRenameClick" />
+                <MenuItem Header="새 폴더" InputGestureText="F7" Click="OnNewFolderClick" />
+                <Separator />
+                <MenuItem Header="속성" InputGestureText="Alt+Enter" Click="OnFileMenuPropertiesClick" />
+                <MenuItem Header="검색" InputGestureText="Ctrl+F" Click="OnSearchClick" />
+            </MenuItem>
+            <MenuItem Header="즐겨찾기(A)">
+                <MenuItem Header="현재 경로 즐겨찾기 추가" Click="OnAddCurrentPathFavoriteClick" />
+                <MenuItem Header="선택 항목 즐겨찾기 토글" Click="OnToggleFavoriteClick" />
+                <MenuItem Header="선택 항목 핀 고정/해제" Click="OnTogglePinClick" />
+                <Separator />
+                <MenuItem Header="메모 목록 보기" Click="OnOpenMemoListClick" />
+            </MenuItem>
+            <MenuItem Header="보기(V)">
+                <MenuItem Header="상세보기" Click="OnDetailsViewClick" />
+                <MenuItem Header="목록보기" Click="OnTilesViewClick" />
+                <MenuItem Header="간단목록보기" Click="OnCompactListViewClick" />
+                <Separator />
+                <MenuItem Header="2패널" Click="OnTwoPanelModeClick" />
+                <MenuItem Header="4패널" Click="OnFourPanelModeClick" />
+                <MenuItem Header="상하좌우패널" Click="OnPanelLayoutToggleClick" />
+                <Separator />
+                <MenuItem Header="새로고침" Command="{Binding RefreshCommand}" />
+            </MenuItem>
+            <MenuItem Header="구성(O)">
+                <MenuItem Header="환경설정" Click="OnOpenSettingsClick" />
+            </MenuItem>
+        </Menu>
+
+        <Border DockPanel.Dock="Top" Background="#E0E0E0" BorderBrush="#BEBEBE" BorderThickness="0,0,0,1" Padding="3,3,3,2">
+            <StackPanel>
+                <WrapPanel Margin="2,0,0,2">
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="상세 보기" Click="OnDetailsViewClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a1.png" />
+                    </Button>
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="목록 보기" Click="OnTilesViewClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a2.png" />
+                    </Button>
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="간단 목록 보기" Click="OnCompactListViewClick">
+                        <TextBlock Text="≡" FontSize="14" Foreground="#2E2E2E" Margin="5,0" VerticalAlignment="Center" />
+                    </Button>
+                    <Border Style="{StaticResource ToolbarSeparatorStyle}" />
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="2패널 모드" Click="OnTwoPanelModeClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a3.png" />
+                    </Button>
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="4패널 모드" Click="OnFourPanelModeClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a4.png" />
+                    </Button>
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="4패널 배치(1x4/2x2) 전환" Click="OnPanelLayoutToggleClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a5.png" />
+                    </Button>
+                    <Border Style="{StaticResource ToolbarSeparatorStyle}" />
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="메모 편집" Click="OnEditMemoClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a6.png" />
+                    </Button>
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="메모목록 보기" Click="OnOpenMemoListClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a7.png" />
+                    </Button>
+                    <Border Style="{StaticResource ToolbarSeparatorStyle}" />
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="핀 고정/해제" Click="OnTogglePinClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a8.png" />
+                    </Button>
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="파일 즐겨찾기/해제" Click="OnToggleFavoriteClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a9.png" />
+                    </Button>
+                    <Border Style="{StaticResource ToolbarSeparatorStyle}" />
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="자주가는폴더" Click="OnOpenFrequentFoldersClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a10.png" />
+                    </Button>
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="자주사용한파일" Click="OnOpenFrequentFilesClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a11.png" />
+                    </Button>
+                    <Border Style="{StaticResource ToolbarSeparatorStyle}" />
+                    <Button Style="{StaticResource ToolbarIconButtonStyle}" ToolTip="검색" Click="OnSearchClick">
+                        <Image Height="20" Stretch="Uniform" Source="/Assets/Icons/a12.png" />
+                    </Button>
+                </WrapPanel>
+                <WrapPanel Visibility="Collapsed">
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="상위" Command="{Binding GoUpCommand}" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="새로고침" Command="{Binding RefreshCommand}" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="열기" Command="{Binding OpenSelectedItemCommand}" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="복사 F5" Click="OnCopyClick" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="이동 F6" Click="OnMoveClick" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="삭제 Del" Click="OnDeleteClick" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="이름변경 F2" Click="OnRenameClick" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="디렉터리 F7" Click="OnNewFolderClick" />
+                    <Button Style="{StaticResource ToolButtonStyle}" Content="핀" Click="OnTogglePinClick" />
+                    <ComboBox Width="102" Margin="4,1" VerticalAlignment="Center" ItemsSource="{Binding ConflictPolicyOptions}" SelectedItem="{Binding SelectedConflictPolicyDisplay}" />
+                </WrapPanel>
+
+                <Grid Margin="0,3,0,0" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="46" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="128" />
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="78" />
+                        <ColumnDefinition Width="78" />
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="60" />
+                        <ColumnDefinition Width="60" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="검색" FontWeight="SemiBold" />
+                    <TextBox x:Name="SearchInputBox" Grid.Column="1" Margin="2,0" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="파일명 일부를 입력하세요" />
+                    <ComboBox Grid.Column="2"
+                              Margin="4,0,0,0"
+                              ItemsSource="{Binding SearchScopes}"
+                              SelectedItem="{Binding SearchScope}" />
+                    <TextBox Grid.Column="3" Margin="4,0,0,0" Text="{Binding SearchExtension, UpdateSourceTrigger=PropertyChanged}" ToolTip="확장자 예: .txt" />
+                    <TextBox Grid.Column="4" Margin="4,0,0,0" Text="{Binding SearchMinSizeKb, UpdateSourceTrigger=PropertyChanged}" ToolTip="최소 KB" />
+                    <TextBox Grid.Column="5" Margin="4,0,0,0" Text="{Binding SearchMaxSizeKb, UpdateSourceTrigger=PropertyChanged}" ToolTip="최대 KB" />
+                    <CheckBox Grid.Column="6" Margin="8,0,0,0" VerticalAlignment="Center" Content="재귀" IsChecked="{Binding SearchRecursive}" />
+                    <Button Grid.Column="7" Margin="6,0,0,0" Content="검색" Click="OnSearchClick" />
+                    <Button Grid.Column="8" Margin="4,0,0,0" Content="초기화" Click="OnSearchClearClick" />
+                </Grid>
+
+                <Border Margin="0,3,0,0" Background="#E6E6E6" BorderBrush="#BEBEBE" BorderThickness="1" Padding="2,2,2,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Margin="4,0,6,0" VerticalAlignment="Center" Foreground="#2A2A2A" FontSize="11" Text="즐겨찾기" />
+                        <Button Grid.Column="1"
+                                x:Name="FavoriteFilesToolbarButton"
+                                MinWidth="156"
+                                Width="Auto"
+                                Height="22"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Left"
+                                HorizontalContentAlignment="Center"
+                                Padding="8,0,8,0"
+                                Content="{Binding FavoriteToolbarFiles[0].Name, FallbackValue=즐겨찾기 파일[0개], TargetNullValue=즐겨찾기 파일[0개]}"
+                                ToolTip="즐겨찾기 트리 열기"
+                                MouseEnter="OnFavoriteToolbarFilesMouseEnter"
+                                MouseLeave="OnFavoriteToolbarFilesMouseLeave"
+                                PreviewMouseLeftButtonDown="OnFavoriteToolbarFilesPreviewMouseLeftButtonDown"
+                                Click="OnFavoriteToolbarFilesClick" />
+                        <Border Grid.Column="2" Style="{StaticResource ToolbarSeparatorStyle}" />
+                        <ScrollViewer Grid.Column="3" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" CanContentScroll="True">
+                            <ItemsControl ItemsSource="{Binding FavoriteToolbarFolders}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Margin="0,0,4,0"
+                                                Padding="8,2"
+                                                MinWidth="68"
+                                                MaxWidth="180"
+                                                Height="22"
+                                                Content="{Binding Name}"
+                                                ToolTip="{Binding Path}"
+                                                AllowDrop="True"
+                                                PreviewMouseLeftButtonDown="OnFavoriteToolbarFolderPreviewMouseLeftButtonDown"
+                                                PreviewMouseMove="OnFavoriteToolbarFolderPreviewMouseMove"
+                                                DragOver="OnFavoriteToolbarFolderDragOver"
+                                                Drop="OnFavoriteToolbarFolderDrop"
+                                                MouseEnter="OnFavoriteToolbarFolderMouseEnter"
+                                                MouseLeave="OnFavoriteToolbarFolderMouseLeave"
+                                                Click="OnFavoriteToolbarFolderClick"
+                                                Command="{Binding DataContext.NavigateQuickAccessCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <Popup x:Name="FavoriteFolderFlyoutPopup"
+                               Placement="Bottom"
+                               StaysOpen="True"
+                               AllowsTransparency="True"
+                               PopupAnimation="Fade"
+                               MouseEnter="OnFavoriteFlyoutMouseEnter"
+                               MouseLeave="OnFavoriteFlyoutMouseLeave">
+                            <Border Background="#FAFAFA"
+                                    BorderBrush="#969696"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    Padding="6"
+                                    Width="320"
+                                    MaxHeight="460"
+                                    SnapsToDevicePixels="True">
+                                <TreeView x:Name="FavoriteFolderFlyoutTree"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          PreviewMouseLeftButtonUp="OnFavoriteFlyoutTreeMouseLeftButtonUp"
+                                          KeyDown="OnFavoriteFlyoutTreeKeyDown">
+                                    <TreeView.ItemContainerStyle>
+                                        <Style TargetType="TreeViewItem">
+                                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                            <Setter Property="Padding" Value="2,1" />
+                                            <Setter Property="Margin" Value="0,1,0,1" />
+                                            <Setter Property="FontSize" Value="12" />
+                                            <EventSetter Event="Expanded" Handler="OnFavoriteFlyoutTreeItemExpanded" />
+                                        </Style>
+                                    </TreeView.ItemContainerStyle>
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="📁"
+                                                           Margin="0,0,6,0"
+                                                           Foreground="#936A00" />
+                                                <TextBlock Text="{Binding Name}"
+                                                           Foreground="#202020" />
+                                            </StackPanel>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                </TreeView>
+                            </Border>
+                        </Popup>
+                        <Popup x:Name="FavoriteFilesFlyoutPopup"
+                               Placement="Bottom"
+                               StaysOpen="True"
+                               AllowsTransparency="True"
+                               PopupAnimation="Fade"
+                               MouseEnter="OnFavoriteFilesFlyoutMouseEnter"
+                               MouseLeave="OnFavoriteFilesFlyoutMouseLeave">
+                            <Border Background="#FAFAFA"
+                                    BorderBrush="#969696"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    Padding="6"
+                                    Width="360"
+                                    MaxHeight="460"
+                                    SnapsToDevicePixels="True">
+                                <TreeView x:Name="FavoriteFilesFlyoutTree"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          PreviewMouseLeftButtonUp="OnFavoriteFilesFlyoutTreeMouseLeftButtonUp"
+                                          KeyDown="OnFavoriteFilesFlyoutTreeKeyDown">
+                                    <TreeView.ItemContainerStyle>
+                                        <Style TargetType="TreeViewItem">
+                                            <Setter Property="IsExpanded" Value="True" />
+                                            <Setter Property="Padding" Value="2,1" />
+                                            <Setter Property="Margin" Value="0,1,0,1" />
+                                            <Setter Property="FontSize" Value="12" />
+                                        </Style>
+                                    </TreeView.ItemContainerStyle>
+                                    <TreeView.ItemTemplate>
+                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="FavoriteNodeIcon"
+                                                           Text="📁"
+                                                           Margin="0,0,6,0"
+                                                           Foreground="#936A00" />
+                                                <TextBlock x:Name="FavoriteNodeText"
+                                                           Text="{Binding Name}"
+                                                           Foreground="#202020" />
+                                            </StackPanel>
+                                            <HierarchicalDataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsDirectory}" Value="False">
+                                                    <Setter TargetName="FavoriteNodeIcon" Property="Text" Value="📄" />
+                                                    <Setter TargetName="FavoriteNodeIcon" Property="Foreground" Value="#4F5F6F" />
+                                                    <Setter TargetName="FavoriteNodeText" Property="Foreground" Value="#111111" />
+                                                </DataTrigger>
+                                            </HierarchicalDataTemplate.Triggers>
+                                        </HierarchicalDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                </TreeView>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="0" />
+                <RowDefinition Height="0" />
+                <RowDefinition Height="24" />
+                <RowDefinition Height="0" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Background="#D0D0D0" Margin="2,2,2,0">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsFourPanelMode}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="4" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="1" Background="#B8B8B8" />
+
+                <Border Grid.Column="0"
+                        Width="{Binding ElementName=LeftPanelGrid, Path=ActualWidth}"
+                        BorderBrush="#A8A8A8"
+                        BorderThickness="1"
+                        Padding="3"
+                        Margin="0,0,2,0">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,2" LastChildFill="True">
+                            <TextBlock DockPanel.Dock="Right"
+                                       MinWidth="150"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       Margin="0,0,0,0"
+                                       Text="{Binding LeftFreeSpaceText}" />
+                            <ListBox
+                                     Height="22"
+                                     Margin="0,0,6,0"
+                                     HorizontalAlignment="Left"
+                                     Background="#E0E0E0"
+                                     BorderThickness="0"
+                                     ItemsSource="{Binding AvailableDrives}"
+                                     SelectedItem="{Binding SelectedLeftDrive}"
+                                     SelectionChanged="OnLeftDriveSelectionChanged"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="1,0" />
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <Border x:Name="Bd" Padding="5,1" BorderBrush="#8F8F8F" BorderThickness="1" Background="#E6E6E6">
+                                                        <TextBlock Text="{Binding}" />
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#0A84D6" />
+                                                            <Setter Property="Foreground" Value="White" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </DockPanel>
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="\" ToolTip="홈 폴더" Click="OnLeftHomeClick" />
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="." ToolTip="상위 폴더" Click="OnLeftParentClick" />
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="+" Click="OnAddLeftTabClick" />
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="-" Click="OnCloseLeftTabClick" />
+                            </StackPanel>
+                            <TabControl x:Name="LeftTabsControl"
+                                        Style="{StaticResource SingleRowTabControlStyle}"
+                                        Height="24"
+                                        Margin="0,0,2,0"
+                                        ItemsSource="{Binding LeftTabs}"
+                                        SelectedItem="{Binding SelectedLeftTab, Mode=TwoWay}"
+                                        MouseDoubleClick="OnLeftTabsMouseDoubleClick"
+                                        PreviewMouseLeftButtonDown="OnTabPreviewMouseLeftButtonDown"
+                                        PreviewMouseRightButtonDown="OnTabPreviewMouseRightButtonDown"
+                                        PreviewMouseMove="OnTabPreviewMouseMove"
+                                        Drop="OnLeftTabsDrop"
+                                        DragOver="OnTabsDragOver"
+                                        AllowDrop="True">
+                                <TabControl.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="탭 복제" Click="OnLeftTabDuplicateClick" />
+                                        <MenuItem Header="해당 탭 닫기" Click="OnCloseLeftTabClick" />
+                                        <Separator />
+                                        <MenuItem Header="왼쪽 탭 닫기" Click="OnLeftTabCloseToLeftClick" />
+                                        <MenuItem Header="오른쪽 탭 닫기" Click="OnLeftTabCloseToRightClick" />
+                                        <MenuItem Header="기타 탭 닫기" Click="OnLeftTabCloseOthersClick" />
+                                    </ContextMenu>
+                                </TabControl.ContextMenu>
+                                <TabControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Title}" Margin="6,0" />
+                                    </DataTemplate>
+                                </TabControl.ItemTemplate>
+                                <TabControl.ContentTemplate>
+                                    <DataTemplate>
+                                        <Grid />
+                                    </DataTemplate>
+                                </TabControl.ContentTemplate>
+                            </TabControl>
+                        </DockPanel>
+                        <Grid Margin="0,3,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="34" />
+                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="60" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center" FontWeight="SemiBold" Text="L" />
+                            <Button Grid.Column="1" Width="22" Height="22" Margin="1,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnLeftBackClick" />
+                            <Button Grid.Column="2" Width="22" Height="22" Margin="1,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnLeftForwardClick" />
+                            <Border Grid.Column="3" Margin="2,0" Style="{StaticResource LeftPathHostStyle}">
+                                <ComboBox Style="{StaticResource LeftPathComboInnerStyle}"
+                                          IsEditable="True"
+                                          Text="{Binding LeftCurrentPath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                          ItemsSource="{Binding LeftPathHistory}"
+                                          GotFocus="OnLeftPathComboBoxGotFocus"
+                                          SelectionChanged="OnLeftPathHistorySelectionChanged"
+                                          KeyDown="OnLeftPathHistoryKeyDown" />
+                            </Border>
+                            <Button Grid.Column="4" Margin="2,0,0,0" Content="즐겨찾기" Click="OnAddLeftFavoriteClick" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2"
+                        Width="{Binding ElementName=RightPanelGrid, Path=ActualWidth}"
+                        BorderBrush="#A8A8A8"
+                        BorderThickness="1"
+                        Padding="3"
+                        Margin="2,0,0,0">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,2" LastChildFill="True">
+                            <TextBlock DockPanel.Dock="Right"
+                                       MinWidth="150"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       Margin="0,0,0,0"
+                                       Text="{Binding RightFreeSpaceText}" />
+                            <ListBox
+                                     Height="22"
+                                     Margin="0,0,6,0"
+                                     HorizontalAlignment="Left"
+                                     Background="#E0E0E0"
+                                     BorderThickness="0"
+                                     ItemsSource="{Binding AvailableDrives}"
+                                     SelectedItem="{Binding SelectedRightDrive}"
+                                     SelectionChanged="OnRightDriveSelectionChanged"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="1,0" />
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <Border x:Name="Bd" Padding="5,1" BorderBrush="#8F8F8F" BorderThickness="1" Background="#E6E6E6">
+                                                        <TextBlock Text="{Binding}" />
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#0A84D6" />
+                                                            <Setter Property="Foreground" Value="White" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </DockPanel>
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="\" ToolTip="홈 폴더" Click="OnRightHomeClick" />
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="." ToolTip="상위 폴더" Click="OnRightParentClick" />
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="+" Click="OnAddRightTabClick" />
+                                <Button Width="24" Height="22" Margin="2,0,0,0" Content="-" Click="OnCloseRightTabClick" />
+                            </StackPanel>
+                            <TabControl x:Name="RightTabsControl"
+                                        Style="{StaticResource SingleRowTabControlStyle}"
+                                        Height="24"
+                                        Margin="0,0,2,0"
+                                        ItemsSource="{Binding RightTabs}"
+                                        SelectedItem="{Binding SelectedRightTab, Mode=TwoWay}"
+                                        MouseDoubleClick="OnRightTabsMouseDoubleClick"
+                                        PreviewMouseLeftButtonDown="OnTabPreviewMouseLeftButtonDown"
+                                        PreviewMouseRightButtonDown="OnTabPreviewMouseRightButtonDown"
+                                        PreviewMouseMove="OnTabPreviewMouseMove"
+                                        Drop="OnRightTabsDrop"
+                                        DragOver="OnTabsDragOver"
+                                        AllowDrop="True">
+                                <TabControl.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="탭 복제" Click="OnRightTabDuplicateClick" />
+                                        <MenuItem Header="해당 탭 닫기" Click="OnCloseRightTabClick" />
+                                        <Separator />
+                                        <MenuItem Header="왼쪽 탭 닫기" Click="OnRightTabCloseToLeftClick" />
+                                        <MenuItem Header="오른쪽 탭 닫기" Click="OnRightTabCloseToRightClick" />
+                                        <MenuItem Header="기타 탭 닫기" Click="OnRightTabCloseOthersClick" />
+                                    </ContextMenu>
+                                </TabControl.ContextMenu>
+                                <TabControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Title}" Margin="6,0" />
+                                    </DataTemplate>
+                                </TabControl.ItemTemplate>
+                                <TabControl.ContentTemplate>
+                                    <DataTemplate>
+                                        <Grid />
+                                    </DataTemplate>
+                                </TabControl.ContentTemplate>
+                            </TabControl>
+                        </DockPanel>
+                        <Grid Margin="0,3,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="34" />
+                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="60" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center" FontWeight="SemiBold" Text="R" />
+                            <Button Grid.Column="1" Width="22" Height="22" Margin="1,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnRightBackClick" />
+                            <Button Grid.Column="2" Width="22" Height="22" Margin="1,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnRightForwardClick" />
+                            <Border Grid.Column="3" Margin="2,0" Style="{StaticResource RightPathHostStyle}">
+                                <ComboBox Style="{StaticResource RightPathComboInnerStyle}"
+                                          IsEditable="True"
+                                          Text="{Binding RightCurrentPath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                          ItemsSource="{Binding RightPathHistory}"
+                                          GotFocus="OnRightPathComboBoxGotFocus"
+                                          SelectionChanged="OnRightPathHistorySelectionChanged"
+                                          KeyDown="OnRightPathHistoryKeyDown" />
+                            </Border>
+                            <Button Grid.Column="4" Margin="2,0,0,0" Content="즐겨찾기" Click="OnAddRightFavoriteClick" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid x:Name="PanelsGrid" Grid.Row="1" Margin="2,0,2,0">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsFourPanelMode}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="4" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <GridSplitter Grid.Column="1"
+                              Width="4"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
+                              ResizeDirection="Columns"
+                              ResizeBehavior="PreviousAndNext"
+                              Background="#B8B8B8"
+                              ShowsPreview="True"
+                              MouseDoubleClick="OnPanelSplitterDoubleClick" />
+
+                <Grid Grid.Column="0" x:Name="LeftPanelHostGrid" PreviewMouseLeftButtonDown="OnLeftPanelHostMouseDown">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid x:Name="LeftPanelGrid"
+                              Grid.Row="0"
+                              ItemsSource="{Binding LeftPanel.Items}"
+                              SelectedItem="{Binding LeftPanel.SelectedItem, Mode=TwoWay}"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="False"
+                              SelectionMode="Extended"
+                              Sorting="OnPanelGridSorting"
+                              BeginningEdit="OnPanelGridBeginningEdit"
+                              CellEditEnding="OnPanelGridCellEditEnding"
+                              PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                              PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                              DragOver="OnPanelItemsDragOver"
+                              Drop="OnPanelItemsDrop"
+                              AllowDrop="True"
+                              PreviewMouseRightButtonUp="OnPanelItemsPreviewMouseRightButtonUp"
+                              MouseDoubleClick="OnLeftPanelDoubleClick"
+                              GotFocus="OnLeftPanelFocus"
+                              SelectionChanged="OnLeftPanelSelectionChanged">
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <Separator />
+                                <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
+                                <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
+                                <MenuItem Header="붙여넣기(V)" Click="OnWinContextPasteClick" />
+                                <Separator />
+                                <MenuItem Header="삭제" Click="OnContextDeleteClick" />
+                                <MenuItem Header="이름 바꾸기" Click="OnContextRenameClick" />
+                                <Separator />
+                                <MenuItem Header="속성" Click="OnWinContextPropertiesClick" />
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="이름" Width="*" SortMemberPath="Name">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="1,0,0,0">
+                                            <TextBlock Text="📌" Margin="0,0,3,0" Visibility="Collapsed" Foreground="#FFD54A">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Image Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                                            <TextBlock Style="{StaticResource ItemNameStyle}" Text="{Binding DisplayName}" Foreground="{Binding HighlightColor}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="1,0,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="📌" Margin="0,0,3,0" Visibility="Collapsed" Foreground="#FFD54A">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Image Grid.Column="1" Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                                            <TextBox Grid.Column="2"
+                                                     Text="{Binding RenameCandidate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     Loaded="OnInlineRenameTextBoxLoaded"
+                                                     BorderThickness="1"
+                                                     Padding="1,0" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="확장자" Width="70" SortMemberPath="Extension" IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Extension}" Foreground="{Binding HighlightColor}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="크기" Width="84" Binding="{Binding SizeDisplay}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="날짜" Width="150" Binding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm:ss}" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="속성" Width="88" IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="메모 편집" Click="OnPropertyMemoIconClick">
+                                                <TextBlock Text="📝" FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#666666" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#9FCBFF" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding HasMemo}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#66B3FF" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Button>
+                                            <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="핀 고정/해제" Click="OnPropertyPinIconClick">
+                                                <TextBlock Text="📌" FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#666666" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FFE28A" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FFD54A" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Button>
+                                            <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="파일 즐겨찾기/해제" Click="OnPropertyFavoriteIconClick">
+                                                <TextBlock Text="★" FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#666666" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FF8FC0" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FF4FA3" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Button>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                        <DataGrid.Style>
+                            <Style TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding LeftPanelIsTileViewEnabled}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.Style>
+                    </DataGrid>
+                    <ListBox x:Name="LeftPanelTilesList"
+                             Grid.Row="0"
+                             ItemsSource="{Binding LeftPanel.Items}"
+                             SelectedItem="{Binding LeftPanel.SelectedItem, Mode=TwoWay}"
+                             SelectionMode="Extended"
+                             PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                             PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                             DragOver="OnPanelItemsDragOver"
+                             Drop="OnPanelItemsDrop"
+                             AllowDrop="True"
+                             PreviewMouseRightButtonUp="OnPanelItemsPreviewMouseRightButtonUp"
+                             MouseDoubleClick="OnLeftPanelDoubleClick"
+                             GotFocus="OnLeftPanelFocus"
+                             Loaded="OnAdaptiveTileListLoaded"
+                             SizeChanged="OnAdaptiveTileListSizeChanged"
+                             SelectionChanged="OnLeftPanelSelectionChanged">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <Separator />
+                                <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
+                                <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
+                                <MenuItem Header="붙여넣기(V)" Click="OnWinContextPasteClick" />
+                                <Separator />
+                                <MenuItem Header="삭제" Click="OnContextDeleteClick" />
+                                <MenuItem Header="이름 바꾸기" Click="OnContextRenameClick" />
+                                <Separator />
+                                <MenuItem Header="속성" Click="OnWinContextPropertiesClick" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.Style>
+                            <Style TargetType="ListBox" BasedOn="{StaticResource TileListStyle}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Setter Property="ItemTemplate" Value="{StaticResource TileItemTemplate}" />
+                                <Setter Property="ItemContainerStyle" Value="{StaticResource TileListItemStyle}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding LeftPanelIsTileViewEnabled}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding LeftPanelIsCompactListViewEnabled}" Value="True">
+                                        <Setter Property="ItemTemplate" Value="{StaticResource CompactListItemTemplate}" />
+                                        <Setter Property="ItemContainerStyle" Value="{StaticResource CompactListItemStyle}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.Style>
+                    </ListBox>
+                    <Border Grid.Row="1" Background="#D8D8D8" BorderBrush="#A8A8A8" BorderThickness="1,1,1,0" Padding="2,1">
+                        <DockPanel LastChildFill="True">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="{}{"
+                                              ToolTip="일치시작"
+                                              IsChecked="{Binding LeftPanel.QuickFilterStartsWith, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="{}}"
+                                              ToolTip="일치"
+                                              IsChecked="{Binding LeftPanel.QuickFilterExactMatch, Mode=TwoWay}" />
+                                <ToggleButton Width="30"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="Aa"
+                                              ToolTip="대소문자 구분"
+                                              IsChecked="{Binding LeftPanel.QuickFilterCaseSensitive, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="F"
+                                              ToolTip="파일 포함"
+                                              IsChecked="{Binding LeftPanel.QuickFilterIncludeFiles, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="D"
+                                              ToolTip="디렉토리 포함"
+                                              IsChecked="{Binding LeftPanel.QuickFilterIncludeDirectories, Mode=TwoWay}" />
+                                <Button Width="24"
+                                        Height="22"
+                                        Margin="2,0,0,0"
+                                        Content="X"
+                                        ToolTip="초기화"
+                                        Click="OnLeftFilterResetClick" />
+                            </StackPanel>
+                            <Grid Margin="0,0,2,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#2A2A2A" FontSize="11" Text="파일리스트 내 검색" />
+                                <TextBox Grid.Column="1"
+                                         MinWidth="60"
+                                         VerticalContentAlignment="Center"
+                                         HorizontalAlignment="Stretch"
+                                         Text="{Binding LeftPanel.QuickFilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         TextChanged="OnLeftQuickFilterTextChanged"
+                                         ToolTip="파일/디렉토리 이름 필터" />
+                            </Grid>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+
+                <Grid Grid.Column="2" x:Name="RightPanelHostGrid" PreviewMouseLeftButtonDown="OnRightPanelHostMouseDown">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid x:Name="RightPanelGrid"
+                              Grid.Row="0"
+                              ItemsSource="{Binding RightPanel.Items}"
+                              SelectedItem="{Binding RightPanel.SelectedItem, Mode=TwoWay}"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="False"
+                              SelectionMode="Extended"
+                              Sorting="OnPanelGridSorting"
+                              BeginningEdit="OnPanelGridBeginningEdit"
+                              CellEditEnding="OnPanelGridCellEditEnding"
+                              PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                              PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                              DragOver="OnPanelItemsDragOver"
+                              Drop="OnPanelItemsDrop"
+                              AllowDrop="True"
+                              PreviewMouseRightButtonUp="OnPanelItemsPreviewMouseRightButtonUp"
+                              MouseDoubleClick="OnRightPanelDoubleClick"
+                              GotFocus="OnRightPanelFocus"
+                              SelectionChanged="OnRightPanelSelectionChanged">
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <Separator />
+                                <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
+                                <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
+                                <MenuItem Header="붙여넣기(V)" Click="OnWinContextPasteClick" />
+                                <Separator />
+                                <MenuItem Header="삭제" Click="OnContextDeleteClick" />
+                                <MenuItem Header="이름 바꾸기" Click="OnContextRenameClick" />
+                                <Separator />
+                                <MenuItem Header="속성" Click="OnWinContextPropertiesClick" />
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="이름" Width="*" SortMemberPath="Name">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="1,0,0,0">
+                                            <TextBlock Text="📌" Margin="0,0,3,0" Visibility="Collapsed" Foreground="#FFD54A">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Image Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                                            <TextBlock Style="{StaticResource ItemNameStyle}" Text="{Binding DisplayName}" Foreground="{Binding HighlightColor}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="1,0,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="📌" Margin="0,0,3,0" Visibility="Collapsed" Foreground="#FFD54A">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Image Grid.Column="1" Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                                            <TextBox Grid.Column="2"
+                                                     Text="{Binding RenameCandidate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     Loaded="OnInlineRenameTextBoxLoaded"
+                                                     BorderThickness="1"
+                                                     Padding="1,0" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="확장자" Width="70" SortMemberPath="Extension" IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Extension}" Foreground="{Binding HighlightColor}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="크기" Width="84" Binding="{Binding SizeDisplay}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="날짜" Width="150" Binding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm:ss}" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="속성" Width="88" IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="메모 편집" Click="OnPropertyMemoIconClick">
+                                                <TextBlock Text="📝" FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#666666" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#9FCBFF" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding HasMemo}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#66B3FF" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Button>
+                                            <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="핀 고정/해제" Click="OnPropertyPinIconClick">
+                                                <TextBlock Text="📌" FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#666666" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FFE28A" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FFD54A" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Button>
+                                            <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="파일 즐겨찾기/해제" Click="OnPropertyFavoriteIconClick">
+                                                <TextBlock Text="★" FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#666666" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FF8FC0" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FF4FA3" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Button>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                        <DataGrid.Style>
+                            <Style TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding RightPanelIsTileViewEnabled}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.Style>
+                    </DataGrid>
+                    <ListBox x:Name="RightPanelTilesList"
+                             Grid.Row="0"
+                             ItemsSource="{Binding RightPanel.Items}"
+                             SelectedItem="{Binding RightPanel.SelectedItem, Mode=TwoWay}"
+                             SelectionMode="Extended"
+                             PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                             PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                             DragOver="OnPanelItemsDragOver"
+                             Drop="OnPanelItemsDrop"
+                             AllowDrop="True"
+                             PreviewMouseRightButtonUp="OnPanelItemsPreviewMouseRightButtonUp"
+                             MouseDoubleClick="OnRightPanelDoubleClick"
+                             GotFocus="OnRightPanelFocus"
+                             Loaded="OnAdaptiveTileListLoaded"
+                             SizeChanged="OnAdaptiveTileListSizeChanged"
+                             SelectionChanged="OnRightPanelSelectionChanged">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <Separator />
+                                <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
+                                <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
+                                <MenuItem Header="붙여넣기(V)" Click="OnWinContextPasteClick" />
+                                <Separator />
+                                <MenuItem Header="삭제" Click="OnContextDeleteClick" />
+                                <MenuItem Header="이름 바꾸기" Click="OnContextRenameClick" />
+                                <Separator />
+                                <MenuItem Header="속성" Click="OnWinContextPropertiesClick" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.Style>
+                            <Style TargetType="ListBox" BasedOn="{StaticResource TileListStyle}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Setter Property="ItemTemplate" Value="{StaticResource TileItemTemplate}" />
+                                <Setter Property="ItemContainerStyle" Value="{StaticResource TileListItemStyle}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding RightPanelIsTileViewEnabled}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding RightPanelIsCompactListViewEnabled}" Value="True">
+                                        <Setter Property="ItemTemplate" Value="{StaticResource CompactListItemTemplate}" />
+                                        <Setter Property="ItemContainerStyle" Value="{StaticResource CompactListItemStyle}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.Style>
+                    </ListBox>
+                    <Border Grid.Row="1" Background="#D8D8D8" BorderBrush="#A8A8A8" BorderThickness="1,1,1,0" Padding="2,1">
+                        <DockPanel LastChildFill="True">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="{}{"
+                                              ToolTip="일치시작"
+                                              IsChecked="{Binding RightPanel.QuickFilterStartsWith, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="{}}"
+                                              ToolTip="일치"
+                                              IsChecked="{Binding RightPanel.QuickFilterExactMatch, Mode=TwoWay}" />
+                                <ToggleButton Width="30"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="Aa"
+                                              ToolTip="대소문자 구분"
+                                              IsChecked="{Binding RightPanel.QuickFilterCaseSensitive, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="F"
+                                              ToolTip="파일 포함"
+                                              IsChecked="{Binding RightPanel.QuickFilterIncludeFiles, Mode=TwoWay}" />
+                                <ToggleButton Width="24"
+                                              Height="22"
+                                              Margin="2,0,0,0"
+                                              Content="D"
+                                              ToolTip="디렉토리 포함"
+                                              IsChecked="{Binding RightPanel.QuickFilterIncludeDirectories, Mode=TwoWay}" />
+                                <Button Width="24"
+                                        Height="22"
+                                        Margin="2,0,0,0"
+                                        Content="X"
+                                        ToolTip="초기화"
+                                        Click="OnRightFilterResetClick" />
+                            </StackPanel>
+                            <Grid Margin="0,0,2,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#2A2A2A" FontSize="11" Text="파일리스트 내 검색" />
+                                <TextBox Grid.Column="1"
+                                         MinWidth="60"
+                                         VerticalContentAlignment="Center"
+                                         HorizontalAlignment="Stretch"
+                                         Text="{Binding RightPanel.QuickFilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         TextChanged="OnRightQuickFilterTextChanged"
+                                         ToolTip="파일/디렉토리 이름 필터" />
+                            </Grid>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <Grid Grid.Row="0" Grid.RowSpan="2" Margin="2,2,2,0">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsFourPanelMode}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+
+                <Grid>
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsFourPanelGridLayout}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="4" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <GridSplitter Grid.Row="1"
+                                  Grid.ColumnSpan="3"
+                                  Height="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Center"
+                                  Background="#B8B8B8"
+                                  ResizeDirection="Rows"
+                                  ResizeBehavior="PreviousAndNext"
+                                  ShowsPreview="False"
+                                  MouseDoubleClick="OnFourPanelGridSplitterDoubleClick" />
+                    <GridSplitter Grid.Column="1"
+                                  Grid.RowSpan="3"
+                                  Width="4"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Stretch"
+                                  Background="#B8B8B8"
+                                  ResizeDirection="Columns"
+                                  ResizeBehavior="PreviousAndNext"
+                                  ShowsPreview="False"
+                                  MouseDoubleClick="OnFourPanelGridSplitterDoubleClick" />
+                    <ContentControl Grid.Row="0" Grid.Column="0" Content="{Binding FourPanels[0]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                    <ContentControl Grid.Row="0" Grid.Column="2" Content="{Binding FourPanels[1]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                    <ContentControl Grid.Row="2" Grid.Column="0" Content="{Binding FourPanels[2]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                    <ContentControl Grid.Row="2" Grid.Column="2" Content="{Binding FourPanels[3]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                </Grid>
+
+                <Grid x:Name="FourPanelsHorizontalLayoutGrid">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsFourPanelHorizontalLayout}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <GridSplitter Grid.Column="1"
+                                  Width="4"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Stretch"
+                                  Background="#B8B8B8"
+                                  ResizeDirection="Columns"
+                                  ResizeBehavior="PreviousAndNext"
+                                  ShowsPreview="False"
+                                  MouseDoubleClick="OnFourPanelHorizontalSplitterDoubleClick" />
+                    <GridSplitter Grid.Column="3"
+                                  Width="4"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Stretch"
+                                  Background="#B8B8B8"
+                                  ResizeDirection="Columns"
+                                  ResizeBehavior="PreviousAndNext"
+                                  ShowsPreview="False"
+                                  MouseDoubleClick="OnFourPanelHorizontalSplitterDoubleClick" />
+                    <GridSplitter Grid.Column="5"
+                                  Width="4"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Stretch"
+                                  Background="#B8B8B8"
+                                  ResizeDirection="Columns"
+                                  ResizeBehavior="PreviousAndNext"
+                                  ShowsPreview="False"
+                                  MouseDoubleClick="OnFourPanelHorizontalSplitterDoubleClick" />
+                    <ContentControl Grid.Column="0" Content="{Binding FourPanels[0]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                    <ContentControl Grid.Column="2" Content="{Binding FourPanels[1]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                    <ContentControl Grid.Column="4" Content="{Binding FourPanels[2]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                    <ContentControl Grid.Column="6" Content="{Binding FourPanels[3]}" ContentTemplate="{StaticResource FourPanelItemTemplate}" />
+                </Grid>
+            </Grid>
+
+            <GridSplitter Grid.Row="2"
+                          Height="0"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center"
+                          Background="#B8B8B8"
+                          ResizeDirection="Rows"
+                          ResizeBehavior="PreviousAndNext"
+                          ShowsPreview="False"
+                          Margin="2,0"
+                          Visibility="Collapsed" />
+
+            <Grid Grid.Row="2" Background="#D8D8D8" Margin="2,0,2,0" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="4" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Margin="0" Background="#0A84D6">
+                    <TextBlock Margin="6,2" VerticalAlignment="Center" Foreground="White" Text="{Binding LeftCurrentPath}" />
+                </Border>
+                <Border Grid.Column="2" Margin="0" Background="#0A84D6">
+                    <TextBlock Margin="6,2" VerticalAlignment="Center" Foreground="White" Text="{Binding RightCurrentPath}" />
+                </Border>
+            </Grid>
+
+            <TabControl x:Name="BottomInfoTabs" Grid.Row="3" Margin="2,2,2,0" Background="#E0E0E0" BorderBrush="#A8A8A8" Visibility="Collapsed">
+                <TabItem Header="검색 결과">
+                    <ListView x:Name="SearchResultsList"
+                              ItemsSource="{Binding SearchResults}"
+                              SelectionMode="Extended"
+                              MouseDoubleClick="OnSearchResultDoubleClick">
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="열기" Click="OnSearchContextOpenClick" />
+                                <MenuItem Header="포함 폴더 열기" Click="OnSearchContextOpenFolderClick" />
+                                <Separator />
+                                <MenuItem Header="복사 (다른 패널로)" Click="OnSearchContextCopyClick" />
+                                <MenuItem Header="이동 (다른 패널로)" Click="OnSearchContextMoveClick" />
+                                <MenuItem Header="삭제" Click="OnSearchContextDeleteClick" />
+                                <Separator />
+                                <MenuItem Header="즐겨찾기 추가" Click="OnSearchContextFavoriteClick" />
+                                <MenuItem Header="핀 고정/해제" Click="OnSearchContextPinClick" />
+                            </ContextMenu>
+                        </ListView.ContextMenu>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="이름" Width="260" DisplayMemberBinding="{Binding Name}" />
+                                <GridViewColumn Header="유형" Width="110" DisplayMemberBinding="{Binding TypeDisplay}" />
+                                <GridViewColumn Header="크기" Width="120" DisplayMemberBinding="{Binding SizeDisplay}" />
+                                <GridViewColumn Header="경로" Width="900" DisplayMemberBinding="{Binding FullPath}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </TabItem>
+                <TabItem Header="빠른 접근">
+                    <ListView x:Name="QuickAccessList"
+                              ItemsSource="{Binding QuickAccessItems}"
+                              MouseDoubleClick="OnQuickAccessDoubleClick">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="이름" Width="320" DisplayMemberBinding="{Binding Name}" />
+                                <GridViewColumn Header="분류" Width="220" DisplayMemberBinding="{Binding Category}" />
+                                <GridViewColumn Header="경로" Width="860" DisplayMemberBinding="{Binding Path}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </TabItem>
+                <TabItem Header="최근/고정">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <ListView Grid.Column="0" x:Name="RecentFilesList" ItemsSource="{Binding RecentFiles}" MouseDoubleClick="OnRecentFileDoubleClick">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="최근 파일" Width="340" DisplayMemberBinding="{Binding Name}" />
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+
+                        <ListView Grid.Column="1" x:Name="FrequentFilesList" ItemsSource="{Binding FrequentFiles}" MouseDoubleClick="OnFrequentFileDoubleClick">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="자주 연 파일" Width="340" DisplayMemberBinding="{Binding Name}" />
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+
+                        <ListView Grid.Column="2" x:Name="PinnedFoldersList" ItemsSource="{Binding PinnedFolders}" MouseDoubleClick="OnPinnedFolderDoubleClick">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="고정 폴더" Width="340" DisplayMemberBinding="{Binding Name}" />
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+
+                        <ListView Grid.Column="3" x:Name="PinnedFilesList" ItemsSource="{Binding PinnedFiles}" MouseDoubleClick="OnPinnedFileDoubleClick">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="고정 파일" Width="340" DisplayMemberBinding="{Binding Name}" />
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </Grid>
+                </TabItem>
+                <TabItem Header="작업 로그">
+                    <ListBox ItemsSource="{Binding WorkLogs}" FontFamily="Consolas" />
+                </TabItem>
+            </TabControl>
+
+            <Border Grid.Row="4" Background="#DCDCDC" BorderBrush="#A8A8A8" BorderThickness="1,1,1,0" Margin="2,2,2,0" Padding="4,2">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{Binding ElementName=LeftPanelHostGrid, Path=ActualWidth}" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="{Binding ElementName=RightPanelHostGrid, Path=ActualWidth}" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="1" Background="#C8C8C8" />
+                    <TextBlock Grid.Column="0" Margin="6,2" VerticalAlignment="Center" Foreground="#1F1F1F" Text="{Binding LeftFolderInfo}" />
+                    <TextBlock Grid.Column="2" Margin="6,2" VerticalAlignment="Center" Foreground="#1F1F1F" Text="{Binding RightFolderInfo}" />
+                </Grid>
+            </Border>
+
+        </Grid>
+    </DockPanel>
+</Window>
