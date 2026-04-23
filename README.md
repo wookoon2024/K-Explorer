@@ -17,7 +17,7 @@ Windows용 업무형 파일 탐색기입니다. Total Commander 스타일의 빠
 ![Path History](docs/screenshots/path-history.png)
 
 ## 다운로드
-- 최신 릴리즈: `https://github.com/<YOUR_ORG_OR_ID>/<YOUR_REPO>/releases/latest`
+- 최신 릴리즈: `https://github.com/wookoon2024/K-Explorer/releases/latest`
 - 배포 파일: `K-Explorer-win-x64.zip`
 
 ## 실행 방법
