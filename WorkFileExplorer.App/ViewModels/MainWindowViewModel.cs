@@ -47,6 +47,12 @@ public sealed class MainWindowViewModel : ObservableObject
         public IReadOnlyList<FileSystemItem> Items { get; init; } = Array.Empty<FileSystemItem>();
     }
 
+    private sealed class CachedFreeSpaceInfo
+    {
+        public DateTime CachedAtUtc { get; init; }
+        public string Text { get; init; } = "-";
+    }
+
     private const string DriveRootVirtualPath = "::DRIVES::";
     private const string MemoListVirtualPath = "::MEMO_LIST::";
     private const string FrequentFoldersVirtualPath = "::FREQUENT_FOLDERS::";
@@ -105,11 +111,16 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _isFourPanelMode;
     private bool _isFourPanelGridLayout;
     private bool _usageRefreshQueued;
+    private bool _postMutationRefreshQueued;
     private readonly List<ClipboardTransferItem> _clipboardItems = new();
     private bool _clipboardCutMode;
     private readonly Dictionary<string, CachedDirectoryItems> _directoryItemsCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CachedFreeSpaceInfo> _freeSpaceCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _freeSpaceRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _freeSpaceSync = new();
 
     private static readonly TimeSpan DirectoryItemsCacheDuration = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan FreeSpaceCacheDuration = TimeSpan.FromSeconds(3);
     private const int MaxDirectoryItemsCacheEntries = 24;
 
     public MainWindowViewModel(
@@ -161,11 +172,17 @@ public sealed class MainWindowViewModel : ObservableObject
         get => _selectedLeftTab;
         set
         {
+            var sw = Stopwatch.StartNew();
+            var previousPath = _selectedLeftTab?.Panel.CurrentPath ?? string.Empty;
+            var nextPath = value?.Panel.CurrentPath ?? string.Empty;
             if (!SetProperty(ref _selectedLeftTab, value))
             {
                 return;
             }
+            LiveTrace.Write($"TabSwitch[L] start '{previousPath}' -> '{nextPath}'");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[L] start");
 
+            var step = Stopwatch.StartNew();
             OnPropertyChanged(nameof(LeftPanel));
             OnPropertyChanged(nameof(LeftCurrentPath));
             OnPropertyChanged(nameof(LeftPathHistory));
@@ -173,14 +190,26 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(LeftCanGoForward));
             OnPropertyChanged(nameof(LeftPanelIsTileViewEnabled));
             OnPropertyChanged(nameof(LeftPanelIsCompactListViewEnabled));
+            LiveTrace.Write($"TabSwitch[L] notify-primary {step.ElapsedMilliseconds}ms");
+
+            step.Restart();
             RefreshPanelFreeSpaceTexts();
+            LiveTrace.Write($"TabSwitch[L] refresh-free-space {step.ElapsedMilliseconds}ms");
+
+            step.Restart();
             OnPropertyChanged(nameof(LeftFolderInfo));
             OnPropertyChanged(nameof(StatusBarText));
+            LiveTrace.Write($"TabSwitch[L] notify-summary {step.ElapsedMilliseconds}ms");
             if (IsLeftPanelActive)
             {
+                step.Restart();
                 OnPropertyChanged(nameof(IsTileViewEnabled));
                 OnPropertyChanged(nameof(IsCompactListViewEnabled));
+                LiveTrace.Write($"TabSwitch[L] notify-active-view {step.ElapsedMilliseconds}ms");
             }
+
+            LiveTrace.Write($"TabSwitch[L] done {sw.ElapsedMilliseconds}ms");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[L] done");
         }
     }
 
@@ -189,11 +218,17 @@ public sealed class MainWindowViewModel : ObservableObject
         get => _selectedRightTab;
         set
         {
+            var sw = Stopwatch.StartNew();
+            var previousPath = _selectedRightTab?.Panel.CurrentPath ?? string.Empty;
+            var nextPath = value?.Panel.CurrentPath ?? string.Empty;
             if (!SetProperty(ref _selectedRightTab, value))
             {
                 return;
             }
+            LiveTrace.Write($"TabSwitch[R] start '{previousPath}' -> '{nextPath}'");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[R] start");
 
+            var step = Stopwatch.StartNew();
             OnPropertyChanged(nameof(RightPanel));
             OnPropertyChanged(nameof(RightCurrentPath));
             OnPropertyChanged(nameof(RightPathHistory));
@@ -201,14 +236,26 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(RightCanGoForward));
             OnPropertyChanged(nameof(RightPanelIsTileViewEnabled));
             OnPropertyChanged(nameof(RightPanelIsCompactListViewEnabled));
+            LiveTrace.Write($"TabSwitch[R] notify-primary {step.ElapsedMilliseconds}ms");
+
+            step.Restart();
             RefreshPanelFreeSpaceTexts();
+            LiveTrace.Write($"TabSwitch[R] refresh-free-space {step.ElapsedMilliseconds}ms");
+
+            step.Restart();
             OnPropertyChanged(nameof(RightFolderInfo));
             OnPropertyChanged(nameof(StatusBarText));
+            LiveTrace.Write($"TabSwitch[R] notify-summary {step.ElapsedMilliseconds}ms");
             if (!IsLeftPanelActive)
             {
+                step.Restart();
                 OnPropertyChanged(nameof(IsTileViewEnabled));
                 OnPropertyChanged(nameof(IsCompactListViewEnabled));
+                LiveTrace.Write($"TabSwitch[R] notify-active-view {step.ElapsedMilliseconds}ms");
             }
+
+            LiveTrace.Write($"TabSwitch[R] done {sw.ElapsedMilliseconds}ms");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[R] done");
         }
     }
 
@@ -1130,7 +1177,8 @@ public sealed class MainWindowViewModel : ObservableObject
                 string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
         }
 
-        await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
+        await ReloadPanelsForPathsAsync([panel.CurrentPath]);
+        QueuePostMutationRefresh();
         SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
     }
 
@@ -2526,7 +2574,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         foreach (var filePath in _settings.FavoriteFiles
-                     .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                     .Where(path => !string.IsNullOrWhiteSpace(path))
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!mappings.TryGetValue(filePath, out var category) || string.IsNullOrWhiteSpace(category))
@@ -2711,7 +2759,8 @@ public sealed class MainWindowViewModel : ObservableObject
                 string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
         }
 
-        await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
+        await ReloadPanelsForPathsAsync([panel.CurrentPath]);
+        QueuePostMutationRefresh();
         SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
     }
 
@@ -3183,13 +3232,13 @@ public sealed class MainWindowViewModel : ObservableObject
             .ToArray();
     }
 
-    private void RefreshPanelFreeSpaceTexts()
+    private void RefreshPanelFreeSpaceTexts(bool allowQueueRefresh = true)
     {
-        LeftFreeSpaceText = GetFreeSpaceText(LeftPanel.CurrentPath, SelectedLeftDrive);
-        RightFreeSpaceText = GetFreeSpaceText(RightPanel.CurrentPath, SelectedRightDrive);
+        LeftFreeSpaceText = GetFreeSpaceText(LeftPanel.CurrentPath, SelectedLeftDrive, allowQueueRefresh);
+        RightFreeSpaceText = GetFreeSpaceText(RightPanel.CurrentPath, SelectedRightDrive, allowQueueRefresh);
         foreach (var slot in _fourPanels)
         {
-            slot.FreeSpaceText = GetFreeSpaceText(slot.Panel.CurrentPath, fallbackDrive: null);
+            slot.FreeSpaceText = GetFreeSpaceText(slot.Panel.CurrentPath, fallbackDrive: null, allowQueueRefresh);
         }
         OnPropertyChanged(nameof(LeftFolderInfo));
         OnPropertyChanged(nameof(RightFolderInfo));
@@ -3200,7 +3249,7 @@ public sealed class MainWindowViewModel : ObservableObject
         RefreshPanelFreeSpaceTexts();
     }
 
-    private static string GetFreeSpaceText(string? path, string? fallbackDrive)
+    private string GetFreeSpaceText(string? path, string? fallbackDrive, bool allowQueueRefresh)
     {
         var root = TryResolveDriveRoot(path, fallbackDrive);
         if (string.IsNullOrWhiteSpace(root))
@@ -3208,21 +3257,105 @@ public sealed class MainWindowViewModel : ObservableObject
             return "-";
         }
 
-        try
+        if (TryGetCachedFreeSpaceText(root, requireFresh: true, out var fresh))
         {
-            var task = Task.Run(() =>
+            return fresh;
+        }
+
+        if (allowQueueRefresh)
+        {
+            QueueFreeSpaceRefresh(root);
+        }
+
+        if (TryGetCachedFreeSpaceText(root, requireFresh: false, out var stale))
+        {
+            return stale;
+        }
+
+        return "-";
+    }
+
+    private bool TryGetCachedFreeSpaceText(string root, bool requireFresh, out string text)
+    {
+        lock (_freeSpaceSync)
+        {
+            if (_freeSpaceCache.TryGetValue(root, out var cached))
             {
-                var drive = new DriveInfo(root);
-                if (drive.TotalSize <= 0)
+                if (!requireFresh || DateTime.UtcNow - cached.CachedAtUtc <= FreeSpaceCacheDuration)
                 {
-                    return $"{(drive.AvailableFreeSpace / 1024d / 1024d / 1024d):0.00}GB free";
+                    text = cached.Text;
+                    return true;
+                }
+            }
+        }
+
+        text = "-";
+        return false;
+    }
+
+    private void QueueFreeSpaceRefresh(string root)
+    {
+        lock (_freeSpaceSync)
+        {
+            if (_freeSpaceRefreshInFlight.Contains(root))
+            {
+                return;
+            }
+
+            _freeSpaceRefreshInFlight.Add(root);
+        }
+
+        _ = Task.Run(() => ComputeFreeSpaceText(root)).ContinueWith(task =>
+        {
+            var resolved = task.Status == TaskStatus.RanToCompletion
+                ? task.Result
+                : "-";
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher is null)
+            {
+                lock (_freeSpaceSync)
+                {
+                    _freeSpaceCache[root] = new CachedFreeSpaceInfo
+                    {
+                        CachedAtUtc = DateTime.UtcNow,
+                        Text = resolved
+                    };
+                    _freeSpaceRefreshInFlight.Remove(root);
+                }
+                return;
+            }
+
+            _ = dispatcher.BeginInvoke(() =>
+            {
+                lock (_freeSpaceSync)
+                {
+                    _freeSpaceCache[root] = new CachedFreeSpaceInfo
+                    {
+                        CachedAtUtc = DateTime.UtcNow,
+                        Text = resolved
+                    };
+                    _freeSpaceRefreshInFlight.Remove(root);
                 }
 
-                var freeGb = drive.AvailableFreeSpace / 1024d / 1024d / 1024d;
-                var freePercent = Math.Round((drive.AvailableFreeSpace * 100d) / drive.TotalSize);
-                return $"{freeGb:0.00}GB({freePercent:0}%) free";
-            });
-            return task.Wait(TimeSpan.FromMilliseconds(250)) ? task.Result : "-";
+                RefreshPanelFreeSpaceTexts(allowQueueRefresh: false);
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }, TaskScheduler.Default);
+    }
+
+    private static string ComputeFreeSpaceText(string root)
+    {
+        try
+        {
+            var drive = new DriveInfo(root);
+            if (drive.TotalSize <= 0)
+            {
+                return $"{(drive.AvailableFreeSpace / 1024d / 1024d / 1024d):0.00}GB free";
+            }
+
+            var freeGb = drive.AvailableFreeSpace / 1024d / 1024d / 1024d;
+            var freePercent = Math.Round((drive.AvailableFreeSpace * 100d) / drive.TotalSize);
+            return $"{freeGb:0.00}GB({freePercent:0}%) free";
         }
         catch
         {
@@ -4190,6 +4323,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ReloadPanelsForPathsAndDashboardAsync(IEnumerable<string?> paths)
     {
+        await ReloadPanelsForPathsAsync(paths);
+        await RefreshSidebarAndDashboardAsync();
+        await PersistSettingsAsync();
+    }
+
+    private async Task ReloadPanelsForPathsAsync(IEnumerable<string?> paths)
+    {
         var targetPaths = paths
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => path!.TrimEnd('\\'))
@@ -4197,7 +4337,10 @@ public sealed class MainWindowViewModel : ObservableObject
             .ToArray();
         if (targetPaths.Length == 0)
         {
-            await ReloadPanelsAndDashboardAsync();
+            _directoryItemsCache.Clear();
+            foreach (var tab in LeftTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
+            foreach (var tab in RightTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
+            foreach (var slot in _fourPanels) await LoadPanelAsync(slot.Panel, slot.Panel.CurrentPath, false);
             return;
         }
 
@@ -4220,9 +4363,38 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             await LoadPanelAsync(slot.Panel, slot.Panel.CurrentPath, false);
         }
+    }
 
-        await RefreshSidebarAndDashboardAsync();
-        await PersistSettingsAsync();
+    private void QueuePostMutationRefresh()
+    {
+        if (_postMutationRefreshQueued)
+        {
+            return;
+        }
+
+        _postMutationRefreshQueued = true;
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            _postMutationRefreshQueued = false;
+            return;
+        }
+
+        _ = dispatcher.BeginInvoke(async () =>
+        {
+            try
+            {
+                await RefreshSidebarAndDashboardAsync();
+                await PersistSettingsAsync();
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _postMutationRefreshQueued = false;
+            }
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private bool TryGetDirectoryItemsFromCache(string normalizedPath, out IReadOnlyList<FileSystemItem> items)

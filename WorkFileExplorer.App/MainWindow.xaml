@@ -778,6 +778,7 @@
         </DataTemplate>
     </Window.Resources>
 
+    <Grid>
     <DockPanel LastChildFill="True">
         <Menu DockPanel.Dock="Top" Background="#E6E6E6" FontSize="12">
             <MenuItem Header="파일(F)">
@@ -926,7 +927,11 @@
                 </Grid>
 
                 <Border Margin="0,3,0,0" Background="#E6E6E6" BorderBrush="#BEBEBE" BorderThickness="1" Padding="2,2,2,1">
-                    <Grid>
+                    <Grid x:Name="FavoriteToolbarGrid">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
@@ -945,9 +950,6 @@
                                 Padding="8,0,8,0"
                                 Content="{Binding FavoriteToolbarFiles[0].Name, FallbackValue=즐겨찾기 파일[0개], TargetNullValue=즐겨찾기 파일[0개]}"
                                 ToolTip="즐겨찾기 트리 열기"
-                                MouseEnter="OnFavoriteToolbarFilesMouseEnter"
-                                MouseLeave="OnFavoriteToolbarFilesMouseLeave"
-                                PreviewMouseLeftButtonDown="OnFavoriteToolbarFilesPreviewMouseLeftButtonDown"
                                 Click="OnFavoriteToolbarFilesClick" />
                         <Border Grid.Column="2" Style="{StaticResource ToolbarSeparatorStyle}" />
                         <ScrollViewer Grid.Column="3" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" CanContentScroll="True">
@@ -971,109 +973,11 @@
                                                 PreviewMouseMove="OnFavoriteToolbarFolderPreviewMouseMove"
                                                 DragOver="OnFavoriteToolbarFolderDragOver"
                                                 Drop="OnFavoriteToolbarFolderDrop"
-                                                MouseEnter="OnFavoriteToolbarFolderMouseEnter"
-                                                MouseLeave="OnFavoriteToolbarFolderMouseLeave"
-                                                Click="OnFavoriteToolbarFolderClick"
-                                                Command="{Binding DataContext.NavigateQuickAccessCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                CommandParameter="{Binding}" />
+                                                Click="OnFavoriteToolbarFolderClick" />
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </ScrollViewer>
-                        <Popup x:Name="FavoriteFolderFlyoutPopup"
-                               Placement="Bottom"
-                               StaysOpen="True"
-                               AllowsTransparency="True"
-                               PopupAnimation="Fade"
-                               MouseEnter="OnFavoriteFlyoutMouseEnter"
-                               MouseLeave="OnFavoriteFlyoutMouseLeave">
-                            <Border Background="#FAFAFA"
-                                    BorderBrush="#969696"
-                                    BorderThickness="1"
-                                    CornerRadius="2"
-                                    Padding="6"
-                                    Width="320"
-                                    MaxHeight="460"
-                                    SnapsToDevicePixels="True">
-                                <TreeView x:Name="FavoriteFolderFlyoutTree"
-                                          Background="Transparent"
-                                          BorderThickness="0"
-                                          PreviewMouseLeftButtonUp="OnFavoriteFlyoutTreeMouseLeftButtonUp"
-                                          KeyDown="OnFavoriteFlyoutTreeKeyDown">
-                                    <TreeView.ItemContainerStyle>
-                                        <Style TargetType="TreeViewItem">
-                                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                                            <Setter Property="Padding" Value="2,1" />
-                                            <Setter Property="Margin" Value="0,1,0,1" />
-                                            <Setter Property="FontSize" Value="12" />
-                                            <EventSetter Event="Expanded" Handler="OnFavoriteFlyoutTreeItemExpanded" />
-                                        </Style>
-                                    </TreeView.ItemContainerStyle>
-                                    <TreeView.ItemTemplate>
-                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="📁"
-                                                           Margin="0,0,6,0"
-                                                           Foreground="#936A00" />
-                                                <TextBlock Text="{Binding Name}"
-                                                           Foreground="#202020" />
-                                            </StackPanel>
-                                        </HierarchicalDataTemplate>
-                                    </TreeView.ItemTemplate>
-                                </TreeView>
-                            </Border>
-                        </Popup>
-                        <Popup x:Name="FavoriteFilesFlyoutPopup"
-                               Placement="Bottom"
-                               StaysOpen="True"
-                               AllowsTransparency="True"
-                               PopupAnimation="Fade"
-                               MouseEnter="OnFavoriteFilesFlyoutMouseEnter"
-                               MouseLeave="OnFavoriteFilesFlyoutMouseLeave">
-                            <Border Background="#FAFAFA"
-                                    BorderBrush="#969696"
-                                    BorderThickness="1"
-                                    CornerRadius="2"
-                                    Padding="6"
-                                    Width="360"
-                                    MaxHeight="460"
-                                    SnapsToDevicePixels="True">
-                                <TreeView x:Name="FavoriteFilesFlyoutTree"
-                                          Background="Transparent"
-                                          BorderThickness="0"
-                                          PreviewMouseLeftButtonUp="OnFavoriteFilesFlyoutTreeMouseLeftButtonUp"
-                                          KeyDown="OnFavoriteFilesFlyoutTreeKeyDown">
-                                    <TreeView.ItemContainerStyle>
-                                        <Style TargetType="TreeViewItem">
-                                            <Setter Property="IsExpanded" Value="True" />
-                                            <Setter Property="Padding" Value="2,1" />
-                                            <Setter Property="Margin" Value="0,1,0,1" />
-                                            <Setter Property="FontSize" Value="12" />
-                                        </Style>
-                                    </TreeView.ItemContainerStyle>
-                                    <TreeView.ItemTemplate>
-                                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock x:Name="FavoriteNodeIcon"
-                                                           Text="📁"
-                                                           Margin="0,0,6,0"
-                                                           Foreground="#936A00" />
-                                                <TextBlock x:Name="FavoriteNodeText"
-                                                           Text="{Binding Name}"
-                                                           Foreground="#202020" />
-                                            </StackPanel>
-                                            <HierarchicalDataTemplate.Triggers>
-                                                <DataTrigger Binding="{Binding IsDirectory}" Value="False">
-                                                    <Setter TargetName="FavoriteNodeIcon" Property="Text" Value="📄" />
-                                                    <Setter TargetName="FavoriteNodeIcon" Property="Foreground" Value="#4F5F6F" />
-                                                    <Setter TargetName="FavoriteNodeText" Property="Foreground" Value="#111111" />
-                                                </DataTrigger>
-                                            </HierarchicalDataTemplate.Triggers>
-                                        </HierarchicalDataTemplate>
-                                    </TreeView.ItemTemplate>
-                                </TreeView>
-                            </Border>
-                        </Popup>
                     </Grid>
                 </Border>
             </StackPanel>
@@ -1166,16 +1070,17 @@
                                 <Button Width="24" Height="22" Margin="2,0,0,0" Content="+" Click="OnAddLeftTabClick" />
                                 <Button Width="24" Height="22" Margin="2,0,0,0" Content="-" Click="OnCloseLeftTabClick" />
                             </StackPanel>
-                            <TabControl x:Name="LeftTabsControl"
-                                        Style="{StaticResource SingleRowTabControlStyle}"
-                                        Height="24"
-                                        Margin="0,0,2,0"
-                                        ItemsSource="{Binding LeftTabs}"
-                                        SelectedItem="{Binding SelectedLeftTab, Mode=TwoWay}"
-                                        MouseDoubleClick="OnLeftTabsMouseDoubleClick"
-                                        PreviewMouseLeftButtonDown="OnTabPreviewMouseLeftButtonDown"
-                                        PreviewMouseRightButtonDown="OnTabPreviewMouseRightButtonDown"
-                                        PreviewMouseMove="OnTabPreviewMouseMove"
+                             <TabControl x:Name="LeftTabsControl"
+                                         Style="{StaticResource SingleRowTabControlStyle}"
+                                         Height="24"
+                                         Margin="0,0,2,0"
+                                         ItemsSource="{Binding LeftTabs}"
+                                         SelectedItem="{Binding SelectedLeftTab, Mode=TwoWay}"
+                                         SelectionChanged="OnPanelTabsSelectionChanged"
+                                         MouseDoubleClick="OnLeftTabsMouseDoubleClick"
+                                         PreviewMouseLeftButtonDown="OnTabPreviewMouseLeftButtonDown"
+                                         PreviewMouseRightButtonDown="OnTabPreviewMouseRightButtonDown"
+                                         PreviewMouseMove="OnTabPreviewMouseMove"
                                         Drop="OnLeftTabsDrop"
                                         DragOver="OnTabsDragOver"
                                         AllowDrop="True">
@@ -1285,16 +1190,17 @@
                                 <Button Width="24" Height="22" Margin="2,0,0,0" Content="+" Click="OnAddRightTabClick" />
                                 <Button Width="24" Height="22" Margin="2,0,0,0" Content="-" Click="OnCloseRightTabClick" />
                             </StackPanel>
-                            <TabControl x:Name="RightTabsControl"
-                                        Style="{StaticResource SingleRowTabControlStyle}"
-                                        Height="24"
-                                        Margin="0,0,2,0"
-                                        ItemsSource="{Binding RightTabs}"
-                                        SelectedItem="{Binding SelectedRightTab, Mode=TwoWay}"
-                                        MouseDoubleClick="OnRightTabsMouseDoubleClick"
-                                        PreviewMouseLeftButtonDown="OnTabPreviewMouseLeftButtonDown"
-                                        PreviewMouseRightButtonDown="OnTabPreviewMouseRightButtonDown"
-                                        PreviewMouseMove="OnTabPreviewMouseMove"
+                             <TabControl x:Name="RightTabsControl"
+                                         Style="{StaticResource SingleRowTabControlStyle}"
+                                         Height="24"
+                                         Margin="0,0,2,0"
+                                         ItemsSource="{Binding RightTabs}"
+                                         SelectedItem="{Binding SelectedRightTab, Mode=TwoWay}"
+                                         SelectionChanged="OnPanelTabsSelectionChanged"
+                                         MouseDoubleClick="OnRightTabsMouseDoubleClick"
+                                         PreviewMouseLeftButtonDown="OnTabPreviewMouseLeftButtonDown"
+                                         PreviewMouseRightButtonDown="OnTabPreviewMouseRightButtonDown"
+                                         PreviewMouseMove="OnTabPreviewMouseMove"
                                         Drop="OnRightTabsDrop"
                                         DragOver="OnTabsDragOver"
                                         AllowDrop="True">
@@ -2165,4 +2071,103 @@
 
         </Grid>
     </DockPanel>
+
+    <Border x:Name="FavoriteFilesOverlayPanel"
+            Width="360"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Margin="0,0,0,0"
+            Background="#FAFAFA"
+            BorderBrush="#969696"
+            BorderThickness="1"
+            CornerRadius="2"
+            Padding="6"
+            MaxHeight="420"
+            Visibility="Collapsed"
+            Panel.ZIndex="2000"
+            SnapsToDevicePixels="True">
+        <TreeView x:Name="FavoriteFilesFlyoutTree"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  VirtualizingStackPanel.IsVirtualizing="True"
+                  VirtualizingStackPanel.VirtualizationMode="Recycling"
+                  ScrollViewer.CanContentScroll="True"
+                  PreviewMouseLeftButtonUp="OnFavoriteFilesFlyoutTreeMouseLeftButtonUp"
+                  KeyDown="OnFavoriteFilesFlyoutTreeKeyDown">
+            <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem">
+                    <Setter Property="IsExpanded" Value="True" />
+                    <Setter Property="Padding" Value="2,1" />
+                    <Setter Property="Margin" Value="0,1,0,1" />
+                    <Setter Property="FontSize" Value="12" />
+                </Style>
+            </TreeView.ItemContainerStyle>
+            <TreeView.ItemTemplate>
+                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="FavoriteNodeIcon"
+                                   Text="📁"
+                                   Margin="0,0,6,0"
+                                   Foreground="#936A00" />
+                        <TextBlock x:Name="FavoriteNodeText"
+                                   Text="{Binding Name}"
+                                   Foreground="#202020" />
+                    </StackPanel>
+                    <HierarchicalDataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsDirectory}" Value="False">
+                            <Setter TargetName="FavoriteNodeIcon" Property="Text" Value="📄" />
+                            <Setter TargetName="FavoriteNodeIcon" Property="Foreground" Value="#4F5F6F" />
+                            <Setter TargetName="FavoriteNodeText" Property="Foreground" Value="#111111" />
+                        </DataTrigger>
+                    </HierarchicalDataTemplate.Triggers>
+                </HierarchicalDataTemplate>
+            </TreeView.ItemTemplate>
+        </TreeView>
+    </Border>
+
+    <Border x:Name="FavoriteFolderOverlayPanel"
+            Width="320"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Margin="0,0,0,0"
+            Background="#FAFAFA"
+            BorderBrush="#969696"
+            BorderThickness="1"
+            CornerRadius="2"
+            Padding="6"
+            MaxHeight="460"
+            Visibility="Collapsed"
+            Panel.ZIndex="1999"
+            SnapsToDevicePixels="True">
+        <TreeView x:Name="FavoriteFolderFlyoutTree"
+                  Background="Transparent"
+                  BorderThickness="0"
+                  VirtualizingStackPanel.IsVirtualizing="True"
+                  VirtualizingStackPanel.VirtualizationMode="Recycling"
+                  ScrollViewer.CanContentScroll="True"
+                  PreviewMouseLeftButtonUp="OnFavoriteFlyoutTreeMouseLeftButtonUp"
+                  KeyDown="OnFavoriteFlyoutTreeKeyDown">
+            <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem">
+                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    <Setter Property="Padding" Value="2,1" />
+                    <Setter Property="Margin" Value="0,1,0,1" />
+                    <Setter Property="FontSize" Value="12" />
+                    <EventSetter Event="Expanded" Handler="OnFavoriteFlyoutTreeItemExpanded" />
+                </Style>
+            </TreeView.ItemContainerStyle>
+            <TreeView.ItemTemplate>
+                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="📁"
+                                   Margin="0,0,6,0"
+                                   Foreground="#936A00" />
+                        <TextBlock Text="{Binding Name}"
+                                   Foreground="#202020" />
+                    </StackPanel>
+                </HierarchicalDataTemplate>
+            </TreeView.ItemTemplate>
+        </TreeView>
+    </Border>
+    </Grid>
 </Window>
