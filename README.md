@@ -18,6 +18,7 @@ Windows용 업무형 파일 탐색기입니다. Total Commander 스타일의 빠
 
 ## 다운로드
 - 최신 릴리즈: `https://github.com/wookoon2024/K-Explorer/releases/latest`
+- 빠른 다운로드(zip): `https://github.com/wookoon2024/K-Explorer/raw/main/dist/K-Explorer-win-x64.zip`
 - 배포 파일: `K-Explorer-win-x64.zip`
 
 ## 실행 방법
