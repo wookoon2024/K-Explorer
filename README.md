@@ -1,6 +1,6 @@
 ﻿# K-Explorer
 
-Windows용 업무형 파일 탐색기입니다. Total Commander 스타일의 빠른 키보드 중심 탐색 경험에, 즐겨찾기/핀/메모/검색/2패널·4패널 전환 기능을 결합했습니다.
+Windows용 업무형 파일 탐색기입니다. 빠른 키보드 중심 탐색 경험에, 즐겨찾기/핀/메모/검색/2패널·4패널 전환 기능을 결합했습니다.
 
 ## 주요 기능
 - 2패널/4패널 모드 전환
@@ -13,12 +13,15 @@ Windows용 업무형 파일 탐색기입니다. Total Commander 스타일의 빠
 ## 스크린샷
 > 아래 이미지는 최신 UI로 계속 갱신됩니다.
 
-![Main UI](docs/screenshots/main-ui.png)
-![Path History](docs/screenshots/path-history.png)
+| 화면 1 | 화면 2 |
+| --- | --- |
+| ![Screen 1](docs/1.png) | ![Screen 2](docs/2.png) |
+| ![Screen 3](docs/3.png) | ![Screen 4](docs/4.png) |
+| ![Screen 5](docs/5.png) |  |
 
 ## 다운로드
 - 최신 릴리즈: `https://github.com/wookoon2024/K-Explorer/releases/latest`
-- 빠른 다운로드(zip): `https://github.com/wookoon2024/K-Explorer/raw/main/dist/K-Explorer-win-x64.zip`
+- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/dist/K-Explorer-win-x64.zip)
 - 배포 파일: `K-Explorer-win-x64.zip`
 
 ## 실행 방법
