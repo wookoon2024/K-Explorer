@@ -47,7 +47,7 @@ public partial class ImageViewerWindow : Window
 
         _transformGroup.Children.Add(_scale);
         _transformGroup.Children.Add(_rotate);
-        ViewerImage.RenderTransform = _transformGroup;
+        ViewerImage.LayoutTransform = _transformGroup;
 
         InitializeImageList(imagePath);
         BuildThumbnailItems();
@@ -239,6 +239,10 @@ public partial class ImageViewerWindow : Window
         var scaleY = ImageScrollViewer.ViewportHeight / Math.Max(1, height);
         _fitMode = true;
         SetZoom(Math.Min(scaleX, scaleY), keepMode: true);
+
+        // When entering fit mode, reset stale scroll offsets from previous zoom/pan.
+        ImageScrollViewer.ScrollToHorizontalOffset(0);
+        ImageScrollViewer.ScrollToVerticalOffset(0);
     }
 
     private void SaveViewerScalePreference()

@@ -92,13 +92,14 @@
             <ScrollViewer x:Name="ImageScrollViewer"
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Auto"
+                          HorizontalContentAlignment="Center"
+                          VerticalContentAlignment="Center"
                           PreviewMouseWheel="OnImagePreviewMouseWheel">
                 <Grid>
                     <Image x:Name="ViewerImage"
                            Stretch="None"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
-                           RenderTransformOrigin="0.5,0.5"
                            RenderOptions.BitmapScalingMode="HighQuality" />
                 </Grid>
             </ScrollViewer>
