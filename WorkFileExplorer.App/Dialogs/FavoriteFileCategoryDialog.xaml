@@ -1,0 +1,212 @@
+<Window x:Class="WorkFileExplorer.App.Dialogs.FavoriteFileCategoryDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="즐겨찾기 파일 분류"
+        Width="480"
+        Height="420"
+        MinWidth="440"
+        MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Background="#F4F4F4"
+        FontFamily="Malgun Gothic">
+    <Window.Resources>
+        <Style x:Key="TreeActionButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="84" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Background" Value="#F5F6F8" />
+            <Setter Property="BorderBrush" Value="#B9C1CE" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#EAF0FA" />
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#A7B6CD" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#DCE6F5" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BottomButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="#B6B6B6" />
+            <Setter Property="Background" Value="#F5F5F5" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#EBEEF3" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#E0E6EF" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="즐겨찾기 파일 폴더 선택"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="#1F1F1F"
+                   Margin="0,0,0,6" />
+
+        <TextBlock Grid.Row="1"
+                   Text="{Binding TargetPath}"
+                   TextTrimming="CharacterEllipsis"
+                   Foreground="#525252"
+                   Margin="0,0,0,8" />
+
+        <Border Grid.Row="2"
+                BorderBrush="#B6B6B6"
+                BorderThickness="1"
+                CornerRadius="4"
+                Background="White"
+                Padding="8">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Bottom"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            Margin="0,8,0,0">
+                    <Button Style="{StaticResource TreeActionButtonStyle}" Content="폴더 추가" Click="OnAddFolderClick" />
+                    <Button Style="{StaticResource TreeActionButtonStyle}" Content="이름 변경" Click="OnRenameFolderClick" />
+                    <Button Width="84"
+                            Height="28"
+                            Margin="0"
+                            Background="#F5F6F8"
+                            BorderBrush="#C3A8A8"
+                            BorderThickness="1"
+                            Content="폴더 삭제"
+                            Click="OnDeleteFolderClick" />
+                </StackPanel>
+
+                <Border BorderBrush="#D3D7DF"
+                        BorderThickness="1"
+                        CornerRadius="3"
+                        Background="#FCFCFD"
+                        Padding="4">
+                    <TreeView x:Name="FolderTree"
+                              ItemsSource="{Binding TreeNodes}"
+                              SelectedItemChanged="OnFolderTreeSelectedItemChanged"
+                              Background="Transparent"
+                              BorderThickness="0">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                                <Setter Property="Padding" Value="2,1" />
+                                <Setter Property="Margin" Value="0,1,0,1" />
+                                <Setter Property="FontSize" Value="12.5" />
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                <Grid>
+                                    <TextBlock Text="{Binding Name}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBox Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}"
+                                             Loaded="OnEditNameTextBoxLoaded"
+                                             KeyDown="OnEditNameTextBoxKeyDown"
+                                             LostFocus="OnEditNameTextBoxLostFocus"
+                                             MinWidth="120"
+                                             Padding="4,2">
+                                        <TextBox.Style>
+                                            <Style TargetType="TextBox">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBox.Style>
+                                    </TextBox>
+                                </Grid>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </Border>
+            </DockPanel>
+        </Border>
+
+        <StackPanel Grid.Row="3"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,10,0,0">
+            <Button Width="100"
+                    Margin="0,0,8,0"
+                    Style="{StaticResource BottomButtonStyle}"
+                    Content="즐겨찾기 해제"
+                    Click="OnUnfavoriteClick"
+                    IsEnabled="{Binding CanUnfavorite}" />
+            <Button Width="84"
+                    Margin="0,0,8,0"
+                    Style="{StaticResource BottomButtonStyle}"
+                    Background="#E8F0FD"
+                    BorderBrush="#8CAEE8"
+                    Content="확인"
+                    IsDefault="True"
+                    Click="OnConfirmClick" />
+            <Button Width="84"
+                    Style="{StaticResource BottomButtonStyle}"
+                    Content="취소"
+                    IsCancel="True"
+                    Click="OnCancelClick" />
+        </StackPanel>
+    </Grid>
+</Window>
