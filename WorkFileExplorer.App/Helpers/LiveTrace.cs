@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace WorkFileExplorer.App.Helpers;
@@ -6,6 +7,8 @@ public static class LiveTrace
 {
     private static readonly object Gate = new();
     private static readonly string LogFile = Path.Combine(AppContext.BaseDirectory, "live_trace.log");
+    private static readonly bool Enabled =
+        string.Equals(Environment.GetEnvironmentVariable("KEXPLORER_LIVETRACE"), "1", StringComparison.OrdinalIgnoreCase);
     private static bool _initialized;
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -21,6 +24,12 @@ public static class LiveTrace
 
     public static void Init()
     {
+        if (!Enabled)
+        {
+            _initialized = true;
+            return;
+        }
+
         lock (Gate)
         {
             if (_initialized)
@@ -51,6 +60,11 @@ public static class LiveTrace
 
     public static void Write(string message)
     {
+        if (!Enabled)
+        {
+            return;
+        }
+
         lock (Gate)
         {
             var line = $"[{DateTime.Now:HH:mm:ss.fff}] [T{Environment.CurrentManagedThreadId}] {message}";
@@ -71,6 +85,28 @@ public static class LiveTrace
             catch
             {
             }
+        }
+    }
+
+    public static void WriteProcessSnapshot(string tag)
+    {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            var workingSetMb = process.WorkingSet64 / (1024d * 1024d);
+            var privateMb = process.PrivateMemorySize64 / (1024d * 1024d);
+            var gcMb = GC.GetTotalMemory(forceFullCollection: false) / (1024d * 1024d);
+            var cpuMs = process.TotalProcessorTime.TotalMilliseconds;
+            Write($"{tag} perf cpuMs={cpuMs:N0} wsMb={workingSetMb:N1} privateMb={privateMb:N1} handles={process.HandleCount} threads={process.Threads.Count} gcMb={gcMb:N1}");
+        }
+        catch (Exception ex)
+        {
+            Write($"{tag} perf snapshot failed: {ex.GetType().Name}");
         }
     }
 }

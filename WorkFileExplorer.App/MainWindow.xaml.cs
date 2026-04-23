@@ -33,19 +33,21 @@ public partial class MainWindow : Window
     private bool _allowInlineNameEdit;
     private string? _inlineRenameSourcePath;
     private string? _inlineRenameOriginalName;
+    private DateTime _lastTabInteractionUtc = DateTime.MinValue;
     private bool _windowLoaded;
     private readonly Dictionary<FourPanelSlotViewModel, List<DataGrid>> _fourPanelGrids = new();
     private readonly Dictionary<FourPanelSlotViewModel, List<ListBox>> _fourPanelTileLists = new();
     private readonly Dictionary<ListBox, double> _adaptiveTileSizes = new();
     private Point _favoriteToolbarDragStart;
     private QuickAccessItem? _favoriteToolbarDragItem;
-    private readonly DispatcherTimer _favoriteFlyoutCloseTimer = new() { Interval = TimeSpan.FromMilliseconds(220) };
     private readonly ObservableCollection<FavoriteFolderTreeNode> _favoriteFlyoutNodes = [];
     private readonly ObservableCollection<FavoriteEntryTreeNode> _favoriteFileFlyoutNodes = [];
+    private readonly Dictionary<string, FavoriteFolderTreeNode> _favoriteFolderRootCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DataGridColumn, string> _panelGridHeaderLabels = new();
     private Button? _favoriteFlyoutSourceButton;
     private Button? _favoriteFilesFlyoutSourceButton;
-    private bool _suppressNextFavoriteFilesToolbarClick;
+    private bool _isFavoriteFilesOverlayOpen;
+    private bool _isFavoriteFolderOverlayOpen;
     private int _activeFourPanelIndex;
     private PanelItemDragPayload? _activePanelDragPayload;
     private MainWindowViewModel? _subscribedVm;
@@ -53,7 +55,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _favoriteFlyoutCloseTimer.Tick += OnFavoriteFlyoutCloseTimerTick;
         Loaded += (_, _) => _windowLoaded = true;
         Loaded += OnMainWindowLoaded;
         DataContextChanged += OnMainWindowDataContextChanged;
@@ -101,8 +102,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        var recentTabInteraction = DateTime.UtcNow - _lastTabInteractionUtc <= TimeSpan.FromMilliseconds(220);
+
         if (string.Equals(e.PropertyName, nameof(MainWindowViewModel.LeftCurrentPath), StringComparison.Ordinal))
         {
+            if (recentTabInteraction)
+            {
+                return;
+            }
+
             // When folder changes, return keyboard focus to the file list so Up/Down works immediately.
             FocusPanelAfterPathNavigation(left: true);
             return;
@@ -110,6 +118,11 @@ public partial class MainWindow : Window
 
         if (string.Equals(e.PropertyName, nameof(MainWindowViewModel.RightCurrentPath), StringComparison.Ordinal))
         {
+            if (recentTabInteraction)
+            {
+                return;
+            }
+
             // When folder changes, return keyboard focus to the file list so Up/Down works immediately.
             FocusPanelAfterPathNavigation(left: false);
         }
@@ -1438,41 +1451,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_suppressNextFavoriteFilesToolbarClick)
-        {
-            _suppressNextFavoriteFilesToolbarClick = false;
-            e.Handled = true;
-            return;
-        }
-
-        if (FavoriteFilesFlyoutPopup.IsOpen)
+        if (_isFavoriteFilesOverlayOpen)
         {
             HideFavoriteFilesFlyout();
             return;
         }
 
         ShowFavoriteFilesFlyout(button);
-        e.Handled = true;
-    }
-
-    private void OnFavoriteToolbarFilesPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (Vm is null || sender is not Button button)
-        {
-            return;
-        }
-
-        // Handle toggle before Click to avoid Popup(StaysOpen=False) reopen race.
-        if (FavoriteFilesFlyoutPopup.IsOpen)
-        {
-            HideFavoriteFilesFlyout();
-            _suppressNextFavoriteFilesToolbarClick = true;
-            e.Handled = true;
-            return;
-        }
-
-        ShowFavoriteFilesFlyout(button);
-        _suppressNextFavoriteFilesToolbarClick = true;
         e.Handled = true;
     }
 
@@ -1485,19 +1470,29 @@ public partial class MainWindow : Window
 
         try
         {
+            var sw = Stopwatch.StartNew();
             // Keep favorite flyouts mutually exclusive.
             HideFavoriteFolderFlyout();
+            var categoryGroups = Vm.GetFavoriteFileCategoriesWithFiles();
+            var categories = categoryGroups.Count;
+            var files = categoryGroups.Values.Sum(list => list.Count);
+            LiveTrace.Write($"FavoriteFilesFlyout open requested categories={categories} files={files}");
+            LiveTrace.WriteProcessSnapshot("FavoriteFilesFlyout open requested");
             _favoriteFileFlyoutNodes.Clear();
-            BuildFavoriteFilesTreeNodes(_favoriteFileFlyoutNodes, Vm.GetFavoriteFileCategoriesWithFiles());
+            BuildFavoriteFilesTreeNodes(_favoriteFileFlyoutNodes, categoryGroups);
             if (_favoriteFileFlyoutNodes.Count == 0)
             {
+                LiveTrace.Write($"FavoriteFilesFlyout open aborted (empty) in {sw.ElapsedMilliseconds}ms");
                 return;
             }
 
             _favoriteFilesFlyoutSourceButton = sourceButton;
-            FavoriteFilesFlyoutPopup.PlacementTarget = sourceButton;
             FavoriteFilesFlyoutTree.ItemsSource = _favoriteFileFlyoutNodes;
-            FavoriteFilesFlyoutPopup.IsOpen = true;
+            PositionFavoriteFilesOverlay(sourceButton);
+            FavoriteFilesOverlayPanel.Visibility = Visibility.Visible;
+            _isFavoriteFilesOverlayOpen = true;
+            LiveTrace.Write($"FavoriteFilesFlyout opened roots={_favoriteFileFlyoutNodes.Count} nodes={CountFavoriteEntryNodes(_favoriteFileFlyoutNodes)} in {sw.ElapsedMilliseconds}ms");
+            LiveTrace.WriteProcessSnapshot("FavoriteFilesFlyout opened");
         }
         catch (Exception ex)
         {
@@ -1509,9 +1504,72 @@ public partial class MainWindow : Window
 
     private void HideFavoriteFilesFlyout()
     {
-        FavoriteFilesFlyoutPopup.IsOpen = false;
+        if (!_isFavoriteFilesOverlayOpen &&
+            _favoriteFileFlyoutNodes.Count == 0 &&
+            _favoriteFilesFlyoutSourceButton is null)
+        {
+            return;
+        }
+
+        var sw = Stopwatch.StartNew();
+        var wasOpen = _isFavoriteFilesOverlayOpen;
+        var roots = _favoriteFileFlyoutNodes.Count;
+        var nodes = CountFavoriteEntryNodes(_favoriteFileFlyoutNodes);
+        FavoriteFilesOverlayPanel.Visibility = Visibility.Collapsed;
+        _isFavoriteFilesOverlayOpen = false;
+        FavoriteFilesFlyoutTree.ItemsSource = null;
         _favoriteFileFlyoutNodes.Clear();
         _favoriteFilesFlyoutSourceButton = null;
+        LiveTrace.Write($"FavoriteFilesFlyout hidden wasOpen={wasOpen} roots={roots} nodes={nodes} in {sw.ElapsedMilliseconds}ms");
+        LiveTrace.WriteProcessSnapshot("FavoriteFilesFlyout hidden");
+    }
+
+    private void PositionFavoriteFilesOverlay(Button sourceButton)
+    {
+        if (FavoriteToolbarGrid is null || FavoriteFilesOverlayPanel is null)
+        {
+            return;
+        }
+
+        UpdateLayout();
+        FavoriteFilesOverlayPanel.UpdateLayout();
+        var origin = sourceButton.TranslatePoint(new Point(0, sourceButton.ActualHeight + 4), this);
+        var overlayWidth = FavoriteFilesOverlayPanel.Width > 0
+            ? FavoriteFilesOverlayPanel.Width
+            : FavoriteFilesOverlayPanel.ActualWidth;
+        if (overlayWidth <= 0)
+        {
+            overlayWidth = 360;
+        }
+
+        var maxX = Math.Max(0, ActualWidth - overlayWidth - 12);
+        var x = Math.Clamp(origin.X - 2, 0, maxX);
+        var y = Math.Max(2d, origin.Y + 2);
+        FavoriteFilesOverlayPanel.Margin = new Thickness(x, y, 0, 0);
+    }
+
+    private void PositionFavoriteFolderOverlay(Button sourceButton)
+    {
+        if (FavoriteToolbarGrid is null || FavoriteFolderOverlayPanel is null)
+        {
+            return;
+        }
+
+        UpdateLayout();
+        FavoriteFolderOverlayPanel.UpdateLayout();
+        var origin = sourceButton.TranslatePoint(new Point(0, sourceButton.ActualHeight + 4), this);
+        var overlayWidth = FavoriteFolderOverlayPanel.Width > 0
+            ? FavoriteFolderOverlayPanel.Width
+            : FavoriteFolderOverlayPanel.ActualWidth;
+        if (overlayWidth <= 0)
+        {
+            overlayWidth = 320;
+        }
+
+        var maxX = Math.Max(0, ActualWidth - overlayWidth - 12);
+        var x = Math.Clamp(origin.X - 2, 0, maxX);
+        var y = Math.Max(2d, origin.Y + 2);
+        FavoriteFolderOverlayPanel.Margin = new Thickness(x, y, 0, 0);
     }
 
     private static void BuildFavoriteFilesTreeNodes(
@@ -1736,140 +1794,131 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void OnFavoriteToolbarFolderMouseEnter(object sender, MouseEventArgs e)
+    private void OnFavoriteToolbarFolderClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button || button.DataContext is not QuickAccessItem item)
         {
             return;
         }
 
-        _favoriteFlyoutCloseTimer.Stop();
+        if (_isFavoriteFolderOverlayOpen &&
+            ReferenceEquals(_favoriteFlyoutSourceButton, button) &&
+            _favoriteFlyoutNodes.Count > 0 &&
+            string.Equals(_favoriteFlyoutNodes[0].FullPath, item.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            HideFavoriteFolderFlyout();
+            e.Handled = true;
+            return;
+        }
+
         ShowFavoriteFolderFlyout(button, item);
-    }
-
-    private void OnFavoriteToolbarFolderMouseLeave(object sender, MouseEventArgs e)
-    {
-        StartFavoriteFlyoutCloseTimer();
-    }
-
-    private void OnFavoriteToolbarFolderClick(object sender, RoutedEventArgs e)
-    {
-        _favoriteFlyoutCloseTimer.Stop();
-        HideFavoriteFolderFlyout();
-        HideFavoriteFilesFlyout();
-    }
-
-    private void OnFavoriteToolbarFilesMouseEnter(object sender, MouseEventArgs e)
-    {
-        if (Vm is null || sender is not Button button)
-        {
-            return;
-        }
-
-        _favoriteFlyoutCloseTimer.Stop();
-        HideFavoriteFolderFlyout();
-        ShowFavoriteFilesFlyout(button);
-    }
-
-    private void OnFavoriteToolbarFilesMouseLeave(object sender, MouseEventArgs e)
-    {
-        StartFavoriteFlyoutCloseTimer();
-    }
-
-    private void OnFavoriteFlyoutMouseEnter(object sender, MouseEventArgs e)
-    {
-        _favoriteFlyoutCloseTimer.Stop();
-    }
-
-    private void OnFavoriteFlyoutMouseLeave(object sender, MouseEventArgs e)
-    {
-        StartFavoriteFlyoutCloseTimer();
-    }
-
-    private void OnFavoriteFilesFlyoutMouseEnter(object sender, MouseEventArgs e)
-    {
-        _favoriteFlyoutCloseTimer.Stop();
-    }
-
-    private void OnFavoriteFilesFlyoutMouseLeave(object sender, MouseEventArgs e)
-    {
-        StartFavoriteFlyoutCloseTimer();
-    }
-
-    private void StartFavoriteFlyoutCloseTimer()
-    {
-        _favoriteFlyoutCloseTimer.Stop();
-        _favoriteFlyoutCloseTimer.Start();
-    }
-
-    private void OnFavoriteFlyoutCloseTimerTick(object? sender, EventArgs e)
-    {
-        _favoriteFlyoutCloseTimer.Stop();
-
-        if (FavoriteFolderFlyoutPopup.IsMouseOver ||
-            FavoriteFilesFlyoutPopup.IsMouseOver ||
-            (_favoriteFlyoutSourceButton?.IsMouseOver ?? false) ||
-            (_favoriteFilesFlyoutSourceButton?.IsMouseOver ?? false))
-        {
-            return;
-        }
-
-        HideFavoriteFolderFlyout();
-        HideFavoriteFilesFlyout();
+        e.Handled = true;
     }
 
     private void ShowFavoriteFolderFlyout(Button sourceButton, QuickAccessItem item)
     {
-        if (string.IsNullOrWhiteSpace(item.Path) || !Directory.Exists(item.Path))
+        if (string.IsNullOrWhiteSpace(item.Path))
         {
             HideFavoriteFolderFlyout();
+            return;
+        }
+
+        if (!Directory.Exists(item.Path))
+        {
+            _favoriteFolderRootCache.Remove(item.Path);
+            HideFavoriteFolderFlyout();
+            return;
+        }
+
+        if (_isFavoriteFolderOverlayOpen &&
+            ReferenceEquals(_favoriteFlyoutSourceButton, sourceButton) &&
+            _favoriteFlyoutNodes.Count > 0 &&
+            string.Equals(_favoriteFlyoutNodes[0].FullPath, item.Path, StringComparison.OrdinalIgnoreCase))
+        {
             return;
         }
 
         // Keep favorite flyouts mutually exclusive.
         HideFavoriteFilesFlyout();
         _favoriteFlyoutSourceButton = sourceButton;
-        FavoriteFolderFlyoutPopup.PlacementTarget = sourceButton;
 
         _favoriteFlyoutNodes.Clear();
-        var root = FavoriteFolderTreeNode.Create(item.Path);
-        root.IsExpanded = true;
-        EnsureFavoriteNodeChildrenLoaded(root);
+        if (!_favoriteFolderRootCache.TryGetValue(item.Path, out var root))
+        {
+            root = FavoriteFolderTreeNode.Create(item.Path);
+            _favoriteFolderRootCache[item.Path] = root;
+        }
+
         _favoriteFlyoutNodes.Add(root);
+        root.IsExpanded = true;
 
         FavoriteFolderFlyoutTree.ItemsSource = _favoriteFlyoutNodes;
-        FavoriteFolderFlyoutPopup.IsOpen = true;
+        PositionFavoriteFolderOverlay(sourceButton);
+        FavoriteFolderOverlayPanel.Visibility = Visibility.Visible;
+        _isFavoriteFolderOverlayOpen = true;
     }
 
     private void HideFavoriteFolderFlyout()
     {
-        FavoriteFolderFlyoutPopup.IsOpen = false;
-        _favoriteFlyoutNodes.Clear();
-        _favoriteFlyoutSourceButton = null;
-    }
-
-    private static void EnsureFavoriteNodeChildrenLoaded(FavoriteFolderTreeNode node)
-    {
-        if (node.IsLoaded)
+        if (!_isFavoriteFolderOverlayOpen &&
+            _favoriteFlyoutNodes.Count == 0 &&
+            _favoriteFlyoutSourceButton is null)
         {
             return;
         }
 
-        node.Children.Clear();
+        FavoriteFolderOverlayPanel.Visibility = Visibility.Collapsed;
+        _isFavoriteFolderOverlayOpen = false;
+        FavoriteFolderFlyoutTree.ItemsSource = null;
+        _favoriteFlyoutNodes.Clear();
+        _favoriteFlyoutSourceButton = null;
+    }
+
+    private static async Task EnsureFavoriteNodeChildrenLoadedAsync(FavoriteFolderTreeNode node)
+    {
+        if (node.IsLoaded || node.IsLoading)
+        {
+            return;
+        }
+
+        node.IsLoading = true;
+
+        string[] directories;
 
         try
         {
-            foreach (var directory in Directory.EnumerateDirectories(node.FullPath).OrderBy(path => path, StringComparer.CurrentCultureIgnoreCase))
-            {
-                node.Children.Add(FavoriteFolderTreeNode.Create(directory));
-            }
+            directories = await Task.Run(() =>
+                Directory.EnumerateDirectories(node.FullPath)
+                    .OrderBy(path => path, StringComparer.CurrentCultureIgnoreCase)
+                    .ToArray());
         }
         catch
         {
-            // Ignore inaccessible folders and keep current nodes empty.
+            directories = Array.Empty<string>();
         }
 
-        node.IsLoaded = true;
+        var childNodes = directories.Select(FavoriteFolderTreeNode.Create).ToArray();
+
+        try
+        {
+            node.Children.Clear();
+            const int batchSize = 32;
+            for (var index = 0; index < childNodes.Length; index++)
+            {
+                node.Children.Add(childNodes[index]);
+                if ((index + 1) % batchSize == 0)
+                {
+                    // Keep UI responsive while large trees are materialized.
+                    await Task.Yield();
+                }
+            }
+
+            node.IsLoaded = true;
+        }
+        finally
+        {
+            node.IsLoading = false;
+        }
     }
 
     private async void OnFavoriteFlyoutTreeMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -1935,14 +1984,14 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void OnFavoriteFlyoutTreeItemExpanded(object sender, RoutedEventArgs e)
+    private async void OnFavoriteFlyoutTreeItemExpanded(object sender, RoutedEventArgs e)
     {
         if (e.OriginalSource is not TreeViewItem treeViewItem || treeViewItem.DataContext is not FavoriteFolderTreeNode node)
         {
             return;
         }
 
-        EnsureFavoriteNodeChildrenLoaded(node);
+        await EnsureFavoriteNodeChildrenLoadedAsync(node);
     }
 
     private async void OnRecentFileDoubleClick(object sender, MouseButtonEventArgs e)
@@ -3134,6 +3183,17 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void OnPanelTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.Source, sender))
+        {
+            return;
+        }
+
+        DismissFavoriteFlyoutsForNavigation();
+        _lastTabInteractionUtc = DateTime.UtcNow;
+    }
+
     private void OnRightTabCloseToLeftClick(object sender, RoutedEventArgs e)
     {
         Vm?.CloseTabsToLeft(left: false);
@@ -3151,6 +3211,8 @@ public partial class MainWindow : Window
 
     private void OnTabPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        DismissFavoriteFlyoutsForNavigation();
+        _lastTabInteractionUtc = DateTime.UtcNow;
         _tabDragStart = e.GetPosition(null);
         _draggedTabItem = FindAncestor<TabItem>(e.OriginalSource as DependencyObject);
         ClearTabDragHighlight();
@@ -3158,6 +3220,8 @@ public partial class MainWindow : Window
 
     private void OnTabPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
+        DismissFavoriteFlyoutsForNavigation();
+        _lastTabInteractionUtc = DateTime.UtcNow;
         if (Vm is null || sender is not TabControl tabControl)
         {
             return;
@@ -3574,6 +3638,46 @@ public partial class MainWindow : Window
         _dragHoverTabItem.ClearValue(Control.BackgroundProperty);
         _dragHoverTabItem.ClearValue(Control.BorderBrushProperty);
         _dragHoverTabItem = null;
+    }
+
+    private void DismissFavoriteFlyoutsForNavigation()
+    {
+        var shouldDismiss =
+            _isFavoriteFilesOverlayOpen ||
+            _isFavoriteFolderOverlayOpen ||
+            _favoriteFlyoutSourceButton is not null ||
+            _favoriteFilesFlyoutSourceButton is not null ||
+            _favoriteFlyoutNodes.Count > 0 ||
+            _favoriteFileFlyoutNodes.Count > 0;
+
+        if (!shouldDismiss)
+        {
+            return;
+        }
+
+        var sw = Stopwatch.StartNew();
+        var filesOpen = _isFavoriteFilesOverlayOpen;
+        var foldersOpen = _isFavoriteFolderOverlayOpen;
+        var fileNodes = CountFavoriteEntryNodes(_favoriteFileFlyoutNodes);
+        HideFavoriteFolderFlyout();
+        HideFavoriteFilesFlyout();
+        LiveTrace.Write($"DismissFavoriteFlyoutsForNavigation done filesOpen={filesOpen} foldersOpen={foldersOpen} fileNodes={fileNodes} in {sw.ElapsedMilliseconds}ms");
+        LiveTrace.WriteProcessSnapshot("DismissFavoriteFlyoutsForNavigation done");
+    }
+
+    private static int CountFavoriteEntryNodes(IEnumerable<FavoriteEntryTreeNode> nodes)
+    {
+        var total = 0;
+        foreach (var node in nodes)
+        {
+            total++;
+            if (node.Children.Count > 0)
+            {
+                total += CountFavoriteEntryNodes(node.Children);
+            }
+        }
+
+        return total;
     }
 
     private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
@@ -4931,6 +5035,7 @@ public partial class MainWindow : Window
         public string FullPath { get; }
         public ObservableCollection<FavoriteFolderTreeNode> Children { get; } = [];
         public bool IsLoaded { get; set; }
+        public bool IsLoading { get; set; }
         public bool IsExpanded { get; set; }
 
         private static FavoriteFolderTreeNode Dummy { get; } = new(string.Empty, string.Empty, canExpand: false) { IsLoaded = true };
@@ -4944,19 +5049,8 @@ public partial class MainWindow : Window
                 name = normalized;
             }
 
-            return new FavoriteFolderTreeNode(path, name, HasSubdirectories(path));
-        }
-
-        private static bool HasSubdirectories(string path)
-        {
-            try
-            {
-                return Directory.EnumerateDirectories(path).Any();
-            }
-            catch
-            {
-                return false;
-            }
+            // Avoid pre-scanning subdirectories on hover/open; load on demand at expand time.
+            return new FavoriteFolderTreeNode(path, name, canExpand: true);
         }
     }
 
@@ -4976,4 +5070,5 @@ public partial class MainWindow : Window
         public ObservableCollection<FavoriteEntryTreeNode> Children { get; } = [];
         public bool IsExpanded { get; set; }
     }
+
 }
