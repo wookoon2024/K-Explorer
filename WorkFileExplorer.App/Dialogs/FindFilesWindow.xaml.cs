@@ -15,9 +15,26 @@ public partial class FindFilesWindow : Window
     public FindFilesWindow()
     {
         InitializeComponent();
+        Loaded += OnFindFilesWindowLoaded;
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+
+    private void OnFindFilesWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        TopMenu.Visibility = Visibility.Collapsed;
+
+        // Keep features wired, but hide placeholder tabs from UI.
+        if (FindTabs.Items.Count > 2 && FindTabs.Items[2] is TabItem pluginTab)
+        {
+            pluginTab.Visibility = Visibility.Collapsed;
+        }
+
+        if (FindTabs.Items.Count > 3 && FindTabs.Items[3] is TabItem loadSaveTab)
+        {
+            loadSaveTab.Visibility = Visibility.Collapsed;
+        }
+    }
 
     private async void OnStartClick(object sender, RoutedEventArgs e)
     {

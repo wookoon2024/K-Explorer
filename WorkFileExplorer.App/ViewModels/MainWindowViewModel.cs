@@ -107,6 +107,10 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _rightSelectionSummary = "Sel 0";
     private string _leftFreeSpaceText = "-";
     private string _rightFreeSpaceText = "-";
+    private bool _isLeftTerminalVisible;
+    private bool _isRightTerminalVisible;
+    private string _leftTerminalOutput = string.Empty;
+    private string _rightTerminalOutput = string.Empty;
     private string _selectedLeftDrive = "C:";
     private string _selectedRightDrive = "C:";
     private bool _isFourPanelMode;
@@ -310,6 +314,30 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool RightCanGoBack => SelectedRightTab?.CanGoBack ?? false;
 
     public bool RightCanGoForward => SelectedRightTab?.CanGoForward ?? false;
+
+    public bool IsLeftTerminalVisible
+    {
+        get => _isLeftTerminalVisible;
+        set => SetProperty(ref _isLeftTerminalVisible, value);
+    }
+
+    public bool IsRightTerminalVisible
+    {
+        get => _isRightTerminalVisible;
+        set => SetProperty(ref _isRightTerminalVisible, value);
+    }
+
+    public string LeftTerminalOutput
+    {
+        get => _leftTerminalOutput;
+        set => SetProperty(ref _leftTerminalOutput, value);
+    }
+
+    public string RightTerminalOutput
+    {
+        get => _rightTerminalOutput;
+        set => SetProperty(ref _rightTerminalOutput, value);
+    }
 
     public string LeftSelectionSummary
     {
@@ -1149,27 +1177,52 @@ public sealed class MainWindowViewModel : ObservableObject
     public async Task DeleteSelectedAsync(IReadOnlyList<FileSystemItem>? selectedItems = null)
     {
         var panel = GetActivePanel();
-        var items = ResolveSelection(panel, selectedItems);
-        if (items.Count == 0) return;
+        var items = ResolveSelection(panel, selectedItems)
+            .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
+            .ToArray();
+        if (items.Length == 0) return;
+        LiveTrace.Write($"VM.DeleteSelected start panel='{panel.CurrentPath}' count={items.Length}");
+
         var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
         var deletingPaths = items
-            .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
             .Select(item => item.FullPath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
-        var memoChanged = false;
-        foreach (var item in items.Where(item => !item.IsParentDirectory))
-        {
-            memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
-        }
+
+        var deletedItems = new List<FileSystemItem>(items.Length);
+        var failedItems = new List<(string Path, string Reason)>();
         await Task.Run(() =>
         {
             foreach (var item in items)
             {
-                if (item.IsDirectory) Directory.Delete(item.FullPath, true);
-                else File.Delete(item.FullPath);
+                if (TryDeleteFileSystemItem(item, out var reason))
+                {
+                    deletedItems.Add(item);
+                }
+                else
+                {
+                    failedItems.Add((item.FullPath, reason));
+                }
             }
         });
+
+        if (deletedItems.Count == 0)
+        {
+            if (failedItems.Count > 0)
+            {
+                StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
+                LiveTrace.Write($"VM.DeleteSelected all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+            }
+
+            return;
+        }
+
+        var memoChanged = false;
+        foreach (var item in deletedItems)
+        {
+            memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
+        }
+
         if (memoChanged)
         {
             await PersistSettingsAsync();
@@ -1185,6 +1238,17 @@ public sealed class MainWindowViewModel : ObservableObject
         await ReloadPanelsForPathsAsync([panel.CurrentPath]);
         QueuePostMutationRefresh();
         SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
+
+        if (failedItems.Count > 0)
+        {
+            StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
+            LiveTrace.Write($"VM.DeleteSelected partial success={deletedItems.Count} failed={failedItems.Count}");
+            LiveTrace.Write($"VM.DeleteSelected first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+        }
+        else
+        {
+            LiveTrace.Write($"VM.DeleteSelected success count={deletedItems.Count}");
+        }
     }
 
     public async Task RenameSelectedAsync(string newName)
@@ -2719,38 +2783,52 @@ public sealed class MainWindowViewModel : ObservableObject
     public async Task DeleteItemsFromPanelAsync(PanelViewModel panel, IReadOnlyList<FileSystemItem>? selectedItems)
     {
         var items = ResolveSelection(panel, selectedItems)
-            .Where(item => !item.IsParentDirectory)
+            .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
             .ToArray();
         if (items.Length == 0)
         {
             return;
         }
+        LiveTrace.Write($"VM.DeleteItemsFromPanel start panel='{panel.CurrentPath}' count={items.Length}");
 
         var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
         var deletingPaths = items
-            .Where(item => !string.IsNullOrWhiteSpace(item.FullPath))
             .Select(item => item.FullPath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
-        var memoChanged = false;
-        foreach (var item in items)
-        {
-            memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
-        }
+        var deletedItems = new List<FileSystemItem>(items.Length);
+        var failedItems = new List<(string Path, string Reason)>();
         await Task.Run(() =>
         {
             foreach (var item in items)
             {
-                if (item.IsDirectory)
+                if (TryDeleteFileSystemItem(item, out var reason))
                 {
-                    Directory.Delete(item.FullPath, true);
+                    deletedItems.Add(item);
                 }
                 else
                 {
-                    File.Delete(item.FullPath);
+                    failedItems.Add((item.FullPath, reason));
                 }
             }
         });
+
+        if (deletedItems.Count == 0)
+        {
+            if (failedItems.Count > 0)
+            {
+                StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
+                LiveTrace.Write($"VM.DeleteItemsFromPanel all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+            }
+
+            return;
+        }
+
+        var memoChanged = false;
+        foreach (var item in deletedItems)
+        {
+            memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
+        }
 
         if (memoChanged)
         {
@@ -2767,6 +2845,85 @@ public sealed class MainWindowViewModel : ObservableObject
         await ReloadPanelsForPathsAsync([panel.CurrentPath]);
         QueuePostMutationRefresh();
         SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
+
+        if (failedItems.Count > 0)
+        {
+            StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
+            LiveTrace.Write($"VM.DeleteItemsFromPanel partial success={deletedItems.Count} failed={failedItems.Count}");
+            LiveTrace.Write($"VM.DeleteItemsFromPanel first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+        }
+        else
+        {
+            LiveTrace.Write($"VM.DeleteItemsFromPanel success count={deletedItems.Count}");
+        }
+    }
+
+    private static bool TryDeleteFileSystemItem(FileSystemItem item, out string reason)
+    {
+        reason = string.Empty;
+
+        try
+        {
+            if (item.IsDirectory)
+            {
+                ClearDirectoryAttributes(item.FullPath);
+                Directory.Delete(item.FullPath, true);
+            }
+            else
+            {
+                if (File.Exists(item.FullPath))
+                {
+                    File.SetAttributes(item.FullPath, FileAttributes.Normal);
+                }
+
+                File.Delete(item.FullPath);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            reason = ex.Message;
+            return false;
+        }
+    }
+
+    private static void ClearDirectoryAttributes(string rootPath)
+    {
+        if (!Directory.Exists(rootPath))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+            catch
+            {
+            }
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(rootPath, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                File.SetAttributes(dir, FileAttributes.Directory);
+            }
+            catch
+            {
+            }
+        }
+
+        try
+        {
+            File.SetAttributes(rootPath, FileAttributes.Directory);
+        }
+        catch
+        {
+        }
     }
 
     public async Task RenameItemInPanelAsync(PanelViewModel panel, FileSystemItem item, string newName)
@@ -2969,6 +3126,8 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var sw = Stopwatch.StartNew();
         var side = ReferenceEquals(panel, LeftPanel) ? "L" : ReferenceEquals(panel, RightPanel) ? "R" : "?";
+        var previousSelectedPath = panel.SelectedItem?.FullPath;
+        var previousSelectedWasParent = panel.SelectedItem?.IsParentDirectory == true;
         LiveTrace.Write($"LoadPanelAsync[{side}] start path='{path}', track={track}, suppressHistory={suppressHistoryRecord}");
         try
         {
@@ -3096,7 +3255,7 @@ public sealed class MainWindowViewModel : ObservableObject
             panel.CurrentPath = normalized;
             panel.SetItems(items);
             panel.ApplyFilter(SearchText);
-            SelectTopItemAfterLoad(panel);
+            RestoreSelectionOrTopAfterLoad(panel, previousSelectedPath, previousSelectedWasParent);
             UpdateTabTitleForPanel(panel);
 
             if (track)
@@ -4708,6 +4867,33 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         panel.SelectedItem = panel.Items.FirstOrDefault();
+    }
+
+    private static void RestoreSelectionOrTopAfterLoad(PanelViewModel panel, string? preferredPath, bool preferredWasParent)
+    {
+        if (!string.IsNullOrWhiteSpace(preferredPath))
+        {
+            var match = panel.Items.FirstOrDefault(item =>
+                !item.IsParentDirectory &&
+                string.Equals(item.FullPath, preferredPath, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                panel.SelectedItem = match;
+                return;
+            }
+        }
+
+        if (preferredWasParent)
+        {
+            var parent = panel.Items.FirstOrDefault(item => item.IsParentDirectory);
+            if (parent is not null)
+            {
+                panel.SelectedItem = parent;
+                return;
+            }
+        }
+
+        SelectTopItemAfterLoad(panel);
     }
 
     private static string? FindNearestSurvivingPath(

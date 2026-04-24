@@ -7,8 +7,12 @@ public static class LiveTrace
 {
     private static readonly object Gate = new();
     private static readonly string LogFile = Path.Combine(AppContext.BaseDirectory, "live_trace.log");
+#if DEBUG
+    private static readonly bool Enabled = true;
+#else
     private static readonly bool Enabled =
         string.Equals(Environment.GetEnvironmentVariable("KEXPLORER_LIVETRACE"), "1", StringComparison.OrdinalIgnoreCase);
+#endif
     private static bool _initialized;
 
     [DllImport("kernel32.dll", SetLastError = true)]

@@ -19,7 +19,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Menu Grid.Column="0" Grid.Row="0" Background="#ECECEC">
+        <Menu x:Name="TopMenu" Grid.Column="0" Grid.Row="0" Background="#ECECEC">
             <MenuItem Header="동작(A)" />
             <MenuItem Header="보기(V)" />
             <MenuItem Header="결과(R)" />
