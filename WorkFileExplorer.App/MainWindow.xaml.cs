@@ -3676,7 +3676,7 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.F2)
         {
-            await BeginInlineRenameAsync();
+            BeginInlineRename();
             e.Handled = true;
             return;
         }
@@ -5188,7 +5188,7 @@ public partial class MainWindow : Window
         await Vm.RenameSelectedAsync(newName);
     }
 
-    private async Task BeginInlineRenameAsync()
+    private void BeginInlineRename()
     {
         if (Vm is null)
         {
