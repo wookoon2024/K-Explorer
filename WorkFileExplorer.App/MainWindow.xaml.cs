@@ -13,6 +13,10 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using Microsoft.Win32.SafeHandles;
 using Microsoft.VisualBasic;
 using WorkFileExplorer.App.Dialogs;
 using WorkFileExplorer.App.Helpers;
@@ -23,6 +27,492 @@ namespace WorkFileExplorer.App;
 
 public partial class MainWindow : Window
 {
+
+    private enum TerminalPanelTarget
+    {
+        Active,
+        Left,
+        Right,
+        Panel1,
+        Panel2,
+        Panel3,
+        Panel4
+    }
+
+    private sealed class EmbeddedTerminalSession
+    {
+        public required string Key { get; init; }
+        public required Action<string> SetOutput { get; set; }
+        public string WorkingDirectory { get; set; } = string.Empty;
+        public TerminalDisplayBuffer DisplayBuffer { get; } = new();
+        public TextBox? ConsoleTextBox { get; set; }
+        public PseudoConsoleHost? Host { get; set; }
+        public FileStream? InputStream { get; set; }
+        public FileStream? OutputStream { get; set; }
+        public CancellationTokenSource? OutputReadCancellation { get; set; }
+        public Task? OutputReadTask { get; set; }
+        public bool IsFocused { get; set; }
+        public bool IsCaretVisible { get; set; } = true;
+    }
+
+    private sealed class PseudoConsoleHost : IDisposable
+    {
+        public required IntPtr ProcessHandle { get; init; }
+        public required IntPtr ThreadHandle { get; init; }
+        public required IntPtr PseudoConsoleHandle { get; init; }
+        public required SafeFileHandle InputWriterHandle { get; init; }
+        public required SafeFileHandle OutputReaderHandle { get; init; }
+        public IntPtr AttributeList { get; init; }
+
+        public void Dispose()
+        {
+            if (ThreadHandle != IntPtr.Zero)
+            {
+                NativeMethods.CloseHandle(ThreadHandle);
+            }
+
+            if (ProcessHandle != IntPtr.Zero)
+            {
+                NativeMethods.CloseHandle(ProcessHandle);
+            }
+
+            if (PseudoConsoleHandle != IntPtr.Zero)
+            {
+                NativeMethods.ClosePseudoConsole(PseudoConsoleHandle);
+            }
+
+            if (AttributeList != IntPtr.Zero)
+            {
+                NativeMethods.DeleteProcThreadAttributeList(AttributeList);
+                Marshal.FreeHGlobal(AttributeList);
+            }
+
+            InputWriterHandle.Dispose();
+            OutputReaderHandle.Dispose();
+        }
+    }
+
+    private sealed class TerminalDisplayBuffer
+    {
+        private const int MaxLines = 3000;
+        private readonly List<StringBuilder> _lines = [new StringBuilder()];
+        private readonly StringBuilder _csiBuffer = new();
+        private int _cursorRow;
+        private int _cursorCol;
+        private int _savedRow;
+        private int _savedCol;
+        private TerminalParseState _state = TerminalParseState.Normal;
+
+        public void Feed(string chunk)
+        {
+            foreach (var ch in chunk)
+            {
+                ProcessChar(ch);
+            }
+        }
+
+        public string GetText()
+        {
+            return string.Join(Environment.NewLine, _lines.Select(line => line.ToString()));
+        }
+
+        public string GetTextWithCaret(bool showCaret)
+        {
+            if (!showCaret)
+            {
+                return GetText();
+            }
+
+            var renderedLines = _lines.Select(line => line.ToString()).ToList();
+            while (renderedLines.Count <= _cursorRow)
+            {
+                renderedLines.Add(string.Empty);
+            }
+
+            var row = Math.Max(0, _cursorRow);
+            var col = Math.Max(0, _cursorCol);
+            var line = renderedLines[row];
+
+            if (col < line.Length)
+            {
+                line = $"{line[..col]}\u2588{line[(col + 1)..]}";
+            }
+            else
+            {
+                line = line.PadRight(col) + '\u2588';
+            }
+
+            renderedLines[row] = line;
+            return string.Join(Environment.NewLine, renderedLines);
+        }
+
+        public void Clear()
+        {
+            _lines.Clear();
+            _lines.Add(new StringBuilder());
+            _cursorRow = 0;
+            _cursorCol = 0;
+            _csiBuffer.Clear();
+            _state = TerminalParseState.Normal;
+        }
+
+        private void ProcessChar(char ch)
+        {
+            switch (_state)
+            {
+                case TerminalParseState.Normal:
+                    ProcessNormal(ch);
+                    break;
+                case TerminalParseState.Escape:
+                    ProcessEscape(ch);
+                    break;
+                case TerminalParseState.Csi:
+                    ProcessCsi(ch);
+                    break;
+                case TerminalParseState.Osc:
+                    if (ch == '\a')
+                    {
+                        _state = TerminalParseState.Normal;
+                    }
+
+                    break;
+            }
+        }
+
+        private void ProcessNormal(char ch)
+        {
+            switch (ch)
+            {
+                case '\x1b':
+                    _state = TerminalParseState.Escape;
+                    return;
+                case '\r':
+                    _cursorCol = 0;
+                    return;
+                case '\n':
+                    MoveNextLine();
+                    return;
+                case '\b':
+                    if (_cursorCol > 0)
+                    {
+                        _cursorCol--;
+                    }
+
+                    return;
+                case '\t':
+                    var spaces = 4 - (_cursorCol % 4);
+                    for (var i = 0; i < spaces; i++)
+                    {
+                        PutChar(' ');
+                    }
+
+                    return;
+                default:
+                    if (!char.IsControl(ch))
+                    {
+                        PutChar(ch);
+                    }
+
+                    return;
+            }
+        }
+
+        private void ProcessEscape(char ch)
+        {
+            if (ch == '[')
+            {
+                _csiBuffer.Clear();
+                _state = TerminalParseState.Csi;
+                return;
+            }
+
+            if (ch == ']')
+            {
+                _state = TerminalParseState.Osc;
+                return;
+            }
+
+            _state = TerminalParseState.Normal;
+        }
+
+        private void ProcessCsi(char ch)
+        {
+            _csiBuffer.Append(ch);
+            if (ch < '@' || ch > '~')
+            {
+                return;
+            }
+
+            HandleCsiSequence(_csiBuffer.ToString());
+            _csiBuffer.Clear();
+            _state = TerminalParseState.Normal;
+        }
+
+        private void HandleCsiSequence(string sequence)
+        {
+            if (string.IsNullOrEmpty(sequence))
+            {
+                return;
+            }
+
+            var final = sequence[^1];
+            var paramsText = sequence.Length > 1 ? sequence[..^1] : string.Empty;
+            var values = paramsText.Split(';', StringSplitOptions.None)
+                .Select(value => int.TryParse(value, out var parsed) ? parsed : 0)
+                .ToArray();
+
+            int GetParam(int index, int fallback)
+            {
+                if (values.Length <= index)
+                {
+                    return fallback;
+                }
+
+                return values[index] == 0 ? fallback : values[index];
+            }
+
+            switch (final)
+            {
+                case 'A':
+                    _cursorRow = Math.Max(0, _cursorRow - GetParam(0, 1));
+                    break;
+                case 'B':
+                    _cursorRow += GetParam(0, 1);
+                    EnsureLine(_cursorRow);
+                    break;
+                case 'C':
+                    _cursorCol += GetParam(0, 1);
+                    break;
+                case 'D':
+                    _cursorCol = Math.Max(0, _cursorCol - GetParam(0, 1));
+                    break;
+                case 'H':
+                case 'f':
+                    _cursorRow = Math.Max(0, GetParam(0, 1) - 1);
+                    _cursorCol = Math.Max(0, GetParam(1, 1) - 1);
+                    EnsureLine(_cursorRow);
+                    break;
+                case 'J':
+                    if (GetParam(0, 0) == 2)
+                    {
+                        Clear();
+                    }
+
+                    break;
+                case 'K':
+                    EraseInLine(GetParam(0, 0));
+                    break;
+                case 's':
+                    _savedRow = _cursorRow;
+                    _savedCol = _cursorCol;
+                    break;
+                case 'u':
+                    _cursorRow = _savedRow;
+                    _cursorCol = _savedCol;
+                    EnsureLine(_cursorRow);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private void EraseInLine(int mode)
+        {
+            EnsureLine(_cursorRow);
+            var line = _lines[_cursorRow];
+            var start = mode switch
+            {
+                1 => 0,
+                2 => 0,
+                _ => Math.Clamp(_cursorCol, 0, line.Length)
+            };
+            var length = mode switch
+            {
+                1 => Math.Clamp(_cursorCol, 0, line.Length),
+                2 => line.Length,
+                _ => line.Length - start
+            };
+
+            if (length > 0 && start < line.Length)
+            {
+                line.Remove(start, Math.Min(length, line.Length - start));
+            }
+
+            if (mode == 1 || mode == 2)
+            {
+                _cursorCol = 0;
+            }
+        }
+
+        private void PutChar(char ch)
+        {
+            EnsureLine(_cursorRow);
+            var line = _lines[_cursorRow];
+            while (line.Length < _cursorCol)
+            {
+                line.Append(' ');
+            }
+
+            if (_cursorCol < line.Length)
+            {
+                line[_cursorCol] = ch;
+            }
+            else
+            {
+                line.Append(ch);
+            }
+
+            _cursorCol++;
+        }
+
+        private void MoveNextLine()
+        {
+            _cursorRow++;
+            _cursorCol = 0;
+            EnsureLine(_cursorRow);
+        }
+
+        private void EnsureLine(int row)
+        {
+            while (_lines.Count <= row)
+            {
+                _lines.Add(new StringBuilder());
+            }
+
+            while (_lines.Count > MaxLines)
+            {
+                _lines.RemoveAt(0);
+                _cursorRow = Math.Max(0, _cursorRow - 1);
+            }
+        }
+
+        private enum TerminalParseState
+        {
+            Normal,
+            Escape,
+            Csi,
+            Osc
+        }
+    }
+
+    private static class NativeMethods
+    {
+        public const int EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+        public const int PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016;
+        public const int HANDLE_FLAG_INHERIT = 0x00000001;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct COORD
+        {
+            public short X;
+            public short Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SECURITY_ATTRIBUTES
+        {
+            public int nLength;
+            public IntPtr lpSecurityDescriptor;
+            public bool bInheritHandle;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct STARTUPINFO
+        {
+            public int cb;
+            public string? lpReserved;
+            public string? lpDesktop;
+            public string? lpTitle;
+            public int dwX;
+            public int dwY;
+            public int dwXSize;
+            public int dwYSize;
+            public int dwXCountChars;
+            public int dwYCountChars;
+            public int dwFillAttribute;
+            public int dwFlags;
+            public short wShowWindow;
+            public short cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput;
+            public IntPtr hStdOutput;
+            public IntPtr hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct STARTUPINFOEX
+        {
+            public STARTUPINFO StartupInfo;
+            public IntPtr lpAttributeList;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public int dwProcessId;
+            public int dwThreadId;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CreatePipe(
+            out SafeFileHandle hReadPipe,
+            out SafeFileHandle hWritePipe,
+            ref SECURITY_ATTRIBUTES lpPipeAttributes,
+            int nSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool SetHandleInformation(SafeFileHandle hObject, int dwMask, int dwFlags);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern int CreatePseudoConsole(
+            COORD size,
+            SafeFileHandle hInput,
+            SafeFileHandle hOutput,
+            int dwFlags,
+            out IntPtr phPC);
+
+        [DllImport("kernel32.dll")]
+        public static extern void ClosePseudoConsole(IntPtr hPC);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool InitializeProcThreadAttributeList(
+            IntPtr lpAttributeList,
+            int dwAttributeCount,
+            int dwFlags,
+            ref IntPtr lpSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool UpdateProcThreadAttribute(
+            IntPtr lpAttributeList,
+            uint dwFlags,
+            IntPtr Attribute,
+            IntPtr lpValue,
+            IntPtr cbSize,
+            IntPtr lpPreviousValue,
+            IntPtr lpReturnSize);
+
+        [DllImport("kernel32.dll")]
+        public static extern void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool CreateProcess(
+            string? lpApplicationName,
+            StringBuilder lpCommandLine,
+            IntPtr lpProcessAttributes,
+            IntPtr lpThreadAttributes,
+            bool bInheritHandles,
+            int dwCreationFlags,
+            IntPtr lpEnvironment,
+            string? lpCurrentDirectory,
+            ref STARTUPINFOEX lpStartupInfo,
+            out PROCESS_INFORMATION lpProcessInformation);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+    }
+
     private Point _tabDragStart;
     private Point _panelItemDragStart;
     private PanelViewModel? _panelDragSourcePanel;
@@ -53,10 +543,15 @@ public partial class MainWindow : Window
     private int _activeFourPanelIndex;
     private PanelItemDragPayload? _activePanelDragPayload;
     private MainWindowViewModel? _subscribedVm;
+    private readonly Dictionary<string, EmbeddedTerminalSession> _terminalSessions = new(StringComparer.OrdinalIgnoreCase);
+    private TerminalPanelTarget _selectedMenuPanelTarget = TerminalPanelTarget.Active;
+    private readonly DispatcherTimer _terminalCaretTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
 
     public MainWindow()
     {
         InitializeComponent();
+        _terminalCaretTimer.Tick += OnTerminalCaretTimerTick;
+        _terminalCaretTimer.Start();
         Loaded += (_, _) => _windowLoaded = true;
         Loaded += OnMainWindowLoaded;
         DataContextChanged += OnMainWindowDataContextChanged;
@@ -95,6 +590,14 @@ public partial class MainWindow : Window
 
         _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
         _subscribedVm = null;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _terminalCaretTimer.Stop();
+        StopAllTerminalSessions();
+        DetachVmPropertyEvents();
+        base.OnClosed(e);
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -2627,6 +3130,341 @@ public partial class MainWindow : Window
         dialog.ShowDialog();
     }
 
+    private void OnOpenAiTerminalClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new AiTerminalWindow(GetActiveWorkingDirectory())
+        {
+            Owner = this
+        };
+        dialog.Show();
+    }
+
+    private void OnSelectActiveMenuPanelClick(object sender, RoutedEventArgs e)
+    {
+        _selectedMenuPanelTarget = TerminalPanelTarget.Active;
+        if (Vm is not null)
+        {
+            Vm.StatusText = "터미널 대상 패널: 활성 패널";
+        }
+    }
+
+    private void OnSelectLeftMenuPanelClick(object sender, RoutedEventArgs e)
+    {
+        _selectedMenuPanelTarget = TerminalPanelTarget.Left;
+        if (Vm is not null)
+        {
+            Vm.StatusText = "터미널 대상 패널: 왼쪽 패널";
+        }
+    }
+
+    private void OnSelectRightMenuPanelClick(object sender, RoutedEventArgs e)
+    {
+        _selectedMenuPanelTarget = TerminalPanelTarget.Right;
+        if (Vm is not null)
+        {
+            Vm.StatusText = "터미널 대상 패널: 오른쪽 패널";
+        }
+    }
+
+    private void OnSelectPanel1MenuPanelClick(object sender, RoutedEventArgs e)
+    {
+        _selectedMenuPanelTarget = TerminalPanelTarget.Panel1;
+        if (Vm is not null)
+        {
+            Vm.StatusText = "터미널 대상 패널: 패널 1";
+        }
+    }
+
+    private void OnSelectPanel2MenuPanelClick(object sender, RoutedEventArgs e)
+    {
+        _selectedMenuPanelTarget = TerminalPanelTarget.Panel2;
+        if (Vm is not null)
+        {
+            Vm.StatusText = "터미널 대상 패널: 패널 2";
+        }
+    }
+
+    private void OnSelectPanel3MenuPanelClick(object sender, RoutedEventArgs e)
+    {
+        _selectedMenuPanelTarget = TerminalPanelTarget.Panel3;
+        if (Vm is not null)
+        {
+            Vm.StatusText = "터미널 대상 패널: 패널 3";
+        }
+    }
+
+    private void OnSelectPanel4MenuPanelClick(object sender, RoutedEventArgs e)
+    {
+        _selectedMenuPanelTarget = TerminalPanelTarget.Panel4;
+        if (Vm is not null)
+        {
+            Vm.StatusText = "터미널 대상 패널: 패널 4";
+        }
+    }
+
+    private void OnAddTerminalToSelectedPanelClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryResolveTerminalTarget(_selectedMenuPanelTarget, out var key, out var displayName, out var workingDirectory, out var setVisible, out var setOutput))
+        {
+            return;
+        }
+
+        setVisible(true);
+        EnsureTerminalSession(key, workingDirectory, setOutput);
+        if (Vm is not null)
+        {
+            Vm.StatusText = $"{displayName} 하단에 터미널 연결";
+        }
+    }
+
+    private void OnCloseTerminalInSelectedPanelClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryResolveTerminalTarget(_selectedMenuPanelTarget, out var key, out _, out _, out var setVisible, out var setOutput))
+        {
+            return;
+        }
+
+        setVisible(false);
+        CloseTerminalSession(key, clearOutput: true, setOutput);
+    }
+
+    private void OnLeftTerminalCloseClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        Vm.IsLeftTerminalVisible = false;
+        CloseTerminalSession("left", clearOutput: true, output => Vm.LeftTerminalOutput = output);
+    }
+
+    private void OnRightTerminalCloseClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        Vm.IsRightTerminalVisible = false;
+        CloseTerminalSession("right", clearOutput: true, output => Vm.RightTerminalOutput = output);
+    }
+
+    private void OnRunCodexInLeftTerminalClick(object sender, RoutedEventArgs e)
+    {
+        RunCodexInTerminal("left");
+    }
+
+    private void OnRunCodexInRightTerminalClick(object sender, RoutedEventArgs e)
+    {
+        RunCodexInTerminal("right");
+    }
+
+    private void OnFourPanelTerminalCloseClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null || sender is not FrameworkElement element || element.Tag is not FourPanelSlotViewModel slot)
+        {
+            return;
+        }
+
+        var index = Vm.FourPanels.IndexOf(slot);
+        if (index < 0)
+        {
+            return;
+        }
+
+        slot.IsTerminalVisible = false;
+        CloseTerminalSession($"four:{index}", clearOutput: true, output => slot.TerminalOutput = output);
+    }
+
+    private void OnRunCodexInFourPanelTerminalClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null || sender is not FrameworkElement element || element.Tag is not FourPanelSlotViewModel slot)
+        {
+            return;
+        }
+
+        var index = Vm.FourPanels.IndexOf(slot);
+        if (index < 0)
+        {
+            return;
+        }
+
+        RunCodexInTerminal($"four:{index}");
+    }
+
+    private void OnTerminalConsoleLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox || !TryResolveTerminalKeyFromElement(textBox, out var key))
+        {
+            return;
+        }
+
+        if (!_terminalSessions.TryGetValue(key, out var session))
+        {
+            return;
+        }
+
+        session.ConsoleTextBox = textBox;
+        textBox.IsReadOnly = true;
+        textBox.GotFocus -= OnTerminalConsoleGotFocus;
+        textBox.GotFocus += OnTerminalConsoleGotFocus;
+        textBox.LostFocus -= OnTerminalConsoleLostFocus;
+        textBox.LostFocus += OnTerminalConsoleLostFocus;
+        textBox.CaretIndex = textBox.Text.Length;
+        textBox.Focus();
+        session.IsFocused = true;
+        session.IsCaretVisible = true;
+        RefreshTerminalDisplay(session);
+    }
+
+    private void OnTerminalConsolePreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox textBox || !TryResolveTerminalKeyFromElement(textBox, out var key))
+        {
+            return;
+        }
+
+        if (!_terminalSessions.TryGetValue(key, out var session))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key is Key.Up or Key.Down or Key.Left or Key.Right or Key.Home or Key.End or Key.PageUp or Key.PageDown)
+        {
+            SendTerminalInput(session, GetTerminalEscapeSequenceForKey(e.Key));
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter)
+        {
+            SendTerminalInput(session, "\r");
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Back)
+        {
+            // ConPTY/PSReadLine compatibility: Backspace is commonly mapped to DEL (0x7F).
+            SendTerminalInput(session, "\x7f");
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Space)
+        {
+            SendTerminalInput(session, " ");
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Tab)
+        {
+            SendTerminalInput(session, "\t");
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Delete)
+        {
+            SendTerminalInput(session, "\x1b[3~");
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            SendTerminalInput(session, "\x1b");
+            e.Handled = true;
+            return;
+        }
+
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            if (e.Key == Key.C)
+            {
+                SendTerminalInput(session, "\x03");
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.V)
+            {
+                var clipboard = Clipboard.GetText();
+                if (!string.IsNullOrEmpty(clipboard))
+                {
+                    SendTerminalInput(session, clipboard.Replace("\r\n", "\n").Replace('\n', '\r'));
+                }
+
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void OnTerminalConsolePreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (sender is not TextBox textBox || !TryResolveTerminalKeyFromElement(textBox, out var key))
+        {
+            return;
+        }
+
+        if (!_terminalSessions.TryGetValue(key, out var session))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(e.Text))
+        {
+            SendTerminalInput(session, e.Text);
+            e.Handled = true;
+        }
+    }
+
+    private void RunCodexInTerminal(string key)
+    {
+        if (!_terminalSessions.TryGetValue(key, out var session))
+        {
+            AppendTerminalOutput(key, "[warn] 터미널 세션이 없습니다. 메뉴에서 터미널 추가를 먼저 실행하세요.");
+            return;
+        }
+
+        const string command =
+            "where codex >nul 2>&1 && codex || (echo [안내] codex CLI가 없습니다. && echo npm install -g @openai/codex)";
+        SendTerminalInput(session, command + "\r");
+    }
+
+    private void OnTerminalOutputTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            textBox.ScrollToEnd();
+            _ = Dispatcher.BeginInvoke(textBox.ScrollToEnd, DispatcherPriority.Background);
+        }
+    }
+
+    private void OnTerminalResizeDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        if (sender is not GridSplitter splitter)
+        {
+            return;
+        }
+
+        var terminalBorder = FindAncestor<Border>(splitter);
+        if (terminalBorder is null)
+        {
+            return;
+        }
+
+        var currentHeight = double.IsNaN(terminalBorder.Height) || terminalBorder.Height <= 0
+            ? terminalBorder.ActualHeight
+            : terminalBorder.Height;
+        var resized = Math.Clamp(currentHeight - e.VerticalChange, 100d, 700d);
+        terminalBorder.Height = resized;
+    }
+
     private void OnAddCurrentPathFavoriteClick(object sender, RoutedEventArgs e)
     {
         if (Vm is null)
@@ -2704,6 +3542,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
+        {
+            FocusActiveQuickFilterTextBox();
+            e.Handled = true;
+            return;
+        }
+
         // While typing in an editor (inline rename/path box/search box), do not hijack text-editing keys.
         if (IsTextInputFocused() && (e.Key == Key.Back || e.Key == Key.Delete || e.Key == Key.Enter))
         {
@@ -2754,6 +3599,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        if ((e.Key == Key.Left || e.Key == Key.Right) &&
+            Keyboard.Modifiers == ModifierKeys.None &&
+            !Vm.IsFourPanelMode &&
+            !IsTextInputFocused() &&
+            IsPanelInteractionFocused())
+        {
+            var targetLeft = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+            if (Vm.IsTileViewEnabledForPanel(targetLeft) || Vm.IsCompactListViewEnabledForPanel(targetLeft))
+            {
+                return;
+            }
+
+            MoveActivePanelTabByArrow(e.Key == Key.Right ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+
         if (IsPanelInteractionFocused())
         {
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
@@ -2794,6 +3656,19 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Delete)
         {
+            var sourceType = e.OriginalSource?.GetType().Name ?? "(null)";
+            var focusedType = Keyboard.FocusedElement?.GetType().Name ?? "(null)";
+            LiveTrace.Write($"DeleteKeyDown source={sourceType} focused={focusedType}");
+            if (Keyboard.FocusedElement is DependencyObject focused)
+            {
+                var side = TryResolvePanelSide(focused);
+                if (side is not null)
+                {
+                    Vm.SetActivePanelCommand.Execute(side.Value ? "Left" : "Right");
+                    LiveTrace.Write($"DeleteKeyDown set-active side={(side.Value ? "L" : "R")}");
+                }
+            }
+
             await DeleteSelectionAsync();
             e.Handled = true;
             return;
@@ -2830,6 +3705,22 @@ public partial class MainWindow : Window
 
             e.Handled = true;
         }
+    }
+
+    private void FocusActiveQuickFilterTextBox()
+    {
+        if (Vm is null || Vm.IsFourPanelMode)
+        {
+            return;
+        }
+
+        var left = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        Vm.SetActivePanelCommand.Execute(left ? "Left" : "Right");
+
+        var box = left ? LeftQuickFilterTextBox : RightQuickFilterTextBox;
+        box.Focus();
+        Keyboard.Focus(box);
+        box.SelectAll();
     }
 
     private static bool IsTextInputFocused()
@@ -3309,6 +4200,9 @@ public partial class MainWindow : Window
         if (!clickedItem)
         {
             ClearPanelSelection(left.Value);
+            ShowPanelBackgroundContextMenu(itemsControl);
+            e.Handled = true;
+            return;
         }
 
         var selectedPaths = GetPanelSelectedItems(left.Value)
@@ -3325,6 +4219,42 @@ public partial class MainWindow : Window
         }
 
         e.Handled = true;
+    }
+
+    private void ShowPanelBackgroundContextMenu(ItemsControl placementTarget)
+    {
+        var menu = new ContextMenu
+        {
+            PlacementTarget = placementTarget,
+            Placement = PlacementMode.MousePoint,
+            StaysOpen = false
+        };
+
+        var newFolderMenu = new MenuItem
+        {
+            Header = "새 폴더",
+            InputGestureText = "F7"
+        };
+        newFolderMenu.Click += OnNewFolderClick;
+        menu.Items.Add(newFolderMenu);
+
+        var pasteMenu = new MenuItem
+        {
+            Header = "붙여넣기(V)"
+        };
+        pasteMenu.Click += OnWinContextPasteClick;
+        menu.Items.Add(pasteMenu);
+
+        menu.Items.Add(new Separator());
+
+        var refreshMenu = new MenuItem
+        {
+            Header = "새로고침"
+        };
+        refreshMenu.Click += (_, _) => Vm?.RefreshCommand.Execute(null);
+        menu.Items.Add(refreshMenu);
+
+        menu.IsOpen = true;
     }
 
     private async void TriggerPostShellRefresh()
@@ -4002,7 +4932,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Vm.IsTileViewEnabledForPanel(left))
+        if (Vm.IsTileViewEnabledForPanel(left) || Vm.IsCompactListViewEnabledForPanel(left))
         {
             var list = left ? LeftPanelTilesList : RightPanelTilesList;
             list.SelectedItems.Clear();
@@ -4030,6 +4960,40 @@ public partial class MainWindow : Window
             }
 
             current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    private bool? ResolveKeyboardTargetPanelSide()
+    {
+        if (Keyboard.FocusedElement is DependencyObject focused)
+        {
+            var side = TryResolvePanelSide(focused);
+            if (side is not null)
+            {
+                return side;
+            }
+        }
+
+        if (LeftPanelGrid.IsKeyboardFocusWithin || LeftPanelTilesList.IsKeyboardFocusWithin)
+        {
+            return true;
+        }
+
+        if (RightPanelGrid.IsKeyboardFocusWithin || RightPanelTilesList.IsKeyboardFocusWithin)
+        {
+            return false;
+        }
+
+        if (LeftPanelTilesList.SelectedItems.Count > 0 || LeftPanelGrid.SelectedItems.Count > 0)
+        {
+            return true;
+        }
+
+        if (RightPanelTilesList.SelectedItems.Count > 0 || RightPanelGrid.SelectedItems.Count > 0)
+        {
+            return false;
         }
 
         return null;
@@ -4162,20 +5126,41 @@ public partial class MainWindow : Window
             return;
         }
 
-        var activeLeft = Vm.IsLeftPanelActive;
-        var selected = GetActiveSelectedItems();
+        var activeLeft = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        Vm.SetActivePanelCommand.Execute(activeLeft ? "Left" : "Right");
+        var selected = GetPanelSelectedItems(activeLeft);
         if (selected.Count == 0)
         {
+            var opposite = !activeLeft;
+            var oppositeSelected = GetPanelSelectedItems(opposite);
+            if (oppositeSelected.Count > 0)
+            {
+                activeLeft = opposite;
+                Vm.SetActivePanelCommand.Execute(activeLeft ? "Left" : "Right");
+                selected = oppositeSelected;
+            }
+        }
+
+        if (selected.Count == 0)
+        {
+            LiveTrace.Write($"DeleteSelection abort: no selection active={(activeLeft ? "L" : "R")} leftSel={LeftPanelTilesList.SelectedItems.Count}/{LeftPanelGrid.SelectedItems.Count} rightSel={RightPanelTilesList.SelectedItems.Count}/{RightPanelGrid.SelectedItems.Count}");
             return;
         }
+
+        var preview = string.Join(", ", selected.Take(3).Select(item =>
+            $"{item.Name}|parent={item.IsParentDirectory}|dir={item.IsDirectory}|path={(string.IsNullOrWhiteSpace(item.FullPath) ? "(empty)" : item.FullPath)}"));
+        LiveTrace.Write($"DeleteSelection active={(activeLeft ? "L" : "R")} count={selected.Count} preview=[{preview}]");
 
         var message = $"선택한 {selected.Count}개 항목을 삭제하시겠습니까?";
         if (Vm.ConfirmBeforeDelete && !StyledDialogWindow.ShowConfirm(this, "삭제 확인", message))
         {
+            LiveTrace.Write("DeleteSelection cancelled by confirm dialog");
             return;
         }
 
-        await Vm.DeleteSelectedAsync(selected);
+        var targetPanel = activeLeft ? Vm.LeftPanel : Vm.RightPanel;
+        await Vm.DeleteItemsFromPanelAsync(targetPanel, selected);
+        LiveTrace.Write("DeleteSelection completed");
         RestoreKeyboardFocusAfterDelete(activeLeft);
     }
 
@@ -4267,14 +5252,32 @@ public partial class MainWindow : Window
             return Array.Empty<FileSystemItem>();
         }
 
-        if (Vm.IsTileViewEnabledForPanel(left))
+        var selectedItem = left ? Vm.LeftPanel.SelectedItem : Vm.RightPanel.SelectedItem;
+
+        if (Vm.IsTileViewEnabledForPanel(left) || Vm.IsCompactListViewEnabledForPanel(left))
         {
             var tileList = left ? LeftPanelTilesList : RightPanelTilesList;
-            return tileList.SelectedItems.Cast<FileSystemItem>().ToArray();
+            var selected = tileList.SelectedItems.Cast<FileSystemItem>().ToArray();
+            if (selected.Length > 0)
+            {
+                LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} list selected={selected.Length}");
+                return selected;
+            }
+
+            LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} list selected=0 fallbackSelectedItem={(selectedItem is null ? "null" : selectedItem.Name)}");
+            return selectedItem is null ? Array.Empty<FileSystemItem>() : [selectedItem];
         }
 
         var grid = left ? LeftPanelGrid : RightPanelGrid;
-        return grid.SelectedItems.Cast<FileSystemItem>().ToArray();
+        var gridSelected = grid.SelectedItems.Cast<FileSystemItem>().ToArray();
+        if (gridSelected.Length > 0)
+        {
+            LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} grid selected={gridSelected.Length}");
+            return gridSelected;
+        }
+
+        LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} grid selected=0 fallbackSelectedItem={(selectedItem is null ? "null" : selectedItem.Name)}");
+        return selectedItem is null ? Array.Empty<FileSystemItem>() : [selectedItem];
     }
 
     private void MoveActivePanelSelectionByArrow(int delta)
@@ -4329,6 +5332,49 @@ public partial class MainWindow : Window
         {
             grid.ScrollIntoView(nextItem);
         }
+    }
+
+    private void MoveActivePanelTabByArrow(int delta)
+    {
+        if (Vm is null || delta == 0 || Vm.IsFourPanelMode)
+        {
+            return;
+        }
+
+        var left = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        Vm.SetActivePanelCommand.Execute(left ? "Left" : "Right");
+
+        var tabs = left ? Vm.LeftTabs : Vm.RightTabs;
+        if (tabs.Count <= 1)
+        {
+            return;
+        }
+
+        var selected = left ? Vm.SelectedLeftTab : Vm.SelectedRightTab;
+        var current = selected is null ? 0 : tabs.IndexOf(selected);
+        if (current < 0)
+        {
+            current = 0;
+        }
+
+        var next = (current + delta) % tabs.Count;
+        if (next < 0)
+        {
+            next += tabs.Count;
+        }
+
+        if (left)
+        {
+            Vm.SelectedLeftTab = tabs[next];
+        }
+        else
+        {
+            Vm.SelectedRightTab = tabs[next];
+        }
+
+        // Keep keyboard focus on the file list after tab switch
+        // so Left/Right can be pressed repeatedly without clicking again.
+        RestoreKeyboardFocusAfterDelete(left, retryCount: 1);
     }
 
     private void SelectAllInActiveFourPanel()
@@ -4472,6 +5518,596 @@ public partial class MainWindow : Window
 
         var index = Math.Clamp(_activeFourPanelIndex, 0, Vm.FourPanels.Count - 1);
         return Vm.FourPanels[index].Panel;
+    }
+
+    private bool TryResolveTerminalTarget(
+        TerminalPanelTarget target,
+        out string key,
+        out string displayName,
+        out string workingDirectory,
+        out Action<bool> setVisible,
+        out Action<string> setOutput)
+    {
+        key = string.Empty;
+        displayName = string.Empty;
+        workingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        setVisible = _ => { };
+        setOutput = _ => { };
+
+        if (Vm is null)
+        {
+            return false;
+        }
+
+        if (target == TerminalPanelTarget.Active)
+        {
+            target = Vm.IsFourPanelMode
+                ? (TerminalPanelTarget)((int)TerminalPanelTarget.Panel1 + Math.Clamp(_activeFourPanelIndex, 0, 3))
+                : (Vm.IsLeftPanelActive ? TerminalPanelTarget.Left : TerminalPanelTarget.Right);
+        }
+
+        if (target is TerminalPanelTarget.Left or TerminalPanelTarget.Right)
+        {
+            if (Vm.IsFourPanelMode)
+            {
+                Vm.StatusText = "왼쪽/오른쪽 패널은 2패널 모드에서만 선택 가능합니다.";
+                return false;
+            }
+
+            var isLeft = target == TerminalPanelTarget.Left;
+            key = isLeft ? "left" : "right";
+            displayName = isLeft ? "왼쪽 패널" : "오른쪽 패널";
+            workingDirectory = ResolveTerminalWorkingDirectory(isLeft ? Vm.LeftCurrentPath : Vm.RightCurrentPath);
+            setVisible = visible =>
+            {
+                if (isLeft)
+                {
+                    Vm.IsLeftTerminalVisible = visible;
+                }
+                else
+                {
+                    Vm.IsRightTerminalVisible = visible;
+                }
+            };
+            setOutput = output =>
+            {
+                if (isLeft)
+                {
+                    Vm.LeftTerminalOutput = output;
+                }
+                else
+                {
+                    Vm.RightTerminalOutput = output;
+                }
+            };
+            return true;
+        }
+
+        var panelIndex = target switch
+        {
+            TerminalPanelTarget.Panel1 => 0,
+            TerminalPanelTarget.Panel2 => 1,
+            TerminalPanelTarget.Panel3 => 2,
+            TerminalPanelTarget.Panel4 => 3,
+            _ => -1
+        };
+
+        if (panelIndex < 0 || panelIndex >= Vm.FourPanels.Count)
+        {
+            Vm.StatusText = "선택한 패널을 찾을 수 없습니다.";
+            return false;
+        }
+
+        if (!Vm.IsFourPanelMode)
+        {
+            Vm.StatusText = "패널1~패널4는 4패널 모드에서만 선택 가능합니다.";
+            return false;
+        }
+
+        var slot = Vm.FourPanels[panelIndex];
+        key = $"four:{panelIndex}";
+        displayName = $"패널 {panelIndex + 1}";
+        workingDirectory = ResolveTerminalWorkingDirectory(slot.Panel.CurrentPath);
+        setVisible = visible => slot.IsTerminalVisible = visible;
+        setOutput = output => slot.TerminalOutput = output;
+        return true;
+    }
+
+    private bool TryResolveTerminalKeyFromElement(FrameworkElement element, out string key)
+    {
+        key = string.Empty;
+        if (element.Tag is string direct && !string.IsNullOrWhiteSpace(direct))
+        {
+            key = direct;
+            return true;
+        }
+
+        if (Vm is null)
+        {
+            return false;
+        }
+
+        var slot = element.Tag as FourPanelSlotViewModel ?? element.DataContext as FourPanelSlotViewModel;
+        if (slot is null)
+        {
+            return false;
+        }
+
+        var index = Vm.FourPanels.IndexOf(slot);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        key = $"four:{index}";
+        return true;
+    }
+
+    private static string ResolveTerminalWorkingDirectory(string? path)
+    {
+        return !string.IsNullOrWhiteSpace(path) && Directory.Exists(path)
+            ? path
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    }
+
+    private EmbeddedTerminalSession EnsureTerminalSession(string key, string workingDirectory, Action<string> setOutput)
+    {
+        if (!_terminalSessions.TryGetValue(key, out var session))
+        {
+            session = new EmbeddedTerminalSession
+            {
+                Key = key,
+                SetOutput = setOutput,
+                WorkingDirectory = workingDirectory
+            };
+            _terminalSessions[key] = session;
+        }
+        else
+        {
+            session.SetOutput = setOutput;
+            session.WorkingDirectory = workingDirectory;
+        }
+
+        session.SetOutput(session.DisplayBuffer.GetText());
+        if (session.Host is null)
+        {
+            StartTerminalProcess(session);
+        }
+
+        FocusTerminalInput(session);
+
+        return session;
+    }
+
+    private void StartTerminalProcess(EmbeddedTerminalSession session)
+    {
+        StopTerminalProcess(session);
+
+        session.DisplayBuffer.Clear();
+        session.SetOutput(string.Empty);
+
+        try
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            if (!TryCreatePseudoConsoleHost(session.WorkingDirectory, out var host, out var error))
+            {
+                AppendTerminalOutput(session.Key, $"[error] 터미널 시작 실패: {error}");
+                return;
+            }
+
+            if (host is null)
+            {
+                AppendTerminalOutput(session.Key, "[error] 터미널 시작 실패: 핸들 생성 오류");
+                return;
+            }
+
+            session.Host = host;
+            session.InputStream = new FileStream(host.InputWriterHandle, FileAccess.Write, 4096, isAsync: false);
+            session.OutputStream = new FileStream(host.OutputReaderHandle, FileAccess.Read, 4096, isAsync: false);
+            session.OutputReadCancellation = new CancellationTokenSource();
+            session.OutputReadTask = Task.Run(() => ReadTerminalOutputLoopAsync(session, session.OutputReadCancellation.Token));
+        }
+        catch (Exception ex)
+        {
+            AppendTerminalOutput(session.Key, $"[error] 터미널 시작 실패: {ex.Message}");
+        }
+    }
+
+    private static string GetTerminalEscapeSequenceForKey(Key key) => key switch
+    {
+        Key.Up => "\x1b[A",
+        Key.Down => "\x1b[B",
+        Key.Right => "\x1b[C",
+        Key.Left => "\x1b[D",
+        Key.Home => "\x1b[H",
+        Key.End => "\x1b[F",
+        Key.PageUp => "\x1b[5~",
+        Key.PageDown => "\x1b[6~",
+        _ => string.Empty
+    };
+
+    private void SendTerminalInput(EmbeddedTerminalSession session, string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        if (session.InputStream is null)
+        {
+            AppendTerminalOutput(session.Key, "[warn] 터미널 세션이 없습니다. 메뉴에서 터미널 추가를 먼저 실행하세요.");
+            return;
+        }
+
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            session.InputStream.Write(bytes, 0, bytes.Length);
+            session.InputStream.Flush();
+            session.IsCaretVisible = true;
+            RefreshTerminalDisplay(session);
+        }
+        catch (Exception ex)
+        {
+            AppendTerminalOutput(session.Key, $"[error] 입력 전송 실패: {ex.Message}");
+        }
+    }
+
+    private async Task ReadTerminalOutputLoopAsync(EmbeddedTerminalSession session, CancellationToken cancellationToken)
+    {
+        if (session.OutputStream is null)
+        {
+            return;
+        }
+
+        var byteBuffer = new byte[8192];
+        var charBuffer = new char[16384];
+        var decoder = Encoding.UTF8.GetDecoder();
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var read = await session.OutputStream.ReadAsync(byteBuffer.AsMemory(0, byteBuffer.Length), cancellationToken);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                var chars = decoder.GetChars(byteBuffer, 0, read, charBuffer, 0, flush: false);
+                if (chars <= 0)
+                {
+                    continue;
+                }
+
+                var chunk = new string(charBuffer, 0, chars);
+                AppendTerminalChunk(session.Key, chunk);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            AppendTerminalOutput(session.Key, $"[error] 출력 읽기 실패: {ex.Message}");
+        }
+    }
+
+    private bool TryCreatePseudoConsoleHost(string workingDirectory, out PseudoConsoleHost? host, out string error)
+    {
+        host = null;
+        error = string.Empty;
+        SafeFileHandle? inputRead = null;
+        SafeFileHandle? inputWrite = null;
+        SafeFileHandle? outputRead = null;
+        SafeFileHandle? outputWrite = null;
+        IntPtr pseudoConsole = IntPtr.Zero;
+        IntPtr attributeList = IntPtr.Zero;
+
+        try
+        {
+            var sa = new NativeMethods.SECURITY_ATTRIBUTES
+            {
+                nLength = Marshal.SizeOf<NativeMethods.SECURITY_ATTRIBUTES>(),
+                bInheritHandle = true,
+                lpSecurityDescriptor = IntPtr.Zero
+            };
+
+            if (!NativeMethods.CreatePipe(out inputRead, out inputWrite, ref sa, 0) ||
+                !NativeMethods.CreatePipe(out outputRead, out outputWrite, ref sa, 0))
+            {
+                error = $"파이프 생성 실패 ({Marshal.GetLastWin32Error()})";
+                return false;
+            }
+
+            NativeMethods.SetHandleInformation(inputWrite, NativeMethods.HANDLE_FLAG_INHERIT, 0);
+            NativeMethods.SetHandleInformation(outputRead, NativeMethods.HANDLE_FLAG_INHERIT, 0);
+
+            var size = new NativeMethods.COORD { X = 180, Y = 600 };
+            var hResult = NativeMethods.CreatePseudoConsole(size, inputRead, outputWrite, 0, out pseudoConsole);
+            if (hResult != 0)
+            {
+                error = $"ConPTY 생성 실패 (0x{hResult:X8})";
+                return false;
+            }
+
+            inputRead.Dispose();
+            outputWrite.Dispose();
+            inputRead = null;
+            outputWrite = null;
+
+            IntPtr attributeListSize = IntPtr.Zero;
+            NativeMethods.InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeListSize);
+            attributeList = Marshal.AllocHGlobal(attributeListSize);
+            if (!NativeMethods.InitializeProcThreadAttributeList(attributeList, 1, 0, ref attributeListSize))
+            {
+                error = $"AttributeList 초기화 실패 ({Marshal.GetLastWin32Error()})";
+                return false;
+            }
+
+            var pseudoConsoleHandlePtr = pseudoConsole;
+            var pseudoConsoleHandleSize = IntPtr.Size;
+            if (!NativeMethods.UpdateProcThreadAttribute(
+                    attributeList,
+                    0,
+                    (IntPtr)NativeMethods.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+                    pseudoConsoleHandlePtr,
+                    (IntPtr)pseudoConsoleHandleSize,
+                    IntPtr.Zero,
+                    IntPtr.Zero))
+            {
+                error = $"AttributeList 업데이트 실패 ({Marshal.GetLastWin32Error()})";
+                return false;
+            }
+
+            var startupInfoEx = new NativeMethods.STARTUPINFOEX();
+            startupInfoEx.StartupInfo.cb = Marshal.SizeOf<NativeMethods.STARTUPINFOEX>();
+            startupInfoEx.lpAttributeList = attributeList;
+            // Use cmd as default because its output/control sequences are simpler and
+            // render reliably in the lightweight terminal buffer.
+            var commandLine = new StringBuilder("cmd.exe /Q");
+            if (!NativeMethods.CreateProcess(
+                    null,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    true,
+                    NativeMethods.EXTENDED_STARTUPINFO_PRESENT,
+                    IntPtr.Zero,
+                    workingDirectory,
+                    ref startupInfoEx,
+                    out var processInfo))
+            {
+                error = $"쉘 실행 실패 ({Marshal.GetLastWin32Error()})";
+                return false;
+            }
+
+            host = new PseudoConsoleHost
+            {
+                ProcessHandle = processInfo.hProcess,
+                ThreadHandle = processInfo.hThread,
+                PseudoConsoleHandle = pseudoConsole,
+                InputWriterHandle = inputWrite!,
+                OutputReaderHandle = outputRead!,
+                AttributeList = attributeList
+            };
+
+            inputWrite = null;
+            outputRead = null;
+            attributeList = IntPtr.Zero;
+            pseudoConsole = IntPtr.Zero;
+            return true;
+        }
+        finally
+        {
+            inputRead?.Dispose();
+            inputWrite?.Dispose();
+            outputRead?.Dispose();
+            outputWrite?.Dispose();
+            if (attributeList != IntPtr.Zero)
+            {
+                NativeMethods.DeleteProcThreadAttributeList(attributeList);
+                Marshal.FreeHGlobal(attributeList);
+            }
+
+            if (pseudoConsole != IntPtr.Zero)
+            {
+                NativeMethods.ClosePseudoConsole(pseudoConsole);
+            }
+        }
+    }
+
+    private void FocusTerminalInput(EmbeddedTerminalSession session)
+    {
+        if (session.ConsoleTextBox is null)
+        {
+            return;
+        }
+
+        session.ConsoleTextBox.CaretIndex = session.ConsoleTextBox.Text.Length;
+        session.ConsoleTextBox.ScrollToEnd();
+        session.ConsoleTextBox.Focus();
+    }
+
+    private void AppendTerminalChunk(string key, string chunk)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => AppendTerminalChunk(key, chunk));
+            return;
+        }
+
+        if (!_terminalSessions.TryGetValue(key, out var session))
+        {
+            return;
+        }
+
+        session.DisplayBuffer.Feed(chunk);
+        session.IsCaretVisible = true;
+        RefreshTerminalDisplay(session);
+        if (session.ConsoleTextBox is not null)
+        {
+            session.ConsoleTextBox.CaretIndex = session.ConsoleTextBox.Text.Length;
+            session.ConsoleTextBox.ScrollToEnd();
+        }
+    }
+
+    private void AppendTerminalOutput(string key, string line)
+    {
+        AppendTerminalChunk(key, $"{line}{Environment.NewLine}");
+    }
+
+    private void OnTerminalConsoleGotFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox || !TryResolveTerminalKeyFromElement(textBox, out var key))
+        {
+            return;
+        }
+
+        if (_terminalSessions.TryGetValue(key, out var session))
+        {
+            session.IsFocused = true;
+            session.IsCaretVisible = true;
+            RefreshTerminalDisplay(session);
+        }
+    }
+
+    private void OnTerminalConsoleLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox || !TryResolveTerminalKeyFromElement(textBox, out var key))
+        {
+            return;
+        }
+
+        if (_terminalSessions.TryGetValue(key, out var session))
+        {
+            session.IsFocused = false;
+            session.IsCaretVisible = true;
+            RefreshTerminalDisplay(session);
+        }
+    }
+
+    private void OnTerminalCaretTimerTick(object? sender, EventArgs e)
+    {
+        foreach (var session in _terminalSessions.Values)
+        {
+            if (session.ConsoleTextBox is null)
+            {
+                continue;
+            }
+
+            session.IsCaretVisible = !session.IsCaretVisible;
+            RefreshTerminalDisplay(session);
+        }
+    }
+
+    private static string BuildTerminalDisplayText(EmbeddedTerminalSession session)
+    {
+        return session.DisplayBuffer.GetTextWithCaret(session.IsFocused && session.IsCaretVisible);
+    }
+
+    private void RefreshTerminalDisplay(EmbeddedTerminalSession session)
+    {
+        session.SetOutput(BuildTerminalDisplayText(session));
+        EnsureTerminalScrollToEnd(session);
+    }
+
+    private void EnsureTerminalScrollToEnd(EmbeddedTerminalSession session)
+    {
+        if (session.ConsoleTextBox is null)
+        {
+            return;
+        }
+
+        session.ConsoleTextBox.CaretIndex = session.ConsoleTextBox.Text.Length;
+        session.ConsoleTextBox.ScrollToEnd();
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            session.ConsoleTextBox.CaretIndex = session.ConsoleTextBox.Text.Length;
+            session.ConsoleTextBox.ScrollToEnd();
+        }, DispatcherPriority.Background);
+    }
+
+    private void CloseTerminalSession(string key, bool clearOutput, Action<string>? setOutputOverride = null)
+    {
+        if (!_terminalSessions.TryGetValue(key, out var session))
+        {
+            if (clearOutput && setOutputOverride is not null)
+            {
+                setOutputOverride(string.Empty);
+            }
+
+            return;
+        }
+
+        StopTerminalProcess(session);
+        if (clearOutput)
+        {
+            session.DisplayBuffer.Clear();
+            (setOutputOverride ?? session.SetOutput)(string.Empty);
+        }
+
+        _terminalSessions.Remove(key);
+    }
+
+    private void StopTerminalProcess(EmbeddedTerminalSession session)
+    {
+        try
+        {
+            session.OutputReadCancellation?.Cancel();
+            session.OutputReadTask?.Wait(200);
+        }
+        catch
+        {
+        }
+
+        session.OutputReadCancellation?.Dispose();
+        session.OutputReadCancellation = null;
+        session.OutputReadTask = null;
+
+        session.InputStream?.Dispose();
+        session.OutputStream?.Dispose();
+        session.InputStream = null;
+        session.OutputStream = null;
+
+        session.Host?.Dispose();
+        session.Host = null;
+    }
+
+    private void StopAllTerminalSessions()
+    {
+        foreach (var session in _terminalSessions.Values.ToArray())
+        {
+            StopTerminalProcess(session);
+        }
+
+        _terminalSessions.Clear();
+    }
+
+    private string GetActiveWorkingDirectory()
+    {
+        var fallback = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (Vm is null)
+        {
+            return fallback;
+        }
+
+        if (Vm.IsFourPanelMode && GetActiveFourPanel() is PanelViewModel fourPanel)
+        {
+            var panelPath = (fourPanel.CurrentPath ?? string.Empty).Trim();
+            if (Directory.Exists(panelPath))
+            {
+                return panelPath;
+            }
+        }
+
+        var path = Vm.IsLeftPanelActive ? Vm.LeftCurrentPath : Vm.RightCurrentPath;
+        if (Directory.Exists(path))
+        {
+            return path;
+        }
+
+        return fallback;
     }
 
     private IReadOnlyList<FileSystemItem> GetFourPanelSelectedItems(PanelViewModel panel)

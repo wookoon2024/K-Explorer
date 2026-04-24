@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:WorkFileExplorer.App.Controls"
+        xmlns:converters="clr-namespace:WorkFileExplorer.App.Converters"
         mc:Ignorable="d"
         Title="K탐색기"
         Icon="/Assets/Icons/pro_icon.png"
@@ -15,6 +16,8 @@
         FontFamily="Segoe UI"
         PreviewKeyDown="OnWindowPreviewKeyDown">
     <Window.Resources>
+        <converters:NonLockingImageSourceConverter x:Key="NonLockingImageSourceConverter" />
+
         <Style x:Key="ToolButtonStyle" TargetType="Button">
             <Setter Property="Margin" Value="1,0" />
             <Setter Property="Padding" Value="6,1" />
@@ -334,7 +337,7 @@
                 </Grid.RowDefinitions>
                 <Grid Grid.Row="0" Margin="6">
                     <Image x:Name="TileThumbnail"
-                           Source="{Binding TileImageSource}"
+                           Source="{Binding TileImageSource, Converter={StaticResource NonLockingImageSourceConverter}}"
                            Stretch="Uniform"
                            SnapsToDevicePixels="True" />
                     <Viewbox x:Name="TileIconFallback" StretchDirection="DownOnly" Stretch="Uniform" Margin="10">
@@ -548,6 +551,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <DockPanel Grid.Row="0" Margin="2,2,2,1">
@@ -843,6 +847,70 @@
                             </Grid>
                         </DockPanel>
                     </Border>
+
+                    <Border Grid.Row="5" Margin="2,0,2,2" Background="#101010" BorderBrush="#A8A8A8" BorderThickness="1" Height="180" MinHeight="100">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsTerminalVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid Margin="4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="4" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <DockPanel Grid.Row="0" Margin="0,0,0,4">
+                                <Button DockPanel.Dock="Right"
+                                        Width="24"
+                                        Height="20"
+                                        Content="X"
+                                        ToolTip="터미널 닫기"
+                                        Tag="{Binding}"
+                                        Click="OnFourPanelTerminalCloseClick" />
+                                <Button DockPanel.Dock="Right"
+                                        Width="72"
+                                        Height="20"
+                                        Margin="0,0,4,0"
+                                        Content="코덱스 실행"
+                                        ToolTip="현재 터미널에서 Codex CLI 실행"
+                                        Tag="{Binding}"
+                                        Click="OnRunCodexInFourPanelTerminalClick" />
+                                <TextBlock Foreground="#E8E8E8" VerticalAlignment="Center" Text="터미널" />
+                            </DockPanel>
+                            <GridSplitter Grid.Row="1"
+                                          Height="4"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"
+                                          Background="#4A4A4A"
+                                          ResizeDirection="Rows"
+                                          ShowsPreview="True"
+                                          DragDelta="OnTerminalResizeDragDelta" />
+                            <TextBox Grid.Row="2"
+                                     Tag="{Binding}"
+                                     Text="{Binding TerminalOutput}"
+                                     IsReadOnly="True"
+                                     TextWrapping="NoWrap"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     Background="#101010"
+                                     Foreground="#D8D8D8"
+                                     BorderBrush="#4A4A4A"
+                                     BorderThickness="1"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     Loaded="OnTerminalConsoleLoaded"
+                                     PreviewKeyDown="OnTerminalConsolePreviewKeyDown"
+                                     PreviewTextInput="OnTerminalConsolePreviewTextInput"
+                                     TextChanged="OnTerminalOutputTextChanged" />
+                        </Grid>
+                    </Border>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -904,8 +972,21 @@
                 <Separator />
                 <MenuItem Header="새로고침" Command="{Binding RefreshCommand}" />
             </MenuItem>
+            <MenuItem Header="패널(P)">
+                <MenuItem Header="활성 패널 선택" Click="OnSelectActiveMenuPanelClick" />
+                <MenuItem Header="왼쪽 패널 선택" Click="OnSelectLeftMenuPanelClick" />
+                <MenuItem Header="오른쪽 패널 선택" Click="OnSelectRightMenuPanelClick" />
+                <MenuItem Header="패널1 선택" Click="OnSelectPanel1MenuPanelClick" />
+                <MenuItem Header="패널2 선택" Click="OnSelectPanel2MenuPanelClick" />
+                <MenuItem Header="패널3 선택" Click="OnSelectPanel3MenuPanelClick" />
+                <MenuItem Header="패널4 선택" Click="OnSelectPanel4MenuPanelClick" />
+                <Separator />
+                <MenuItem Header="터미널 추가" Click="OnAddTerminalToSelectedPanelClick" />
+                <MenuItem Header="터미널 닫기" Click="OnCloseTerminalInSelectedPanelClick" />
+            </MenuItem>
             <MenuItem Header="구성(O)">
                 <MenuItem Header="환경설정" Click="OnOpenSettingsClick" />
+                <MenuItem Header="AI 터미널" Click="OnOpenAiTerminalClick" />
             </MenuItem>
         </Menu>
 
@@ -1036,14 +1117,24 @@
                                                 MinWidth="68"
                                                 MaxWidth="180"
                                                 Height="22"
-                                                Content="{Binding Name}"
                                                 ToolTip="{Binding Path}"
                                                 AllowDrop="True"
                                                 PreviewMouseLeftButtonDown="OnFavoriteToolbarFolderPreviewMouseLeftButtonDown"
                                                 PreviewMouseMove="OnFavoriteToolbarFolderPreviewMouseMove"
                                                 DragOver="OnFavoriteToolbarFolderDragOver"
                                                 Drop="OnFavoriteToolbarFolderDrop"
-                                                Click="OnFavoriteToolbarFolderClick" />
+                                                Click="OnFavoriteToolbarFolderClick">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Image Width="12"
+                                                       Height="12"
+                                                       Margin="0,0,4,0"
+                                                       VerticalAlignment="Center"
+                                                       Source="/Assets/Icons/1.png" />
+                                                <TextBlock VerticalAlignment="Center"
+                                                           Text="{Binding Name}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -1352,6 +1443,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <DataGrid x:Name="LeftPanelGrid"
                               Grid.Row="0"
@@ -1611,7 +1703,8 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#2A2A2A" FontSize="11" Text="파일리스트 내 검색" />
-                                <TextBox Grid.Column="1"
+                                <TextBox x:Name="LeftQuickFilterTextBox"
+                                         Grid.Column="1"
                                          MinWidth="60"
                                          VerticalContentAlignment="Center"
                                          HorizontalAlignment="Stretch"
@@ -1621,11 +1714,74 @@
                             </Grid>
                         </DockPanel>
                     </Border>
+                    <Border Grid.Row="2" Background="#101010" BorderBrush="#A8A8A8" BorderThickness="1,1,1,0" Height="180" MinHeight="100">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsLeftTerminalVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid Margin="4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="4" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <DockPanel Grid.Row="0" Margin="0,0,0,4">
+                                <Button DockPanel.Dock="Right"
+                                        Width="24"
+                                        Height="20"
+                                        Content="X"
+                                        ToolTip="터미널 닫기"
+                                        Click="OnLeftTerminalCloseClick" />
+                                <Button DockPanel.Dock="Right"
+                                        Width="72"
+                                        Height="20"
+                                        Margin="0,0,4,0"
+                                        Content="코덱스 실행"
+                                        ToolTip="현재 터미널에서 Codex CLI 실행"
+                                        Click="OnRunCodexInLeftTerminalClick" />
+                                <TextBlock Foreground="#E8E8E8" VerticalAlignment="Center" Text="터미널" />
+                            </DockPanel>
+                            <GridSplitter Grid.Row="1"
+                                          Height="4"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"
+                                          Background="#4A4A4A"
+                                          ResizeDirection="Rows"
+                                          ShowsPreview="True"
+                                          DragDelta="OnTerminalResizeDragDelta" />
+                            <TextBox x:Name="LeftTerminalOutputTextBox"
+                                     Grid.Row="2"
+                                     Tag="left"
+                                     Text="{Binding LeftTerminalOutput}"
+                                     IsReadOnly="True"
+                                     TextWrapping="NoWrap"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     Background="#101010"
+                                     Foreground="#D8D8D8"
+                                     BorderBrush="#4A4A4A"
+                                     BorderThickness="1"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     Loaded="OnTerminalConsoleLoaded"
+                                     PreviewKeyDown="OnTerminalConsolePreviewKeyDown"
+                                     PreviewTextInput="OnTerminalConsolePreviewTextInput"
+                                     TextChanged="OnTerminalOutputTextChanged" />
+                        </Grid>
+                    </Border>
                 </Grid>
 
                 <Grid Grid.Column="2" x:Name="RightPanelHostGrid" PreviewMouseLeftButtonDown="OnRightPanelHostMouseDown">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <DataGrid x:Name="RightPanelGrid"
@@ -1886,7 +2042,8 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#2A2A2A" FontSize="11" Text="파일리스트 내 검색" />
-                                <TextBox Grid.Column="1"
+                                <TextBox x:Name="RightQuickFilterTextBox"
+                                         Grid.Column="1"
                                          MinWidth="60"
                                          VerticalContentAlignment="Center"
                                          HorizontalAlignment="Stretch"
@@ -1895,6 +2052,68 @@
                                          ToolTip="파일/디렉토리 이름 필터" />
                             </Grid>
                         </DockPanel>
+                    </Border>
+                    <Border Grid.Row="2" Background="#101010" BorderBrush="#A8A8A8" BorderThickness="1,1,1,0" Height="180" MinHeight="100">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRightTerminalVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid Margin="4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="4" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <DockPanel Grid.Row="0" Margin="0,0,0,4">
+                                <Button DockPanel.Dock="Right"
+                                        Width="24"
+                                        Height="20"
+                                        Content="X"
+                                        ToolTip="터미널 닫기"
+                                        Click="OnRightTerminalCloseClick" />
+                                <Button DockPanel.Dock="Right"
+                                        Width="72"
+                                        Height="20"
+                                        Margin="0,0,4,0"
+                                        Content="코덱스 실행"
+                                        ToolTip="현재 터미널에서 Codex CLI 실행"
+                                        Click="OnRunCodexInRightTerminalClick" />
+                                <TextBlock Foreground="#E8E8E8" VerticalAlignment="Center" Text="터미널" />
+                            </DockPanel>
+                            <GridSplitter Grid.Row="1"
+                                          Height="4"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"
+                                          Background="#4A4A4A"
+                                          ResizeDirection="Rows"
+                                          ShowsPreview="True"
+                                          DragDelta="OnTerminalResizeDragDelta" />
+                            <TextBox x:Name="RightTerminalOutputTextBox"
+                                     Grid.Row="2"
+                                     Tag="right"
+                                     Text="{Binding RightTerminalOutput}"
+                                     IsReadOnly="True"
+                                     TextWrapping="NoWrap"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     Background="#101010"
+                                     Foreground="#D8D8D8"
+                                     BorderBrush="#4A4A4A"
+                                     BorderThickness="1"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     Loaded="OnTerminalConsoleLoaded"
+                                     PreviewKeyDown="OnTerminalConsolePreviewKeyDown"
+                                     PreviewTextInput="OnTerminalConsolePreviewTextInput"
+                                     TextChanged="OnTerminalOutputTextChanged" />
+                        </Grid>
                     </Border>
                 </Grid>
             </Grid>

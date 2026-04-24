@@ -52,6 +52,7 @@ public partial class ImageViewerWindow : Window
         InitializeImageList(imagePath);
         BuildThumbnailItems();
         LoadViewerScalePreference();
+        _fitMode = true; // Always start in Fit mode on initial open.
         ShowCurrentImage();
     }
 
@@ -498,6 +499,13 @@ public partial class ImageViewerWindow : Window
             return;
         }
 
+        if (e.Key == Key.Delete)
+        {
+            DeleteCurrentImage();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Left)
         {
             NavigateRelative(-1);
@@ -571,6 +579,54 @@ public partial class ImageViewerWindow : Window
             SaveViewerScalePreference();
             e.Handled = true;
         }
+    }
+
+    private void DeleteCurrentImage()
+    {
+        var path = CurrentImagePath;
+        if (string.IsNullOrWhiteSpace(path) || _currentIndex < 0 || _currentIndex >= _imageFiles.Count)
+        {
+            return;
+        }
+
+        var fileName = Path.GetFileName(path);
+        if (!StyledDialogWindow.ShowConfirm(this, "삭제 확인", $"현재 이미지 '{fileName}'을(를) 삭제하시겠습니까?"))
+        {
+            return;
+        }
+
+        try
+        {
+            ViewerImage.Source = null;
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            StyledDialogWindow.ShowInfo(this, "삭제 실패", ex.Message);
+            return;
+        }
+
+        var removedIndex = _currentIndex;
+        _imageFiles.RemoveAt(removedIndex);
+        if (_thumbnailByPath.TryGetValue(path, out var thumbnail))
+        {
+            _thumbnailByPath.Remove(path);
+            _thumbnailItems.Remove(thumbnail);
+            ThumbnailList.Items.Refresh();
+        }
+
+        if (_imageFiles.Count == 0)
+        {
+            Close();
+            return;
+        }
+
+        _currentIndex = Math.Clamp(removedIndex, 0, _imageFiles.Count - 1);
+        ShowCurrentImage();
     }
 
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)

@@ -6,6 +6,8 @@ public static class AppPaths
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WorkFileExplorer");
 
+    public static string RootDirectory => Root;
+
     public static string HistoryDbFile => Path.Combine(Root, "history.db");
 
     public static void EnsureCreated()

@@ -8,6 +8,8 @@ public sealed class FourPanelSlotViewModel : ObservableObject
     private PanelTabViewModel? _selectedTab;
     private bool _isActive;
     private string _freeSpaceText = "-";
+    private bool _isTerminalVisible;
+    private string _terminalOutput = string.Empty;
 
     public FourPanelSlotViewModel(string slotKey, string initialPath)
     {
@@ -50,6 +52,18 @@ public sealed class FourPanelSlotViewModel : ObservableObject
     {
         get => _freeSpaceText;
         set => SetProperty(ref _freeSpaceText, value);
+    }
+
+    public bool IsTerminalVisible
+    {
+        get => _isTerminalVisible;
+        set => SetProperty(ref _isTerminalVisible, value);
+    }
+
+    public string TerminalOutput
+    {
+        get => _terminalOutput;
+        set => SetProperty(ref _terminalOutput, value);
     }
 
     public PanelTabViewModel AddTab(string path)
