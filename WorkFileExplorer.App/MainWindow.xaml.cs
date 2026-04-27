@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.ComponentModel;
@@ -52,8 +53,6 @@ public partial class MainWindow : Window
         public FileStream? OutputStream { get; set; }
         public CancellationTokenSource? OutputReadCancellation { get; set; }
         public Task? OutputReadTask { get; set; }
-        public bool IsFocused { get; set; }
-        public bool IsCaretVisible { get; set; } = true;
     }
 
     private sealed class PseudoConsoleHost : IDisposable
@@ -546,7 +545,6 @@ public partial class MainWindow : Window
     private MainWindowViewModel? _subscribedVm;
     private readonly Dictionary<string, EmbeddedTerminalSession> _terminalSessions = new(StringComparer.OrdinalIgnoreCase);
     private TerminalPanelTarget _selectedMenuPanelTarget = TerminalPanelTarget.Active;
-    private readonly DispatcherTimer _terminalCaretTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer _imagePreviewHoverTimer = new() { Interval = TimeSpan.FromMilliseconds(160) };
     private FileSystemItem? _pendingImagePreviewItem;
     private Point _pendingImagePreviewPoint;
@@ -562,10 +560,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _terminalCaretTimer.Tick += OnTerminalCaretTimerTick;
         _imagePreviewHoverTimer.Tick += OnImagePreviewHoverTimerTick;
-        _terminalCaretTimer.Start();
         Loaded += (_, _) => _windowLoaded = true;
+        SizeChanged += OnMainWindowSizeChanged;
         Loaded += OnMainWindowLoaded;
         DataContextChanged += OnMainWindowDataContextChanged;
     }
@@ -607,7 +604,6 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _terminalCaretTimer.Stop();
         _imagePreviewHoverTimer.Stop();
         HideImageHoverPreview();
         StopAllTerminalSessions();
@@ -680,16 +676,19 @@ public partial class MainWindow : Window
 
     private void OnLeftPanelFocus(object sender, RoutedEventArgs e)
     {
+        DismissFavoriteFlyoutsForNavigation();
         Vm?.SetActivePanelCommand.Execute("Left");
     }
 
     private void OnRightPanelFocus(object sender, RoutedEventArgs e)
     {
+        DismissFavoriteFlyoutsForNavigation();
         Vm?.SetActivePanelCommand.Execute("Right");
     }
 
     private void OnLeftPanelHostMouseDown(object sender, MouseButtonEventArgs e)
     {
+        DismissFavoriteFlyoutsForNavigation();
         Vm?.SetActivePanelCommand.Execute("Left");
         if (IsInteractiveFilterControl(e.OriginalSource as DependencyObject))
         {
@@ -708,6 +707,7 @@ public partial class MainWindow : Window
 
     private void OnRightPanelHostMouseDown(object sender, MouseButtonEventArgs e)
     {
+        DismissFavoriteFlyoutsForNavigation();
         Vm?.SetActivePanelCommand.Execute("Right");
         if (IsInteractiveFilterControl(e.OriginalSource as DependencyObject))
         {
@@ -876,7 +876,13 @@ public partial class MainWindow : Window
         if (sender is ListBox list)
         {
             UpdateAdaptiveTileSize(list);
+            Dispatcher.BeginInvoke(() => UpdateAdaptiveTileSize(list), DispatcherPriority.Background);
         }
+    }
+
+    private void OnMainWindowSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        Dispatcher.BeginInvoke(RefreshAdaptiveTileLayouts, DispatcherPriority.Background);
     }
 
     private void RefreshAdaptiveTileLayouts()
@@ -905,7 +911,10 @@ public partial class MainWindow : Window
 
         if (!IsCompactListMode(list))
         {
-            wrapPanel.ClearValue(WrapPanel.ItemWidthProperty);
+            var tileSize = ComputeAdaptiveTileSize(GetItemsViewportWidth(list));
+            wrapPanel.ItemWidth = tileSize;
+            wrapPanel.ItemHeight = tileSize;
+            _adaptiveTileSizes[list] = tileSize;
             return;
         }
 
@@ -927,7 +936,19 @@ public partial class MainWindow : Window
 
         itemWidth = Math.Clamp(itemWidth, minItemWidth, maxItemWidth);
         wrapPanel.ItemWidth = itemWidth;
+        wrapPanel.ClearValue(WrapPanel.ItemHeightProperty);
         _adaptiveTileSizes[list] = itemWidth;
+    }
+
+    private static double GetItemsViewportWidth(ListBox list)
+    {
+        var scrollViewer = FindDescendant<ScrollViewer>(list);
+        if (scrollViewer is not null && scrollViewer.ViewportWidth > 0)
+        {
+            return scrollViewer.ViewportWidth;
+        }
+
+        return list.ActualWidth;
     }
 
     private bool IsCompactListMode(ListBox list)
@@ -959,43 +980,18 @@ public partial class MainWindow : Window
     {
         const double minTile = 108;
         const double preferredTile = 124;
-        const double maxTile = 148;
-        const double tileGap = 4; // from ListBoxItem margin left+right (2+2)
-        const double chromeWidth = 30; // list padding + scrollbar reserve
+        var usable = Math.Max(minTile, listWidth);
 
-        var usable = Math.Max(minTile, listWidth - chromeWidth);
-        var maxColumns = Math.Max(1, (int)Math.Floor((usable + tileGap) / (minTile + tileGap)));
+        var columns = Math.Max(1, (int)Math.Round(usable / preferredTile));
+        var size = usable / columns;
 
-        var bestSize = minTile;
-        var bestCols = 1;
-        var bestScore = double.MaxValue;
-
-        for (var cols = 1; cols <= maxColumns; cols++)
+        while (columns > 1 && size < minTile)
         {
-            var size = Math.Floor((usable - tileGap * (cols - 1)) / cols);
-            if (size < minTile || size > maxTile)
-            {
-                continue;
-            }
-
-            var score = Math.Abs(size - preferredTile);
-            if (score < bestScore - 0.1 ||
-                (Math.Abs(score - bestScore) <= 0.1 && cols > bestCols))
-            {
-                bestScore = score;
-                bestSize = size;
-                bestCols = cols;
-            }
+            columns--;
+            size = usable / columns;
         }
 
-        if (bestScore != double.MaxValue)
-        {
-            return bestSize;
-        }
-
-        var fallbackCols = Math.Max(1, (int)Math.Floor((usable + tileGap) / (preferredTile + tileGap)));
-        var fallbackSize = Math.Floor((usable - tileGap * (fallbackCols - 1)) / fallbackCols);
-        return Math.Clamp(fallbackSize, minTile, maxTile);
+        return Math.Max(minTile, size);
     }
 
     private void OnFourPanelPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -3374,8 +3370,6 @@ public partial class MainWindow : Window
         textBox.LostFocus += OnTerminalConsoleLostFocus;
         textBox.CaretIndex = textBox.Text.Length;
         textBox.Focus();
-        session.IsFocused = true;
-        session.IsCaretVisible = true;
         RefreshTerminalDisplay(session);
     }
 
@@ -3772,6 +3766,53 @@ public partial class MainWindow : Window
 
             e.Handled = true;
         }
+    }
+
+    private void OnWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if ((!_isFavoriteFilesOverlayOpen && !_isFavoriteFolderOverlayOpen) || e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        if (IsWithinFavoriteFlyout(source) ||
+            IsWithinElement(source, _favoriteFilesFlyoutSourceButton) ||
+            IsWithinElement(source, _favoriteFlyoutSourceButton))
+        {
+            return;
+        }
+
+        DismissFavoriteFlyoutsForNavigation();
+    }
+
+    private bool IsWithinFavoriteFlyout(DependencyObject source)
+        => IsWithinElement(source, FavoriteFilesOverlayPanel) || IsWithinElement(source, FavoriteFolderOverlayPanel);
+
+    private static bool IsWithinElement(DependencyObject source, FrameworkElement? container)
+    {
+        if (container is null)
+        {
+            return false;
+        }
+
+        DependencyObject? current = source;
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, container))
+            {
+                return true;
+            }
+
+            current = current switch
+            {
+                Visual visual => VisualTreeHelper.GetParent(visual),
+                Visual3D visual3D => VisualTreeHelper.GetParent(visual3D),
+                FrameworkContentElement contentElement => contentElement.Parent,
+                _ => LogicalTreeHelper.GetParent(current)
+            };
+        }
+
+        return false;
     }
 
     private void FocusActiveQuickFilterTextBox()
@@ -5768,22 +5809,19 @@ public partial class MainWindow : Window
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!TryReadOriginalImagePixelSize(path, out var originalWidth, out var originalHeight))
+                var hasOriginalSize = TryReadOriginalImagePixelSize(path, out var originalWidth, out var originalHeight);
+                if (!TryLoadHoverPreviewBitmap(path, out var previewSource))
                 {
                     return null;
                 }
 
-                cancellationToken.ThrowIfCancellationRequested();
-                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                var image = new BitmapImage();
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-                image.DecodePixelWidth = 420;
-                image.StreamSource = stream;
-                image.EndInit();
-                image.Freeze();
-                return new ImageHoverPreviewData(image, originalWidth, originalHeight);
+                if (!hasOriginalSize)
+                {
+                    originalWidth = previewSource.PixelWidth;
+                    originalHeight = previewSource.PixelHeight;
+                }
+
+                return new ImageHoverPreviewData(previewSource, originalWidth, originalHeight);
             }
             catch
             {
@@ -5846,6 +5884,57 @@ public partial class MainWindow : Window
 
             width = frame.PixelWidth;
             height = frame.PixelHeight;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryLoadHoverPreviewBitmap(string path, out BitmapSource previewSource)
+    {
+        previewSource = null!;
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            image.DecodePixelWidth = 420;
+            image.StreamSource = stream;
+            image.EndInit();
+            image.Freeze();
+            previewSource = image;
+            return true;
+        }
+        catch
+        {
+            // Fall back to decoder path for files that fail BitmapImage initialization.
+        }
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
+            var frame = decoder.Frames.FirstOrDefault();
+            if (frame is null)
+            {
+                return false;
+            }
+
+            BitmapSource source = frame;
+            if (frame.PixelWidth > 420)
+            {
+                var scale = 420d / frame.PixelWidth;
+                source = new TransformedBitmap(frame, new ScaleTransform(scale, scale));
+            }
+
+            var frozen = source.Clone();
+            frozen.Freeze();
+            previewSource = frozen;
             return true;
         }
         catch
@@ -6271,7 +6360,6 @@ public partial class MainWindow : Window
             var bytes = Encoding.UTF8.GetBytes(text);
             session.InputStream.Write(bytes, 0, bytes.Length);
             session.InputStream.Flush();
-            session.IsCaretVisible = true;
             RefreshTerminalDisplay(session);
         }
         catch (Exception ex)
@@ -6470,7 +6558,6 @@ public partial class MainWindow : Window
         }
 
         session.DisplayBuffer.Feed(chunk);
-        session.IsCaretVisible = true;
         RefreshTerminalDisplay(session);
         if (session.ConsoleTextBox is not null)
         {
@@ -6493,8 +6580,6 @@ public partial class MainWindow : Window
 
         if (_terminalSessions.TryGetValue(key, out var session))
         {
-            session.IsFocused = true;
-            session.IsCaretVisible = true;
             RefreshTerminalDisplay(session);
         }
     }
@@ -6508,37 +6593,13 @@ public partial class MainWindow : Window
 
         if (_terminalSessions.TryGetValue(key, out var session))
         {
-            session.IsFocused = false;
-            session.IsCaretVisible = true;
-            RefreshTerminalDisplay(session);
-        }
-    }
-
-    private void OnTerminalCaretTimerTick(object? sender, EventArgs e)
-    {
-        foreach (var session in _terminalSessions.Values)
-        {
-            if (session.ConsoleTextBox is null)
-            {
-                continue;
-            }
-
-            session.IsFocused = session.ConsoleTextBox.IsKeyboardFocusWithin;
-            if (!session.IsFocused)
-            {
-                session.IsCaretVisible = true;
-                RefreshTerminalDisplay(session);
-                continue;
-            }
-
-            session.IsCaretVisible = !session.IsCaretVisible;
             RefreshTerminalDisplay(session);
         }
     }
 
     private static string BuildTerminalDisplayText(EmbeddedTerminalSession session)
     {
-        return session.DisplayBuffer.GetText();
+        return session.DisplayBuffer.GetTextWithCaret(showCaret: true);
     }
 
     private void RefreshTerminalDisplay(EmbeddedTerminalSession session)

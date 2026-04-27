@@ -5,6 +5,40 @@ namespace WorkFileExplorer.App.Services;
 
 public sealed class FileSystemService : IFileSystemService
 {
+    private static readonly IComparer<FileSystemItem> FileSystemItemComparer = Comparer<FileSystemItem>.Create(static (x, y) =>
+    {
+        if (ReferenceEquals(x, y))
+        {
+            return 0;
+        }
+
+        if (x is null)
+        {
+            return 1;
+        }
+
+        if (y is null)
+        {
+            return -1;
+        }
+
+        // Parent directory row should always stay on top.
+        var parentCompare = y.IsParentDirectory.CompareTo(x.IsParentDirectory);
+        if (parentCompare != 0)
+        {
+            return parentCompare;
+        }
+
+        // Then directories first.
+        var directoryCompare = y.IsDirectory.CompareTo(x.IsDirectory);
+        if (directoryCompare != 0)
+        {
+            return directoryCompare;
+        }
+
+        return StringComparer.CurrentCultureIgnoreCase.Compare(x.Name, y.Name);
+    });
+
     public bool DirectoryExists(string path) => Directory.Exists(path);
 
     public string NormalizePath(string? path)
@@ -29,7 +63,7 @@ public sealed class FileSystemService : IFileSystemService
         return Task.Run<IReadOnlyList<FileSystemItem>>(() =>
         {
             var normalizedPath = NormalizePath(path);
-            var items = new List<FileSystemItem>();
+            var items = new List<FileSystemItem>(1024);
 
             try
             {
@@ -50,39 +84,51 @@ public sealed class FileSystemService : IFileSystemService
                     });
                 }
 
-                foreach (var directory in Directory.EnumerateDirectories(normalizedPath))
+                var directoryInfo = new DirectoryInfo(normalizedPath);
+                foreach (var entry in directoryInfo.EnumerateFileSystemInfos())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    items.Add(new FileSystemItem
-                    {
-                        Name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-                        Extension = string.Empty,
-                        FullPath = directory,
-                        IsDirectory = true,
-                        SizeBytes = 0,
-                        SizeDisplay = "<디렉터리>",
-                        LastModified = Directory.GetLastWriteTime(directory),
-                        TypeDisplay = "Folder"
-                    });
-                }
 
-                foreach (var file in Directory.EnumerateFiles(normalizedPath))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var fileInfo = new FileInfo(file);
-                    items.Add(new FileSystemItem
+                    try
                     {
-                        Name = fileInfo.Name,
-                        Extension = fileInfo.Extension,
-                        FullPath = fileInfo.FullName,
-                        IsDirectory = false,
-                        SizeBytes = fileInfo.Length,
-                        SizeDisplay = ToReadableSize(fileInfo.Length),
-                        LastModified = fileInfo.LastWriteTime,
-                        TypeDisplay = string.IsNullOrWhiteSpace(fileInfo.Extension)
-                            ? "File"
-                            : $"{fileInfo.Extension.ToUpperInvariant()} File"
-                    });
+                        if ((entry.Attributes & FileAttributes.Directory) == FileAttributes.Directory)
+                        {
+                            items.Add(new FileSystemItem
+                            {
+                                Name = entry.Name,
+                                Extension = string.Empty,
+                                FullPath = entry.FullName,
+                                IsDirectory = true,
+                                SizeBytes = 0,
+                                SizeDisplay = "<디렉터리>",
+                                LastModified = entry.LastWriteTime,
+                                TypeDisplay = "Folder"
+                            });
+                            continue;
+                        }
+
+                        var fileInfo = entry as FileInfo ?? new FileInfo(entry.FullName);
+                        var extension = fileInfo.Extension;
+                        var size = fileInfo.Length;
+
+                        items.Add(new FileSystemItem
+                        {
+                            Name = fileInfo.Name,
+                            Extension = extension,
+                            FullPath = fileInfo.FullName,
+                            IsDirectory = false,
+                            SizeBytes = size,
+                            SizeDisplay = ToReadableSize(size),
+                            LastModified = fileInfo.LastWriteTime,
+                            TypeDisplay = string.IsNullOrWhiteSpace(extension)
+                                ? "File"
+                                : $"{extension.ToUpperInvariant()} File"
+                        });
+                    }
+                    catch
+                    {
+                        // Skip inaccessible/broken entries and keep loading the rest.
+                    }
                 }
             }
             catch
@@ -90,11 +136,8 @@ public sealed class FileSystemService : IFileSystemService
                 return Array.Empty<FileSystemItem>();
             }
 
-            return items
-                .OrderByDescending(static item => item.IsParentDirectory)
-                .ThenByDescending(static item => item.IsDirectory)
-                .ThenBy(static item => item.Name, StringComparer.CurrentCultureIgnoreCase)
-                .ToArray();
+            items.Sort(FileSystemItemComparer);
+            return items;
         }, cancellationToken);
     }
 
