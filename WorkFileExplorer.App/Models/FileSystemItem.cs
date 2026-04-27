@@ -10,6 +10,7 @@ public sealed class FileSystemItem : INotifyPropertyChanged
     private const string IconBasePath = "/Assets/Icons/";
     public static bool UseExtensionColors { get; set; } = true;
     public static bool UsePinnedHighlightColor { get; set; } = true;
+    public static bool UseLightTheme { get; set; }
     private static readonly Dictionary<string, string> ExtensionColorOverrides = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -148,17 +149,17 @@ public sealed class FileSystemItem : INotifyPropertyChanged
         {
             if (IsParentDirectory)
             {
-                return "#E8E8E8";
+                return UseLightTheme ? "#17212F" : "#E8E8E8";
             }
 
             if (IsDirectory)
             {
-                return "#E8E8E8";
+                return UseLightTheme ? "#17212F" : "#E8E8E8";
             }
 
             if (!UseExtensionColors)
             {
-                return "#E8E8E8";
+                return UseLightTheme ? "#17212F" : "#E8E8E8";
             }
 
             var extension = ExtensionLower;
@@ -169,50 +170,50 @@ public sealed class FileSystemItem : INotifyPropertyChanged
 
             if (NeutralExtensions.Contains(extension))
             {
-                return "#E8E8E8";
+                return UseLightTheme ? "#17212F" : "#E8E8E8";
             }
 
             if (ImageExtensions.Contains(extension))
             {
-                return "#A0A0A0";
+                return UseLightTheme ? "#3E5E86" : "#A0A0A0";
             }
 
             if (VideoExtensions.Contains(extension))
             {
-                return "#FFD54A";
+                return UseLightTheme ? "#B86A00" : "#FFD54A";
             }
 
             if (AudioExtensions.Contains(extension))
             {
-                return "#FFD54A";
+                return UseLightTheme ? "#B86A00" : "#FFD54A";
             }
 
             if (ArchiveExtensions.Contains(extension))
             {
-                return "#8FD66B";
+                return UseLightTheme ? "#1E9A3A" : "#8FD66B";
             }
 
             if (BinaryExtensions.Contains(extension))
             {
-                return "#FF4D4D";
+                return UseLightTheme ? "#C82222" : "#FF4D4D";
             }
 
             if (TerminalExtensions.Contains(extension))
             {
-                return "#FFA347";
+                return UseLightTheme ? "#C06A13" : "#FFA347";
             }
 
             if (string.Equals(extension, ".txt", StringComparison.OrdinalIgnoreCase))
             {
-                return "#A0A0A0";
+                return UseLightTheme ? "#3E5E86" : "#A0A0A0";
             }
 
             if (TextExtensions.Contains(extension))
             {
-                return "#66B3FF";
+                return UseLightTheme ? "#1267CC" : "#66B3FF";
             }
 
-            return "#E8E8E8";
+            return UseLightTheme ? "#17212F" : "#E8E8E8";
         }
     }
 
@@ -238,6 +239,37 @@ public sealed class FileSystemItem : INotifyPropertyChanged
 
             ExtensionColorOverrides[key] = value;
         }
+    }
+
+    public static void SetThemeMode(string? themeMode)
+    {
+        UseLightTheme = string.Equals(themeMode, "White", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static IReadOnlyDictionary<string, string> GetBuiltInExtensionColors(string? themeMode = null)
+    {
+        var lightTheme = string.Equals(themeMode, "White", StringComparison.OrdinalIgnoreCase);
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        static void AddRange(Dictionary<string, string> target, IEnumerable<string> extensions, string color)
+        {
+            foreach (var extension in extensions)
+            {
+                target[extension] = color;
+            }
+        }
+
+        AddRange(map, ImageExtensions, lightTheme ? "#3E5E86" : "#A0A0A0");
+        AddRange(map, VideoExtensions, lightTheme ? "#B86A00" : "#FFD54A");
+        AddRange(map, AudioExtensions, lightTheme ? "#B86A00" : "#FFD54A");
+        AddRange(map, ArchiveExtensions, lightTheme ? "#1E9A3A" : "#8FD66B");
+        AddRange(map, BinaryExtensions, lightTheme ? "#C82222" : "#FF4D4D");
+        AddRange(map, TerminalExtensions, lightTheme ? "#C06A13" : "#FFA347");
+        AddRange(map, TextExtensions, lightTheme ? "#1267CC" : "#66B3FF");
+        map[".txt"] = lightTheme ? "#3E5E86" : "#A0A0A0";
+        AddRange(map, NeutralExtensions, lightTheme ? "#0F172A" : "#E8E8E8");
+
+        return map;
     }
 
     public string PropertyDisplay

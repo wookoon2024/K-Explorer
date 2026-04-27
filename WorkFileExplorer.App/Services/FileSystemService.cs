@@ -53,16 +53,15 @@ public sealed class FileSystemService : IFileSystemService
                 foreach (var directory in Directory.EnumerateDirectories(normalizedPath))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var dirInfo = new DirectoryInfo(directory);
                     items.Add(new FileSystemItem
                     {
-                        Name = dirInfo.Name,
+                        Name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
                         Extension = string.Empty,
-                        FullPath = dirInfo.FullName,
+                        FullPath = directory,
                         IsDirectory = true,
                         SizeBytes = 0,
                         SizeDisplay = "<디렉터리>",
-                        LastModified = dirInfo.LastWriteTime,
+                        LastModified = Directory.GetLastWriteTime(directory),
                         TypeDisplay = "Folder"
                     });
                 }

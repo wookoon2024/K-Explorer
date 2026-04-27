@@ -166,53 +166,68 @@ public sealed class PanelViewModel : ObservableObject
     {
         var previousSelectedPath = _selectedItem?.FullPath;
         var keyword = _quickFilterText ?? string.Empty;
+        var hasKeyword = !string.IsNullOrWhiteSpace(keyword);
         var comparison = _quickFilterCaseSensitive
             ? StringComparison.CurrentCulture
             : StringComparison.CurrentCultureIgnoreCase;
 
-        IEnumerable<FileSystemItem> query = _allItems.Where(item =>
+        var filteredItems = new List<FileSystemItem>(_allItems.Count);
+        FileSystemItem? selectedByPath = null;
+        FileSystemItem? firstNonParent = null;
+
+        foreach (var item in _allItems)
         {
             if (item.IsParentDirectory)
             {
-                return true;
+                filteredItems.Add(item);
+                if (selectedByPath is null &&
+                    !string.IsNullOrWhiteSpace(previousSelectedPath) &&
+                    string.Equals(item.FullPath, previousSelectedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    selectedByPath = item;
+                }
+
+                continue;
             }
 
             if (!item.IsDirectory && !_quickFilterIncludeFiles)
             {
-                return false;
+                continue;
             }
 
             if (item.IsDirectory && !_quickFilterIncludeDirectories)
             {
-                return false;
+                continue;
             }
 
-            if (string.IsNullOrWhiteSpace(keyword))
+            if (hasKeyword)
             {
-                return true;
+                var matches = _quickFilterExactMatch
+                    ? string.Equals(item.Name, keyword, comparison)
+                    : _quickFilterStartsWith
+                        ? item.Name.StartsWith(keyword, comparison)
+                        : item.Name.Contains(keyword, comparison);
+                if (!matches)
+                {
+                    continue;
+                }
             }
 
-            if (_quickFilterExactMatch)
+            filteredItems.Add(item);
+            firstNonParent ??= item;
+            if (selectedByPath is null &&
+                !string.IsNullOrWhiteSpace(previousSelectedPath) &&
+                string.Equals(item.FullPath, previousSelectedPath, StringComparison.OrdinalIgnoreCase))
             {
-                return string.Equals(item.Name, keyword, comparison);
+                selectedByPath = item;
             }
+        }
 
-            if (_quickFilterStartsWith)
-            {
-                return item.Name.StartsWith(keyword, comparison);
-            }
+        Items.ReplaceRange(filteredItems);
 
-            return item.Name.Contains(keyword, comparison);
-        });
-
-        Items.ReplaceRange(query);
-
-        var nextSelected = !string.IsNullOrWhiteSpace(previousSelectedPath)
-            ? Items.FirstOrDefault(item => string.Equals(item.FullPath, previousSelectedPath, StringComparison.OrdinalIgnoreCase))
-            : null;
-
-        nextSelected ??= Items.FirstOrDefault(item => !item.IsParentDirectory)
-            ?? Items.FirstOrDefault();
+        var nextSelected = selectedByPath
+            ?? firstNonParent
+            ?? filteredItems.FirstOrDefault();
 
         SelectedItem = nextSelected;
     }

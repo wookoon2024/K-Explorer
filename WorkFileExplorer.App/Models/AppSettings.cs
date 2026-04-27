@@ -10,6 +10,7 @@ public sealed class AppSettings
     public bool DefaultTileViewEnabled { get; set; }
     public bool UseExtensionColors { get; set; } = true;
     public bool UsePinnedHighlightColor { get; set; } = true;
+    public string ThemeMode { get; set; } = "Black";
     public bool ConfirmBeforeDelete { get; set; } = true;
     public string ConflictPolicyDisplay { get; set; } = "Rename new";
     public string DefaultSearchScope { get; set; } = "Active panel";
@@ -25,6 +26,7 @@ public sealed class AppSettings
     public List<string> FavoriteFileCategoryFolders { get; set; } = new();
     public List<string> FavoriteFileCategoryMappings { get; set; } = new();
     public List<string> ExtensionColorOverrides { get; set; } = new();
+    public List<string> ThemeColorOverrides { get; set; } = new();
     public List<string> PinnedFolders { get; set; } = new();
     public List<string> PinnedFiles { get; set; } = new();
     public List<string> MessengerDownloadFolders { get; set; } = new();
@@ -34,4 +36,7 @@ public sealed class AppSettings
     public double WindowWidth { get; set; } = 1600;
     public double WindowHeight { get; set; } = 920;
     public bool WindowMaximized { get; set; }
+    public string FileListFontFamily { get; set; } = "Malgun Gothic";
+    public double FileListFontSize { get; set; } = 13;
+    public double FileListRowHeight { get; set; } = 18;
 }

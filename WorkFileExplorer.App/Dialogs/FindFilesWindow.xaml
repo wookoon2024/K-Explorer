@@ -1,4 +1,4 @@
-<Window x:Class="WorkFileExplorer.App.Dialogs.FindFilesWindow"
+﻿<Window x:Class="WorkFileExplorer.App.Dialogs.FindFilesWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="파일 찾기"
@@ -67,11 +67,23 @@
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
+
                                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="파일 마스크(F)" />
                                 <TextBox Grid.Row="0" Grid.Column="1" Margin="0,2,0,2" Text="{Binding SearchFileMasks, UpdateSourceTrigger=PropertyChanged}" />
+
                                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="파일 제외(E)" />
                                 <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2,0,2" Text="{Binding SearchExcludedFiles, UpdateSourceTrigger=PropertyChanged}" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0" Text="마스크 프리셋" />
+                                <WrapPanel Grid.Row="2" Grid.Column="1" Margin="0,4,0,0">
+                                    <Button Margin="0,0,6,6" Padding="10,2" Content="전체" Tag="*" Click="OnMaskPresetClick" />
+                                    <Button Margin="0,0,6,6" Padding="10,2" Content="텍스트파일" Tag="*.txt;*.md;*.csv;*.log;*.json;*.xml;*.yaml;*.yml;*.ini;*.cfg" Click="OnMaskPresetClick" />
+                                    <Button Margin="0,0,6,6" Padding="10,2" Content="문서" Tag="*.doc;*.docx;*.hwp;*.hwpx;*.xls;*.xlsx;*.ppt;*.pptx;*.pdf;*.rtf;*.odt" Click="OnMaskPresetClick" />
+                                    <Button Margin="0,0,6,6" Padding="10,2" Content="이미지" Tag="*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.tif;*.tiff;*.svg;*.heic;*.avif" Click="OnMaskPresetClick" />
+                                    <Button Margin="0,0,6,6" Padding="10,2" Content="동영상" Tag="*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.flv;*.webm;*.m4v;*.ts;*.3gp" Click="OnMaskPresetClick" />
+                                </WrapPanel>
                             </Grid>
                         </GroupBox>
 
@@ -128,8 +140,9 @@
             <TabItem Header="플러그인">
                 <TextBlock Margin="12" Text="플러그인 검색은 다음 단계에서 연결됩니다." />
             </TabItem>
+
             <TabItem Header="불러오기/저장">
-                <TextBlock Margin="12" Text="검색 프리셋 저장/불러오기는 다음 단계에서 연결됩니다." />
+                <TextBlock Margin="12" Text="검색 프리셋 저장과 불러오기는 다음 단계에서 연결됩니다." />
             </TabItem>
 
             <TabItem Header="결과">

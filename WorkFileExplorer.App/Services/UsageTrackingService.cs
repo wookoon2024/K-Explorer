@@ -10,6 +10,10 @@ public sealed class UsageTrackingService : IUsageTrackingService
     private readonly object _syncRoot = new();
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     private readonly string _connectionString;
+    private readonly Dictionary<string, TrackedFolderRecord> _folderRecordMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TrackedFileRecord> _fileRecordMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _dirtyFolderPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _dirtyFilePaths = new(StringComparer.OrdinalIgnoreCase);
     private UsageData _data;
 
     public UsageTrackingService()
@@ -21,6 +25,7 @@ public sealed class UsageTrackingService : IUsageTrackingService
         }.ToString();
         EnsureSchema();
         _data = LoadUsageFromDb();
+        RebuildLookupMaps();
     }
 
     public void RecordFolderAccess(string path, bool pinned)
@@ -33,17 +38,19 @@ public sealed class UsageTrackingService : IUsageTrackingService
 
         lock (_syncRoot)
         {
-            var record = _data.FolderRecords.FirstOrDefault(r => string.Equals(r.Path, normalized, StringComparison.OrdinalIgnoreCase));
-            if (record is null)
+            if (!_folderRecordMap.TryGetValue(normalized, out var record))
             {
-                _data.FolderRecords.Add(new TrackedFolderRecord
+                record = new TrackedFolderRecord
                 {
                     Path = normalized,
                     Name = Path.GetFileName(normalized),
                     AccessCount = 1,
                     LastAccessUtc = DateTime.UtcNow,
                     IsPinned = pinned
-                });
+                };
+                _data.FolderRecords.Add(record);
+                _folderRecordMap[normalized] = record;
+                _dirtyFolderPaths.Add(normalized);
                 return;
             }
 
@@ -54,6 +61,8 @@ public sealed class UsageTrackingService : IUsageTrackingService
             {
                 record.Name = Path.GetFileName(normalized);
             }
+
+            _dirtyFolderPaths.Add(normalized);
         }
     }
 
@@ -67,17 +76,19 @@ public sealed class UsageTrackingService : IUsageTrackingService
 
         lock (_syncRoot)
         {
-            var record = _data.FileRecords.FirstOrDefault(r => string.Equals(r.Path, normalized, StringComparison.OrdinalIgnoreCase));
-            if (record is null)
+            if (!_fileRecordMap.TryGetValue(normalized, out var record))
             {
-                _data.FileRecords.Add(new TrackedFileRecord
+                record = new TrackedFileRecord
                 {
                     Path = normalized,
                     Name = Path.GetFileName(normalized),
                     AccessCount = 1,
                     LastAccessUtc = DateTime.UtcNow,
                     IsPinned = pinned
-                });
+                };
+                _data.FileRecords.Add(record);
+                _fileRecordMap[normalized] = record;
+                _dirtyFilePaths.Add(normalized);
                 return;
             }
 
@@ -88,6 +99,8 @@ public sealed class UsageTrackingService : IUsageTrackingService
             {
                 record.Name = Path.GetFileName(normalized);
             }
+
+            _dirtyFilePaths.Add(normalized);
         }
     }
 
@@ -134,46 +147,66 @@ public sealed class UsageTrackingService : IUsageTrackingService
     public async Task PersistAsync(CancellationToken cancellationToken = default)
     {
         await _persistGate.WaitAsync(cancellationToken);
+        var dirtyFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var dirtyFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            UsageData copy;
+            TrackedFolderRecord[] dirtyFolders;
+            TrackedFileRecord[] dirtyFiles;
             lock (_syncRoot)
             {
-                copy = new UsageData
+                if (_dirtyFolderPaths.Count == 0 && _dirtyFilePaths.Count == 0)
                 {
-                    FolderRecords = _data.FolderRecords.Select(Clone).ToList(),
-                    FileRecords = _data.FileRecords.Select(Clone).ToList()
-                };
+                    return;
+                }
+
+                dirtyFolderPaths = new HashSet<string>(_dirtyFolderPaths, StringComparer.OrdinalIgnoreCase);
+                dirtyFilePaths = new HashSet<string>(_dirtyFilePaths, StringComparer.OrdinalIgnoreCase);
+
+                dirtyFolders = dirtyFolderPaths
+                    .Where(path => _folderRecordMap.ContainsKey(path))
+                    .Select(path => Clone(_folderRecordMap[path]))
+                    .ToArray();
+
+                dirtyFiles = dirtyFilePaths
+                    .Where(path => _fileRecordMap.ContainsKey(path))
+                    .Select(path => Clone(_fileRecordMap[path]))
+                    .ToArray();
+
+                _dirtyFolderPaths.Clear();
+                _dirtyFilePaths.Clear();
             }
 
             await using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
             await using var tx = (SqliteTransaction)(await connection.BeginTransactionAsync(cancellationToken));
 
-            var clearFolders = connection.CreateCommand();
-            clearFolders.Transaction = tx;
-            clearFolders.CommandText = "DELETE FROM usage_folder_records;";
-            await clearFolders.ExecuteNonQueryAsync(cancellationToken);
-
-            var clearFiles = connection.CreateCommand();
-            clearFiles.Transaction = tx;
-            clearFiles.CommandText = "DELETE FROM usage_file_records;";
-            await clearFiles.ExecuteNonQueryAsync(cancellationToken);
-
-            foreach (var record in copy.FolderRecords)
+            foreach (var record in dirtyFolders)
             {
-                await InsertFolderRecordAsync(connection, tx, record, cancellationToken);
+                await UpsertFolderRecordAsync(connection, tx, record, cancellationToken);
             }
 
-            foreach (var record in copy.FileRecords)
+            foreach (var record in dirtyFiles)
             {
-                await InsertFileRecordAsync(connection, tx, record, cancellationToken);
+                await UpsertFileRecordAsync(connection, tx, record, cancellationToken);
             }
 
             await tx.CommitAsync(cancellationToken);
         }
         catch
         {
+            lock (_syncRoot)
+            {
+                foreach (var path in dirtyFolderPaths)
+                {
+                    _dirtyFolderPaths.Add(path);
+                }
+
+                foreach (var path in dirtyFilePaths)
+                {
+                    _dirtyFilePaths.Add(path);
+                }
+            }
         }
         finally
         {
@@ -261,7 +294,7 @@ public sealed class UsageTrackingService : IUsageTrackingService
         return data;
     }
 
-    private static async Task InsertFolderRecordAsync(
+    private static async Task UpsertFolderRecordAsync(
         SqliteConnection connection,
         SqliteTransaction tx,
         TrackedFolderRecord record,
@@ -271,7 +304,12 @@ public sealed class UsageTrackingService : IUsageTrackingService
         command.Transaction = tx;
         command.CommandText = """
             INSERT INTO usage_folder_records (path, name, last_access_utc, access_count, is_pinned)
-            VALUES ($path, $name, $last_access_utc, $access_count, $is_pinned);
+            VALUES ($path, $name, $last_access_utc, $access_count, $is_pinned)
+            ON CONFLICT(path) DO UPDATE SET
+                name = excluded.name,
+                last_access_utc = excluded.last_access_utc,
+                access_count = excluded.access_count,
+                is_pinned = excluded.is_pinned;
             """;
         command.Parameters.AddWithValue("$path", record.Path);
         command.Parameters.AddWithValue("$name", record.Name ?? string.Empty);
@@ -281,7 +319,7 @@ public sealed class UsageTrackingService : IUsageTrackingService
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task InsertFileRecordAsync(
+    private static async Task UpsertFileRecordAsync(
         SqliteConnection connection,
         SqliteTransaction tx,
         TrackedFileRecord record,
@@ -291,7 +329,12 @@ public sealed class UsageTrackingService : IUsageTrackingService
         command.Transaction = tx;
         command.CommandText = """
             INSERT INTO usage_file_records (path, name, last_access_utc, access_count, is_pinned)
-            VALUES ($path, $name, $last_access_utc, $access_count, $is_pinned);
+            VALUES ($path, $name, $last_access_utc, $access_count, $is_pinned)
+            ON CONFLICT(path) DO UPDATE SET
+                name = excluded.name,
+                last_access_utc = excluded.last_access_utc,
+                access_count = excluded.access_count,
+                is_pinned = excluded.is_pinned;
             """;
         command.Parameters.AddWithValue("$path", record.Path);
         command.Parameters.AddWithValue("$name", record.Name ?? string.Empty);
@@ -357,5 +400,33 @@ public sealed class UsageTrackingService : IUsageTrackingService
             IsPinned = source.IsPinned
         };
     }
-}
 
+    private void RebuildLookupMaps()
+    {
+        lock (_syncRoot)
+        {
+            _folderRecordMap.Clear();
+            _fileRecordMap.Clear();
+
+            foreach (var record in _data.FolderRecords)
+            {
+                if (string.IsNullOrWhiteSpace(record.Path))
+                {
+                    continue;
+                }
+
+                _folderRecordMap[record.Path] = record;
+            }
+
+            foreach (var record in _data.FileRecords)
+            {
+                if (string.IsNullOrWhiteSpace(record.Path))
+                {
+                    continue;
+                }
+
+                _fileRecordMap[record.Path] = record;
+            }
+        }
+    }
+}

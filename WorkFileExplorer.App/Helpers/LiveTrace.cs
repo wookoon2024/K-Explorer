@@ -7,6 +7,8 @@ public static class LiveTrace
 {
     private static readonly object Gate = new();
     private static readonly string LogFile = Path.Combine(AppContext.BaseDirectory, "live_trace.log");
+    private static readonly Dictionary<string, DateTime> LastSnapshotByTag = new(StringComparer.Ordinal);
+    private static readonly TimeSpan SnapshotMinInterval = TimeSpan.FromMilliseconds(500);
 #if DEBUG
     private static readonly bool Enabled = true;
 #else
@@ -97,6 +99,18 @@ public static class LiveTrace
         if (!Enabled)
         {
             return;
+        }
+
+        lock (Gate)
+        {
+            var now = DateTime.UtcNow;
+            if (LastSnapshotByTag.TryGetValue(tag, out var lastAt) &&
+                now - lastAt < SnapshotMinInterval)
+            {
+                return;
+            }
+
+            LastSnapshotByTag[tag] = now;
         }
 
         try
