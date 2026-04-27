@@ -4,10 +4,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <AssemblyName>K-Explorer</AssemblyName>
-    <Version>1.3.0</Version>
-    <FileVersion>1.3.0.0</FileVersion>
-    <AssemblyVersion>1.3.0.0</AssemblyVersion>
-    <InformationalVersion>1.3.0</InformationalVersion>
+    <Version>1.3.1</Version>
+    <FileVersion>1.3.1.0</FileVersion>
+    <AssemblyVersion>1.3.1.0</AssemblyVersion>
+    <InformationalVersion>1.3.1</InformationalVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>

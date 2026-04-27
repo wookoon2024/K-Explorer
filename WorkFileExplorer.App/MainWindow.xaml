@@ -12,7 +12,7 @@
         Height="920"
         MinWidth="1200"
         MinHeight="720"
-        Background="#D9D9D9"
+        Background="{Binding ThemeWindowBackground}"
         FontFamily="Segoe UI"
         PreviewKeyDown="OnWindowPreviewKeyDown">
     <Window.Resources>
@@ -152,14 +152,14 @@
         </Style>
 
         <Style TargetType="DataGrid">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#E8E8E8" />
-            <Setter Property="BorderBrush" Value="#7A7A7A" />
+            <Setter Property="Background" Value="{Binding DataContext.ThemePanelBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="BorderBrush" Value="{Binding DataContext.ThemeBorderColor, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="GridLinesVisibility" Value="None" />
             <Setter Property="HeadersVisibility" Value="Column" />
-            <Setter Property="FontFamily" Value="Malgun Gothic" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontFamily" Value="{Binding DataContext.FileListFontFamily, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="FontSize" Value="{Binding DataContext.FileListFontSize, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="SelectionUnit" Value="FullRow" />
             <Setter Property="CanUserAddRows" Value="False" />
             <Setter Property="EnableRowVirtualization" Value="True" />
@@ -170,8 +170,8 @@
         </Style>
 
         <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#E5E5E5" />
-            <Setter Property="Foreground" Value="#202020" />
+            <Setter Property="Background" Value="{Binding DataContext.ThemeHeaderBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemeHeaderForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="Height" Value="24" />
             <Setter Property="Padding" Value="4,1" />
             <Setter Property="FontWeight" Value="Normal" />
@@ -180,9 +180,9 @@
         </Style>
 
         <Style TargetType="DataGridRow">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#E8E8E8" />
-            <Setter Property="Height" Value="18" />
+            <Setter Property="Background" Value="{Binding DataContext.ThemePanelBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Height" Value="{Binding DataContext.FileListRowHeight, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="ToolTip">
                 <Setter.Value>
                     <ToolTip>
@@ -200,8 +200,8 @@
             <Setter Property="ToolTipService.VerticalOffset" Value="-12" />
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#0A84D6" />
-                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
                 <DataTrigger Binding="{Binding HasMemo}" Value="False">
                     <Setter Property="ToolTip" Value="{x:Null}" />
@@ -213,11 +213,11 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="1,0,3,0" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#0078D7" />
-                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -231,15 +231,17 @@
         </Style>
 
         <Style x:Key="ItemNameStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#E8E8E8" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
         </Style>
 
         <Style x:Key="TileListStyle" TargetType="ListBox">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#E8E8E8" />
-            <Setter Property="BorderBrush" Value="#7A7A7A" />
+            <Setter Property="Background" Value="{Binding DataContext.ThemePanelBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="BorderBrush" Value="{Binding DataContext.ThemeBorderColor, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="0" />
+            <Setter Property="FontFamily" Value="{Binding DataContext.FileListFontFamily, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="FontSize" Value="{Binding DataContext.FileListFontSize, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
             <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
             <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
@@ -258,9 +260,9 @@
             <Setter Property="Height" Value="124" />
             <Setter Property="Margin" Value="2" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="Foreground" Value="#E8E8E8" />
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="BorderBrush" Value="#696969" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Background" Value="{Binding DataContext.ThemePanelBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="BorderBrush" Value="{Binding DataContext.ThemeBorderColor, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -281,9 +283,9 @@
             <Setter Property="ToolTipService.VerticalOffset" Value="-12" />
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#0A84D6" />
-                    <Setter Property="BorderBrush" Value="#0A84D6" />
-                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="BorderBrush" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
                 <DataTrigger Binding="{Binding HasMemo}" Value="False">
                     <Setter Property="ToolTip" Value="{x:Null}" />
@@ -297,8 +299,8 @@
             <Setter Property="Height" Value="22" />
             <Setter Property="Margin" Value="0,0,12,0" />
             <Setter Property="Padding" Value="2,0" />
-            <Setter Property="Foreground" Value="#E8E8E8" />
-            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+            <Setter Property="Background" Value="{Binding DataContext.ThemePanelBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -320,8 +322,8 @@
             <Setter Property="ToolTipService.VerticalOffset" Value="-12" />
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#0A84D6" />
-                    <Setter Property="Foreground" Value="#FFFFFF" />
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
                 <DataTrigger Binding="{Binding HasMemo}" Value="False">
                     <Setter Property="ToolTip" Value="{x:Null}" />
@@ -654,6 +656,7 @@
                                   Loaded="OnFourPanelGridLoaded"
                                   PreviewMouseLeftButtonDown="OnFourPanelPreviewMouseLeftButtonDown"
                                   PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                                  MouseLeave="OnPanelItemsPreviewMouseLeave"
                                   DragOver="OnPanelItemsDragOver"
                                   Drop="OnPanelItemsDrop"
                                   AllowDrop="True"
@@ -765,6 +768,7 @@
                                  SizeChanged="OnAdaptiveTileListSizeChanged"
                                  PreviewMouseLeftButtonDown="OnFourPanelPreviewMouseLeftButtonDown"
                                  PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                                 MouseLeave="OnPanelItemsPreviewMouseLeave"
                                  DragOver="OnPanelItemsDragOver"
                                  Drop="OnPanelItemsDrop"
                                  AllowDrop="True"
@@ -895,11 +899,13 @@
                                      Tag="{Binding}"
                                      Text="{Binding TerminalOutput}"
                                      IsReadOnly="True"
+                                     IsReadOnlyCaretVisible="True"
                                      TextWrapping="NoWrap"
                                      AcceptsReturn="True"
                                      VerticalScrollBarVisibility="Auto"
                                      HorizontalScrollBarVisibility="Auto"
                                      Background="#101010"
+                                     CaretBrush="#D8D8D8"
                                      Foreground="#D8D8D8"
                                      BorderBrush="#4A4A4A"
                                      BorderThickness="1"
@@ -916,9 +922,9 @@
         </DataTemplate>
     </Window.Resources>
 
-    <Grid>
+    <Grid x:Name="RootGrid">
     <DockPanel LastChildFill="True">
-        <Menu DockPanel.Dock="Top" Background="#E6E6E6" FontSize="12">
+        <Menu DockPanel.Dock="Top" Background="{Binding ThemeMenuBackground}" Foreground="{Binding ThemeMenuForeground}" FontSize="12">
             <MenuItem Header="파일(F)">
                 <MenuItem Header="열기" InputGestureText="Enter" Click="OnFileMenuOpenClick" />
                 <Separator />
@@ -1457,6 +1463,7 @@
                               CellEditEnding="OnPanelGridCellEditEnding"
                               PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
                               PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                              MouseLeave="OnPanelItemsPreviewMouseLeave"
                               DragOver="OnPanelItemsDragOver"
                               Drop="OnPanelItemsDrop"
                               AllowDrop="True"
@@ -1617,6 +1624,7 @@
                              SelectionMode="Extended"
                              PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
                              PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                             MouseLeave="OnPanelItemsPreviewMouseLeave"
                              DragOver="OnPanelItemsDragOver"
                              Drop="OnPanelItemsDrop"
                              AllowDrop="True"
@@ -1760,11 +1768,13 @@
                                      Tag="left"
                                      Text="{Binding LeftTerminalOutput}"
                                      IsReadOnly="True"
+                                     IsReadOnlyCaretVisible="True"
                                      TextWrapping="NoWrap"
                                      AcceptsReturn="True"
                                      VerticalScrollBarVisibility="Auto"
                                      HorizontalScrollBarVisibility="Auto"
                                      Background="#101010"
+                                     CaretBrush="#D8D8D8"
                                      Foreground="#D8D8D8"
                                      BorderBrush="#4A4A4A"
                                      BorderThickness="1"
@@ -1796,6 +1806,7 @@
                               CellEditEnding="OnPanelGridCellEditEnding"
                               PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
                               PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                              MouseLeave="OnPanelItemsPreviewMouseLeave"
                               DragOver="OnPanelItemsDragOver"
                               Drop="OnPanelItemsDrop"
                               AllowDrop="True"
@@ -1956,6 +1967,7 @@
                              SelectionMode="Extended"
                              PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
                              PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                             MouseLeave="OnPanelItemsPreviewMouseLeave"
                              DragOver="OnPanelItemsDragOver"
                              Drop="OnPanelItemsDrop"
                              AllowDrop="True"
@@ -2099,11 +2111,13 @@
                                      Tag="right"
                                      Text="{Binding RightTerminalOutput}"
                                      IsReadOnly="True"
+                                     IsReadOnlyCaretVisible="True"
                                      TextWrapping="NoWrap"
                                      AcceptsReturn="True"
                                      VerticalScrollBarVisibility="Auto"
                                      HorizontalScrollBarVisibility="Auto"
                                      Background="#101010"
+                                     CaretBrush="#D8D8D8"
                                      Foreground="#D8D8D8"
                                      BorderBrush="#4A4A4A"
                                      BorderThickness="1"
@@ -2458,5 +2472,44 @@
             </TreeView.ItemTemplate>
         </TreeView>
     </Border>
+
+    <Popup x:Name="ImageHoverPreviewPopup"
+           Placement="Relative"
+           PlacementTarget="{Binding ElementName=RootGrid}"
+           AllowsTransparency="True"
+           Focusable="False"
+           StaysOpen="True"
+           IsHitTestVisible="False"
+           PopupAnimation="Fade"
+           IsOpen="False"
+           Panel.ZIndex="3000">
+        <Border Background="#F6F6F6"
+                BorderBrush="#8F8F8F"
+                BorderThickness="1"
+                Padding="6"
+                SnapsToDevicePixels="True">
+            <StackPanel Orientation="Vertical">
+                <Image x:Name="ImageHoverPreviewImage"
+                       MaxWidth="420"
+                       MaxHeight="300"
+                       Stretch="Uniform"
+                       SnapsToDevicePixels="True" />
+                <TextBlock x:Name="ImageHoverPreviewNameText"
+                           Margin="0,5,0,0"
+                           FontWeight="SemiBold"
+                           Foreground="#202020" />
+                <TextBlock x:Name="ImageHoverPreviewSizeText"
+                           Margin="0,2,0,0"
+                           Foreground="#303030" />
+                <TextBlock x:Name="ImageHoverPreviewDateText"
+                           Margin="0,1,0,0"
+                           Foreground="#303030" />
+                <TextBlock x:Name="ImageHoverPreviewDimensionText"
+                           Margin="0,1,0,0"
+                           Foreground="#303030" />
+            </StackPanel>
+        </Border>
+    </Popup>
     </Grid>
 </Window>
+

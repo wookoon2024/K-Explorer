@@ -24,11 +24,16 @@ public sealed class MainWindowViewModel : ObservableObject
         public bool DefaultTileViewEnabled { get; init; }
         public bool UseExtensionColors { get; init; }
         public bool UsePinnedHighlightColor { get; init; }
+        public string ThemeMode { get; init; } = "Black";
         public bool ConfirmBeforeDelete { get; init; }
         public string ConflictPolicyDisplay { get; init; } = "Rename new";
         public string SearchScope { get; init; } = "Active panel";
         public bool SearchRecursive { get; init; } = true;
         public List<string> ExtensionColorOverrides { get; init; } = new();
+        public List<string> ThemeColorOverrides { get; init; } = new();
+        public string FileListFontFamily { get; init; } = "Malgun Gothic";
+        public double FileListFontSize { get; init; } = 13;
+        public double FileListRowHeight { get; init; } = 18;
     }
 
     private sealed class FourPanelTabsState
@@ -73,6 +78,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly PanelViewModel _fallbackRight = new();
 
     private AppSettings _settings = new();
+    private Dictionary<string, string> _themeColorOverridesMap = new(StringComparer.OrdinalIgnoreCase);
     private bool _isLeftPanelActive = true;
     private string _statusText = "Ready";
     private string _searchText = string.Empty;
@@ -131,6 +137,34 @@ public sealed class MainWindowViewModel : ObservableObject
     private static readonly TimeSpan DirectoryItemsCacheDuration = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan FreeSpaceCacheDuration = TimeSpan.FromSeconds(3);
     private const int MaxDirectoryItemsCacheEntries = 24;
+    private static readonly IReadOnlyDictionary<string, string> BlackThemeDefaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["WindowBackground"] = "#D9D9D9",
+        ["MenuBackground"] = "#E6E6E6",
+        ["MenuForeground"] = "#101010",
+        ["PanelBackground"] = "#000000",
+        ["PanelForeground"] = "#E8E8E8",
+        ["BorderColor"] = "#7A7A7A",
+        ["HeaderBackground"] = "#E5E5E5",
+        ["HeaderForeground"] = "#202020",
+        ["SelectionBackground"] = "#0078D7",
+        ["SelectionForeground"] = "#FFFFFF"
+    };
+
+    // White theme uses stronger contrast to avoid a washed-out look.
+    private static readonly IReadOnlyDictionary<string, string> WhiteThemeDefaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["WindowBackground"] = "#CBD7E6",
+        ["MenuBackground"] = "#D4E1F2",
+        ["MenuForeground"] = "#0B1220",
+        ["PanelBackground"] = "#FFFFFF",
+        ["PanelForeground"] = "#0B1220",
+        ["BorderColor"] = "#6C839F",
+        ["HeaderBackground"] = "#B9CCE5",
+        ["HeaderForeground"] = "#081527",
+        ["SelectionBackground"] = "#1F6FBF",
+        ["SelectionForeground"] = "#FFFFFF"
+    };
 
     public MainWindowViewModel(
         IFileSystemService fileSystemService,
@@ -682,6 +716,25 @@ public sealed class MainWindowViewModel : ObservableObject
         set => _settings.ConfirmBeforeDelete = value;
     }
 
+    public string FileListFontFamily => NormalizeFileListFontFamily(_settings.FileListFontFamily);
+
+    public double FileListFontSize => NormalizeFileListFontSize(_settings.FileListFontSize);
+
+    public double FileListRowHeight => NormalizeFileListRowHeight(_settings.FileListRowHeight);
+
+    public string ThemeMode => NormalizeThemeMode(_settings.ThemeMode);
+    public bool IsWhiteTheme => string.Equals(ThemeMode, "White", StringComparison.OrdinalIgnoreCase);
+    public string ThemeWindowBackground => ResolveThemeColor("WindowBackground");
+    public string ThemeMenuBackground => ResolveThemeColor("MenuBackground");
+    public string ThemeMenuForeground => ResolveThemeColor("MenuForeground");
+    public string ThemePanelBackground => ResolveThemeColor("PanelBackground");
+    public string ThemePanelForeground => ResolveThemeColor("PanelForeground");
+    public string ThemeBorderColor => ResolveThemeColor("BorderColor");
+    public string ThemeHeaderBackground => ResolveThemeColor("HeaderBackground");
+    public string ThemeHeaderForeground => ResolveThemeColor("HeaderForeground");
+    public string ThemeSelectionBackground => ResolveThemeColor("SelectionBackground");
+    public string ThemeSelectionForeground => ResolveThemeColor("SelectionForeground");
+
     public async Task InitializeAsync()
     {
         LiveTrace.Write("InitializeAsync begin");
@@ -707,8 +760,19 @@ public sealed class MainWindowViewModel : ObservableObject
             : "Rename new";
         FileSystemItem.UseExtensionColors = _settings.UseExtensionColors;
         FileSystemItem.UsePinnedHighlightColor = _settings.UsePinnedHighlightColor;
+        _settings.ThemeMode = NormalizeThemeMode(_settings.ThemeMode);
+        _settings.ThemeColorOverrides = NormalizeThemeColorOverrides(_settings.ThemeColorOverrides);
+        _themeColorOverridesMap = BuildThemeColorOverridesMap(_settings.ThemeColorOverrides);
+        FileSystemItem.SetThemeMode(_settings.ThemeMode);
         _settings.ExtensionColorOverrides = NormalizeExtensionColorOverrides(_settings.ExtensionColorOverrides);
+        _settings.FileListFontFamily = NormalizeFileListFontFamily(_settings.FileListFontFamily);
+        _settings.FileListFontSize = NormalizeFileListFontSize(_settings.FileListFontSize);
+        _settings.FileListRowHeight = NormalizeFileListRowHeight(_settings.FileListRowHeight);
         FileSystemItem.SetExtensionColorOverrides(BuildExtensionColorMap(_settings.ExtensionColorOverrides));
+        OnPropertyChanged(nameof(FileListFontFamily));
+        OnPropertyChanged(nameof(FileListFontSize));
+        OnPropertyChanged(nameof(FileListRowHeight));
+        NotifyThemeBrushesChanged();
         NormalizeFavoriteFileCategorySettings();
         RestoreSessionTabsFromSettings();
         ApplyDefaultViewToAllTabs(_settings.DefaultTileViewEnabled);
@@ -876,19 +940,64 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         else
         {
-            var files = selectedItems.Where(item => !item.IsDirectory).ToArray();
-            var total = files.Sum(item => item.SizeBytes);
-            var avg = files.Length > 0 ? total / files.Length : 0;
-            var extTop = files
-                .GroupBy(item => string.IsNullOrWhiteSpace(item.Extension) ? "(none)" : item.Extension.ToLowerInvariant())
-                .OrderByDescending(group => group.Count())
-                .Take(2)
-                .Select(group => $"{group.Key}x{group.Count()}");
+            var fileCount = 0;
+            long total = 0;
+            Dictionary<string, int>? extensionCounts = null;
+            foreach (var item in selectedItems)
+            {
+                if (item.IsDirectory)
+                {
+                    continue;
+                }
 
-            var extText = string.Join(",", extTop);
-            summary = files.Length == 0
-                ? $"Sel {selectedItems.Count}"
-                : $"Sel {selectedItems.Count} ({ToReadableSize(total)}, avg {ToReadableSize(avg)}) [{extText}]";
+                fileCount++;
+                total += item.SizeBytes;
+                var extension = string.IsNullOrWhiteSpace(item.Extension)
+                    ? "(none)"
+                    : item.Extension.ToLowerInvariant();
+
+                extensionCounts ??= new Dictionary<string, int>(StringComparer.Ordinal);
+                extensionCounts.TryGetValue(extension, out var count);
+                extensionCounts[extension] = count + 1;
+            }
+
+            if (fileCount == 0)
+            {
+                summary = $"Sel {selectedItems.Count}";
+            }
+            else
+            {
+                var avg = total / fileCount;
+                var top1Extension = string.Empty;
+                var top2Extension = string.Empty;
+                var top1Count = -1;
+                var top2Count = -1;
+                if (extensionCounts is not null)
+                {
+                    foreach (var pair in extensionCounts)
+                    {
+                        if (pair.Value > top1Count)
+                        {
+                            top2Count = top1Count;
+                            top2Extension = top1Extension;
+                            top1Count = pair.Value;
+                            top1Extension = pair.Key;
+                        }
+                        else if (pair.Value > top2Count)
+                        {
+                            top2Count = pair.Value;
+                            top2Extension = pair.Key;
+                        }
+                    }
+                }
+
+                var extText = top2Count > 0
+                    ? $"{top1Extension}x{top1Count},{top2Extension}x{top2Count}"
+                    : $"{top1Extension}x{top1Count}";
+
+                summary = $"Sel {selectedItems.Count} ({ToReadableSize(total)}, avg {ToReadableSize(avg)}) [{extText}]";
+            }
+
         }
 
         if (left)
@@ -1308,39 +1417,76 @@ public sealed class MainWindowViewModel : ObservableObject
             .Select(item => item.FullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var hasUnpinned = validItems.Any(item => !IsPinned(item));
-        foreach (var item in validItems)
+        var selectedDirectoryPaths = validItems
+            .Where(item => item.IsDirectory)
+            .Select(item => item.FullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedFilePaths = validItems
+            .Where(item => !item.IsDirectory)
+            .Select(item => item.FullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var pinnedFolderSet = _settings.PinnedFolders.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var pinnedFileSet = _settings.PinnedFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hasUnpinned = selectedDirectoryPaths.Any(path => !pinnedFolderSet.Contains(path)) ||
+                          selectedFilePaths.Any(path => !pinnedFileSet.Contains(path));
+
+        if (hasUnpinned)
         {
-            if (item.IsDirectory) TogglePinPath(_settings.PinnedFolders, item.FullPath, hasUnpinned);
-            else TogglePinPath(_settings.PinnedFiles, item.FullPath, hasUnpinned);
+            foreach (var path in selectedDirectoryPaths)
+            {
+                if (pinnedFolderSet.Add(path))
+                {
+                    _settings.PinnedFolders.Add(path);
+                }
+            }
+
+            foreach (var path in selectedFilePaths)
+            {
+                if (pinnedFileSet.Add(path))
+                {
+                    _settings.PinnedFiles.Add(path);
+                }
+            }
+        }
+        else
+        {
+            _settings.PinnedFolders.RemoveAll(path => selectedDirectoryPaths.Contains(path));
+            _settings.PinnedFiles.RemoveAll(path => selectedFilePaths.Contains(path));
         }
 
-        await PersistSettingsAsync();
-        await ReloadPanelsAndDashboardAsync();
+        await ReloadPanelsForPathsAndDashboardAsync(GetContainerPathsForSelection(validItems));
         RestorePanelSelectionByPaths(selectionPanel, selectedPaths);
     }
 
     public async Task AddFavoriteItemsAsync(IReadOnlyList<FileSystemItem> items)
     {
         if (items.Count == 0) return;
+        var favoriteFolderSet = _settings.FavoriteFolders.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var favoriteFileSet = _settings.FavoriteFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var favoriteFileTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var item in items)
         {
             if (item.IsDirectory)
             {
-                if (!_settings.FavoriteFolders.Contains(item.FullPath, StringComparer.OrdinalIgnoreCase))
+                if (favoriteFolderSet.Add(item.FullPath))
                     _settings.FavoriteFolders.Add(item.FullPath);
             }
             else
             {
-                if (!_settings.FavoriteFiles.Contains(item.FullPath, StringComparer.OrdinalIgnoreCase))
+                if (favoriteFileSet.Add(item.FullPath))
                 {
                     _settings.FavoriteFiles.Add(item.FullPath);
                 }
 
-                SetFavoriteFileCategory(item.FullPath, ResolveFallbackFavoriteFileCategory(_settings.FavoriteFileCategoryFolders));
+                favoriteFileTargets.Add(item.FullPath);
             }
         }
 
+        UpsertFavoriteFileCategories(favoriteFileTargets, ResolveFallbackFavoriteFileCategory(_settings.FavoriteFileCategoryFolders));
         await PersistSettingsAsync();
         await RefreshSidebarAndDashboardAsync();
     }
@@ -1366,32 +1512,50 @@ public sealed class MainWindowViewModel : ObservableObject
             .Select(item => item.FullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var hasUnfavorited = validItems.Any(item => item.IsDirectory
-            ? !_settings.FavoriteFolders.Contains(item.FullPath, StringComparer.OrdinalIgnoreCase)
-            : !_settings.FavoriteFiles.Contains(item.FullPath, StringComparer.OrdinalIgnoreCase));
+        var selectedDirectoryPaths = validItems
+            .Where(item => item.IsDirectory)
+            .Select(item => item.FullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedFilePaths = validItems
+            .Where(item => !item.IsDirectory)
+            .Select(item => item.FullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var item in validItems)
+        var favoriteFolderSet = _settings.FavoriteFolders.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var favoriteFileSet = _settings.FavoriteFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hasUnfavorited = selectedDirectoryPaths.Any(path => !favoriteFolderSet.Contains(path)) ||
+                             selectedFilePaths.Any(path => !favoriteFileSet.Contains(path));
+
+        if (hasUnfavorited)
         {
-            if (item.IsDirectory)
+            foreach (var path in selectedDirectoryPaths)
             {
-                ToggleFavoritePath(_settings.FavoriteFolders, item.FullPath, hasUnfavorited);
-            }
-            else
-            {
-                ToggleFavoritePath(_settings.FavoriteFiles, item.FullPath, hasUnfavorited);
-                if (hasUnfavorited)
+                if (favoriteFolderSet.Add(path))
                 {
-                    SetFavoriteFileCategory(item.FullPath, ResolveFallbackFavoriteFileCategory(_settings.FavoriteFileCategoryFolders));
-                }
-                else
-                {
-                    RemoveFavoriteFileCategory(item.FullPath);
+                    _settings.FavoriteFolders.Add(path);
                 }
             }
+
+            foreach (var path in selectedFilePaths)
+            {
+                if (favoriteFileSet.Add(path))
+                {
+                    _settings.FavoriteFiles.Add(path);
+                }
+            }
+
+            UpsertFavoriteFileCategories(selectedFilePaths, ResolveFallbackFavoriteFileCategory(_settings.FavoriteFileCategoryFolders));
+        }
+        else
+        {
+            _settings.FavoriteFolders.RemoveAll(path => selectedDirectoryPaths.Contains(path));
+            _settings.FavoriteFiles.RemoveAll(path => selectedFilePaths.Contains(path));
+            RemoveFavoriteFileCategories(selectedFilePaths);
         }
 
-        await PersistSettingsAsync();
-        await ReloadPanelsAndDashboardAsync();
+        await ReloadPanelsForPathsAndDashboardAsync(GetContainerPathsForSelection(validItems));
         RestorePanelSelectionByPaths(selectionPanel, selectedPaths);
     }
 
@@ -2137,11 +2301,16 @@ public sealed class MainWindowViewModel : ObservableObject
             DefaultTileViewEnabled = _settings.DefaultTileViewEnabled,
             UseExtensionColors = _settings.UseExtensionColors,
             UsePinnedHighlightColor = _settings.UsePinnedHighlightColor,
+            ThemeMode = ThemeMode,
             ConfirmBeforeDelete = _settings.ConfirmBeforeDelete,
             ConflictPolicyDisplay = SelectedConflictPolicyDisplay,
             SearchScope = SearchScope,
             SearchRecursive = SearchRecursive,
-            ExtensionColorOverrides = _settings.ExtensionColorOverrides.ToList()
+            ExtensionColorOverrides = _settings.ExtensionColorOverrides.ToList(),
+            ThemeColorOverrides = _settings.ThemeColorOverrides.ToList(),
+            FileListFontFamily = FileListFontFamily,
+            FileListFontSize = FileListFontSize,
+            FileListRowHeight = FileListRowHeight
         };
     }
 
@@ -2150,6 +2319,7 @@ public sealed class MainWindowViewModel : ObservableObject
         var previousUseExtensionColors = _settings.UseExtensionColors;
         var previousUsePinnedHighlight = _settings.UsePinnedHighlightColor;
         var previousDefaultTile = _settings.DefaultTileViewEnabled;
+        var previousThemeMode = NormalizeThemeMode(_settings.ThemeMode);
         var previousExtensionColorOverrides = NormalizeExtensionColorOverrides(_settings.ExtensionColorOverrides);
 
         IsFourPanelMode = snapshot.UseFourPanels;
@@ -2160,6 +2330,7 @@ public sealed class MainWindowViewModel : ObservableObject
         _settings.DefaultTileViewEnabled = snapshot.DefaultTileViewEnabled;
         _settings.UseExtensionColors = snapshot.UseExtensionColors;
         _settings.UsePinnedHighlightColor = snapshot.UsePinnedHighlightColor;
+        _settings.ThemeMode = NormalizeThemeMode(snapshot.ThemeMode);
         _settings.ConfirmBeforeDelete = snapshot.ConfirmBeforeDelete;
         _settings.ConflictPolicyDisplay = ConflictPolicyOptions.Contains(snapshot.ConflictPolicyDisplay, StringComparer.OrdinalIgnoreCase)
             ? snapshot.ConflictPolicyDisplay
@@ -2168,15 +2339,26 @@ public sealed class MainWindowViewModel : ObservableObject
             ? snapshot.SearchScope
             : "Active panel";
         _settings.DefaultSearchRecursive = snapshot.SearchRecursive;
+        _settings.ThemeColorOverrides = NormalizeThemeColorOverrides(snapshot.ThemeColorOverrides);
+        _themeColorOverridesMap = BuildThemeColorOverridesMap(_settings.ThemeColorOverrides);
         _settings.ExtensionColorOverrides = NormalizeExtensionColorOverrides(snapshot.ExtensionColorOverrides);
+        _settings.FileListFontFamily = NormalizeFileListFontFamily(snapshot.FileListFontFamily);
+        _settings.FileListFontSize = NormalizeFileListFontSize(snapshot.FileListFontSize);
+        _settings.FileListRowHeight = NormalizeFileListRowHeight(snapshot.FileListRowHeight);
 
         SelectedConflictPolicyDisplay = _settings.ConflictPolicyDisplay;
         SearchScope = _settings.DefaultSearchScope;
         SearchRecursive = _settings.DefaultSearchRecursive;
+        OnPropertyChanged(nameof(FileListFontFamily));
+        OnPropertyChanged(nameof(FileListFontSize));
+        OnPropertyChanged(nameof(FileListRowHeight));
+        NotifyThemeBrushesChanged();
         FileSystemItem.UseExtensionColors = _settings.UseExtensionColors;
         FileSystemItem.UsePinnedHighlightColor = _settings.UsePinnedHighlightColor;
+        FileSystemItem.SetThemeMode(_settings.ThemeMode);
         FileSystemItem.SetExtensionColorOverrides(BuildExtensionColorMap(_settings.ExtensionColorOverrides));
         var extensionColorsChanged = !previousExtensionColorOverrides.SequenceEqual(_settings.ExtensionColorOverrides, StringComparer.OrdinalIgnoreCase);
+        var themeChanged = !string.Equals(previousThemeMode, _settings.ThemeMode, StringComparison.OrdinalIgnoreCase);
 
         if (previousDefaultTile != _settings.DefaultTileViewEnabled)
         {
@@ -2186,7 +2368,8 @@ public sealed class MainWindowViewModel : ObservableObject
         if (previousUseExtensionColors != _settings.UseExtensionColors ||
             previousUsePinnedHighlight != _settings.UsePinnedHighlightColor ||
             previousDefaultTile != _settings.DefaultTileViewEnabled ||
-            extensionColorsChanged)
+            extensionColorsChanged ||
+            themeChanged)
         {
             await ReloadPanelsAndDashboardAsync();
         }
@@ -2197,6 +2380,160 @@ public sealed class MainWindowViewModel : ObservableObject
 
         await PersistSettingsAsync();
         StatusText = "환경설정이 적용되었습니다.";
+    }
+
+    private static string NormalizeFileListFontFamily(string? fontFamily)
+    {
+        var value = (fontFamily ?? string.Empty).Trim();
+        return string.IsNullOrWhiteSpace(value) ? "Malgun Gothic" : value;
+    }
+
+    private static string NormalizeThemeMode(string? themeMode)
+    {
+        return string.Equals((themeMode ?? string.Empty).Trim(), "White", StringComparison.OrdinalIgnoreCase)
+            ? "White"
+            : "Black";
+    }
+
+    private static IReadOnlyDictionary<string, string> GetThemeDefaults(string themeMode)
+    {
+        return string.Equals(themeMode, "White", StringComparison.OrdinalIgnoreCase)
+            ? WhiteThemeDefaults
+            : BlackThemeDefaults;
+    }
+
+    private string ResolveThemeColor(string token)
+    {
+        var theme = ThemeMode;
+        var defaults = GetThemeDefaults(theme);
+        var fallback = defaults.TryGetValue(token, out var defaultColor) ? defaultColor : "#FFFFFF";
+        var mapKey = $"{theme}.{token}";
+        return _themeColorOverridesMap.TryGetValue(mapKey, out var overrideColor) && IsValidHexColor(overrideColor)
+            ? overrideColor
+            : fallback;
+    }
+
+    private void NotifyThemeBrushesChanged()
+    {
+        OnPropertyChanged(nameof(ThemeMode));
+        OnPropertyChanged(nameof(IsWhiteTheme));
+        OnPropertyChanged(nameof(ThemeWindowBackground));
+        OnPropertyChanged(nameof(ThemeMenuBackground));
+        OnPropertyChanged(nameof(ThemeMenuForeground));
+        OnPropertyChanged(nameof(ThemePanelBackground));
+        OnPropertyChanged(nameof(ThemePanelForeground));
+        OnPropertyChanged(nameof(ThemeBorderColor));
+        OnPropertyChanged(nameof(ThemeHeaderBackground));
+        OnPropertyChanged(nameof(ThemeHeaderForeground));
+        OnPropertyChanged(nameof(ThemeSelectionBackground));
+        OnPropertyChanged(nameof(ThemeSelectionForeground));
+    }
+
+    private static List<string> NormalizeThemeColorOverrides(IEnumerable<string>? overrides)
+    {
+        if (overrides is null)
+        {
+            return new List<string>();
+        }
+
+        var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in overrides)
+        {
+            if (!TryParseThemeColorOverride(entry, out var themeMode, out var token, out var color))
+            {
+                continue;
+            }
+
+            var key = $"{themeMode}.{token}";
+            normalized[key] = color;
+        }
+
+        return normalized
+            .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(pair => $"{pair.Key}={pair.Value}")
+            .ToList();
+    }
+
+    private static Dictionary<string, string> BuildThemeColorOverridesMap(IEnumerable<string>? overrides)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (overrides is null)
+        {
+            return result;
+        }
+
+        foreach (var entry in overrides)
+        {
+            if (!TryParseThemeColorOverride(entry, out var themeMode, out var token, out var color))
+            {
+                continue;
+            }
+
+            result[$"{themeMode}.{token}"] = color;
+        }
+
+        return result;
+    }
+
+    private static bool TryParseThemeColorOverride(string? entry, out string themeMode, out string token, out string color)
+    {
+        themeMode = string.Empty;
+        token = string.Empty;
+        color = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(entry))
+        {
+            return false;
+        }
+
+        var split = entry.IndexOf('=');
+        if (split <= 0 || split >= entry.Length - 1)
+        {
+            return false;
+        }
+
+        var left = entry[..split].Trim();
+        color = entry[(split + 1)..].Trim().ToUpperInvariant();
+        if (!IsValidHexColor(color))
+        {
+            return false;
+        }
+
+        var dot = left.IndexOf('.');
+        if (dot <= 0 || dot >= left.Length - 1)
+        {
+            return false;
+        }
+
+        themeMode = NormalizeThemeMode(left[..dot]);
+        token = left[(dot + 1)..].Trim();
+        return !string.IsNullOrWhiteSpace(token);
+    }
+
+    private static bool IsValidHexColor(string? color)
+    {
+        return !string.IsNullOrWhiteSpace(color) &&
+               Regex.IsMatch(color.Trim(), "^#[0-9A-Fa-f]{6}$");
+    }
+
+    private static double NormalizeFileListFontSize(double fontSize)
+    {
+        if (double.IsNaN(fontSize) || double.IsInfinity(fontSize))
+        {
+            return 13;
+        }
+
+        return Math.Clamp(fontSize, 9, 28);
+    }
+
+    private static double NormalizeFileListRowHeight(double rowHeight)
+    {
+        if (double.IsNaN(rowHeight) || double.IsInfinity(rowHeight))
+        {
+            return 18;
+        }
+
+        return Math.Clamp(rowHeight, 16, 52);
     }
 
     private static List<string> NormalizeExtensionColorOverrides(IEnumerable<string>? overrides)
@@ -3216,11 +3553,16 @@ public sealed class MainWindowViewModel : ObservableObject
             var normalized = _fileSystemService.NormalizePath(path);
             LiveTrace.Write($"LoadPanelAsync[{side}] normalized='{normalized}'");
             IReadOnlyList<FileSystemItem> sourceItems;
+            var cacheHit = false;
+            var fetchStart = Stopwatch.GetTimestamp();
             if (!TryGetDirectoryItemsFromCache(normalized, out sourceItems))
             {
-                var loadTask = _fileSystemService.GetDirectoryItemsAsync(normalized);
-                var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(3)));
-                if (!ReferenceEquals(completed, loadTask))
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                try
+                {
+                    sourceItems = await _fileSystemService.GetDirectoryItemsAsync(normalized, timeoutCts.Token);
+                }
+                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
                 {
                     UpdateHistoryForPanel(panel, normalized, suppressHistoryRecord);
                     panel.CurrentPath = normalized;
@@ -3240,16 +3582,20 @@ public sealed class MainWindowViewModel : ObservableObject
                     return;
                 }
 
-                sourceItems = await loadTask;
                 SetDirectoryItemsCache(normalized, sourceItems);
                 LiveTrace.Write($"LoadPanelAsync[{side}] cache-miss");
             }
             else
             {
+                cacheHit = true;
                 LiveTrace.Write($"LoadPanelAsync[{side}] cache-hit");
             }
 
+            var fetchElapsed = Stopwatch.GetElapsedTime(fetchStart);
+            var prioritizeStart = Stopwatch.GetTimestamp();
             var items = ApplyPinnedPriority(sourceItems);
+            var prioritizeElapsed = Stopwatch.GetElapsedTime(prioritizeStart);
+            var bindStart = Stopwatch.GetTimestamp();
             LiveTrace.Write($"LoadPanelAsync[{side}] items={items.Count}");
             UpdateHistoryForPanel(panel, normalized, suppressHistoryRecord);
             panel.CurrentPath = normalized;
@@ -3257,6 +3603,9 @@ public sealed class MainWindowViewModel : ObservableObject
             panel.ApplyFilter(SearchText);
             RestoreSelectionOrTopAfterLoad(panel, previousSelectedPath, previousSelectedWasParent);
             UpdateTabTitleForPanel(panel);
+            var bindElapsed = Stopwatch.GetElapsedTime(bindStart);
+            LiveTrace.Write(
+                $"LoadPanelAsync[{side}] perf fetch={fetchElapsed.TotalMilliseconds:0.0}ms, prioritize={prioritizeElapsed.TotalMilliseconds:0.0}ms, bind={bindElapsed.TotalMilliseconds:0.0}ms, cache={(cacheHit ? "hit" : "miss")}");
 
             if (track)
             {
@@ -4372,31 +4721,97 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private static string BuildPanelSummary(PanelViewModel panel, string prefix)
     {
-        var dirs = panel.Items.Count(item => item.IsDirectory);
-        var files = panel.Items.Count - dirs;
-        var totalBytes = panel.Items.Where(item => !item.IsDirectory).Sum(item => item.SizeBytes);
+        var (dirs, files, totalBytes) = GetPanelStats(panel);
         return $"{prefix}: {dirs}D/{files}F {ToReadableSize(totalBytes)}";
     }
 
     private static string BuildFolderInfo(PanelViewModel panel)
     {
-        var dirs = panel.Items.Count(item => item.IsDirectory);
-        var files = panel.Items.Count - dirs;
-        var totalBytes = panel.Items.Where(item => !item.IsDirectory).Sum(item => item.SizeBytes);
+        var (dirs, files, totalBytes) = GetPanelStats(panel);
         return $"폴더 {dirs} / 파일 {files} / 용량 {ToReadableSize(totalBytes)}";
+    }
+
+    private static (int Dirs, int Files, long TotalFileBytes) GetPanelStats(PanelViewModel panel)
+    {
+        var dirs = 0;
+        var files = 0;
+        long totalBytes = 0;
+        foreach (var item in panel.Items)
+        {
+            if (item.IsDirectory)
+            {
+                dirs++;
+                continue;
+            }
+
+            files++;
+            totalBytes += item.SizeBytes;
+        }
+
+        return (dirs, files, totalBytes);
     }
 
     private async Task RefreshSidebarAndDashboardAsync()
     {
         var snapshot = await _usageTrackingService.GetSnapshotAsync();
         var quickAccess = await _quickAccessService.GetItemsAsync(_settings, snapshot);
+        var fileExistsCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var directoryExistsCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var fileLastWriteUtcCache = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        bool FileExistsCached(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            if (fileExistsCache.TryGetValue(path, out var exists))
+            {
+                return exists;
+            }
+
+            exists = File.Exists(path);
+            fileExistsCache[path] = exists;
+            return exists;
+        }
+
+        bool DirectoryExistsCached(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            if (directoryExistsCache.TryGetValue(path, out var exists))
+            {
+                return exists;
+            }
+
+            exists = Directory.Exists(path);
+            directoryExistsCache[path] = exists;
+            return exists;
+        }
+
+        DateTime GetFileLastWriteUtcCached(string path)
+        {
+            if (fileLastWriteUtcCache.TryGetValue(path, out var value))
+            {
+                return value;
+            }
+
+            value = File.GetLastWriteTimeUtc(path);
+            fileLastWriteUtcCache[path] = value;
+            return value;
+        }
+
         ResetCollection(QuickAccessItems, quickAccess);
-        ResetCollection(FavoriteToolbarFolders, BuildFavoriteToolbarItems(_settings.FavoriteFolders));
-        ResetCollection(FavoriteToolbarFiles, BuildFavoriteToolbarFiles(_settings.FavoriteFiles));
-        ResetCollection(RecentFiles, snapshot.RecentFiles.Where(r => File.Exists(r.Path)).Take(30));
-        ResetCollection(FrequentFiles, snapshot.FrequentFiles.Where(r => File.Exists(r.Path)).Take(30));
-        ResetCollection(PinnedFolders, _settings.PinnedFolders.Where(Directory.Exists).Select(p => new QuickAccessItem { Name = Path.GetFileName(p), Path = p, Category = "怨좎젙 ?대뜑", IsPinned = true }));
-        ResetCollection(PinnedFiles, _settings.PinnedFiles.Where(File.Exists).Select(p => new TrackedFileRecord { Name = Path.GetFileName(p), Path = p, LastAccessUtc = File.GetLastWriteTimeUtc(p), IsPinned = true }));
+        ResetCollection(FavoriteToolbarFolders, BuildFavoriteToolbarItems(_settings.FavoriteFolders, DirectoryExistsCached));
+        ResetCollection(FavoriteToolbarFiles, BuildFavoriteToolbarFiles(_settings.FavoriteFiles, FileExistsCached, GetFileLastWriteUtcCached));
+        ResetCollection(RecentFiles, snapshot.RecentFiles.Where(r => FileExistsCached(r.Path)).Take(30));
+        ResetCollection(FrequentFiles, snapshot.FrequentFiles.Where(r => FileExistsCached(r.Path)).Take(30));
+        ResetCollection(PinnedFolders, _settings.PinnedFolders.Where(DirectoryExistsCached).Select(p => new QuickAccessItem { Name = Path.GetFileName(p), Path = p, Category = "怨좎젙 ?대뜑", IsPinned = true }));
+        ResetCollection(PinnedFiles, _settings.PinnedFiles.Where(FileExistsCached).Select(p => new TrackedFileRecord { Name = Path.GetFileName(p), Path = p, LastAccessUtc = GetFileLastWriteUtcCached(p), IsPinned = true }));
     }
 
     private void QueueUsageRefreshAfterNavigation()
@@ -4431,10 +4846,13 @@ public sealed class MainWindowViewModel : ObservableObject
         }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    private static IReadOnlyList<QuickAccessItem> BuildFavoriteToolbarItems(IEnumerable<string> favoriteFolders)
+    private static IReadOnlyList<QuickAccessItem> BuildFavoriteToolbarItems(
+        IEnumerable<string> favoriteFolders,
+        Func<string, bool>? directoryExists = null)
     {
+        directoryExists ??= Directory.Exists;
         var items = new List<QuickAccessItem>();
-        foreach (var path in favoriteFolders.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var path in favoriteFolders.Where(directoryExists).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             items.Add(new QuickAccessItem
             {
@@ -4466,16 +4884,21 @@ public sealed class MainWindowViewModel : ObservableObject
         return string.IsNullOrWhiteSpace(root) ? trimmed : root;
     }
 
-    private static IReadOnlyList<TrackedFileRecord> BuildFavoriteToolbarFiles(IEnumerable<string> favoriteFiles)
+    private static IReadOnlyList<TrackedFileRecord> BuildFavoriteToolbarFiles(
+        IEnumerable<string> favoriteFiles,
+        Func<string, bool>? fileExists = null,
+        Func<string, DateTime>? getFileLastWriteUtc = null)
     {
+        fileExists ??= File.Exists;
+        getFileLastWriteUtc ??= File.GetLastWriteTimeUtc;
         var records = favoriteFiles
-            .Where(File.Exists)
+            .Where(fileExists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(path => new TrackedFileRecord
             {
                 Name = Path.GetFileName(path),
                 Path = path,
-                LastAccessUtc = File.GetLastWriteTimeUtc(path),
+                LastAccessUtc = getFileLastWriteUtc(path),
                 IsPinned = true
             })
             .OrderBy(record => record.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -4668,6 +5091,74 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         _settings.FavoriteFileCategoryMappings = SerializeFavoriteFileCategoryMappings(mappings);
+    }
+
+    private void UpsertFavoriteFileCategories(IEnumerable<string> filePaths, string? folderPath)
+    {
+        var targets = (filePaths ?? Array.Empty<string>())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (targets.Length == 0)
+        {
+            return;
+        }
+
+        var normalizedFolder = NormalizeFavoriteFileCategoryPath(folderPath);
+        EnsureFavoriteFileCategoryFolderExists(normalizedFolder);
+        var mappings = ParseFavoriteFileCategoryMappings(_settings.FavoriteFileCategoryMappings);
+        foreach (var path in targets)
+        {
+            mappings[path] = normalizedFolder;
+        }
+
+        _settings.FavoriteFileCategoryMappings = SerializeFavoriteFileCategoryMappings(mappings);
+    }
+
+    private void RemoveFavoriteFileCategories(IEnumerable<string> filePaths)
+    {
+        var targets = (filePaths ?? Array.Empty<string>())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        var mappings = ParseFavoriteFileCategoryMappings(_settings.FavoriteFileCategoryMappings);
+        var removed = false;
+        foreach (var path in targets)
+        {
+            removed |= mappings.Remove(path);
+        }
+
+        if (!removed)
+        {
+            return;
+        }
+
+        _settings.FavoriteFileCategoryMappings = SerializeFavoriteFileCategoryMappings(mappings);
+    }
+
+    private static IReadOnlyList<string> GetContainerPathsForSelection(IEnumerable<FileSystemItem> items)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            if (item.IsParentDirectory || string.IsNullOrWhiteSpace(item.FullPath))
+            {
+                continue;
+            }
+
+            var containerPath = Path.GetDirectoryName(item.FullPath);
+            if (!string.IsNullOrWhiteSpace(containerPath))
+            {
+                result.Add(containerPath);
+            }
+        }
+
+        return result.ToArray();
     }
 
     private async Task ReloadPanelsAndDashboardAsync()
@@ -5476,18 +5967,77 @@ public sealed class MainWindowViewModel : ObservableObject
             return items;
         }
 
-        return items
-            .Select((item, index) => new
+        var hasPinnedOrFavorite = _settings.PinnedFolders.Count > 0 ||
+                                  _settings.PinnedFiles.Count > 0 ||
+                                  _settings.FavoriteFolders.Count > 0 ||
+                                  _settings.FavoriteFiles.Count > 0;
+        var hasMemos = _settings.ItemMemos is { Count: > 0 };
+        if (!hasPinnedOrFavorite && !hasMemos)
+        {
+            // Fast path: nothing to decorate/reorder, keep source ordering as-is.
+            return items;
+        }
+
+        var pinnedFolders = _settings.PinnedFolders.Count == 0
+            ? null
+            : new HashSet<string>(_settings.PinnedFolders, StringComparer.OrdinalIgnoreCase);
+        var pinnedFiles = _settings.PinnedFiles.Count == 0
+            ? null
+            : new HashSet<string>(_settings.PinnedFiles, StringComparer.OrdinalIgnoreCase);
+        var favoriteFolders = _settings.FavoriteFolders.Count == 0
+            ? null
+            : new HashSet<string>(_settings.FavoriteFolders, StringComparer.OrdinalIgnoreCase);
+        var favoriteFiles = _settings.FavoriteFiles.Count == 0
+            ? null
+            : new HashSet<string>(_settings.FavoriteFiles, StringComparer.OrdinalIgnoreCase);
+
+        var parents = new List<FileSystemItem>(1);
+        var pinnedDirectories = new List<FileSystemItem>();
+        var directories = new List<FileSystemItem>();
+        var pinnedRegularFiles = new List<FileSystemItem>();
+        var regularFiles = new List<FileSystemItem>();
+
+        foreach (var item in items)
+        {
+            var next = WithPinnedState(item, pinnedFolders, pinnedFiles, favoriteFolders, favoriteFiles);
+
+            if (next.IsParentDirectory)
             {
-                Index = index,
-                Item = WithPinnedState(item)
-            })
-            .OrderByDescending(entry => entry.Item.IsParentDirectory)
-            .ThenByDescending(entry => entry.Item.IsDirectory)
-            .ThenByDescending(entry => entry.Item.IsPinned)
-            .ThenBy(entry => entry.Index)
-            .Select(entry => entry.Item)
-            .ToArray();
+                parents.Add(next);
+                continue;
+            }
+
+            if (next.IsDirectory)
+            {
+                if (next.IsPinned)
+                {
+                    pinnedDirectories.Add(next);
+                }
+                else
+                {
+                    directories.Add(next);
+                }
+
+                continue;
+            }
+
+            if (next.IsPinned)
+            {
+                pinnedRegularFiles.Add(next);
+            }
+            else
+            {
+                regularFiles.Add(next);
+            }
+        }
+
+        var result = new List<FileSystemItem>(items.Count);
+        result.AddRange(parents);
+        result.AddRange(pinnedDirectories);
+        result.AddRange(directories);
+        result.AddRange(pinnedRegularFiles);
+        result.AddRange(regularFiles);
+        return result;
     }
 
     private FileSystemItem WithPinnedState(FileSystemItem item)
@@ -5503,6 +6053,49 @@ public sealed class MainWindowViewModel : ObservableObject
         var isFavorite = item.IsDirectory
             ? _settings.FavoriteFolders.Contains(item.FullPath, StringComparer.OrdinalIgnoreCase)
             : _settings.FavoriteFiles.Contains(item.FullPath, StringComparer.OrdinalIgnoreCase);
+        var memo = GetItemMemoText(item.FullPath);
+        if (item.IsPinned == isPinned &&
+            item.IsFavorite == isFavorite &&
+            string.Equals(item.Memo, memo, StringComparison.Ordinal))
+        {
+            return item;
+        }
+
+        return new FileSystemItem
+        {
+            Name = item.Name,
+            Extension = item.Extension,
+            FullPath = item.FullPath,
+            IsParentDirectory = item.IsParentDirectory,
+            IsDirectory = item.IsDirectory,
+            IsPinned = isPinned,
+            IsFavorite = isFavorite,
+            Memo = memo,
+            SizeBytes = item.SizeBytes,
+            SizeDisplay = item.SizeDisplay,
+            LastModified = item.LastModified,
+            TypeDisplay = item.TypeDisplay
+        };
+    }
+
+    private FileSystemItem WithPinnedState(
+        FileSystemItem item,
+        HashSet<string>? pinnedFolders,
+        HashSet<string>? pinnedFiles,
+        HashSet<string>? favoriteFolders,
+        HashSet<string>? favoriteFiles)
+    {
+        if (item.IsParentDirectory || string.IsNullOrWhiteSpace(item.FullPath))
+        {
+            return item;
+        }
+
+        var isPinned = item.IsDirectory
+            ? pinnedFolders?.Contains(item.FullPath) == true
+            : pinnedFiles?.Contains(item.FullPath) == true;
+        var isFavorite = item.IsDirectory
+            ? favoriteFolders?.Contains(item.FullPath) == true
+            : favoriteFiles?.Contains(item.FullPath) == true;
         var memo = GetItemMemoText(item.FullPath);
         if (item.IsPinned == isPinned &&
             item.IsFavorite == isFavorite &&

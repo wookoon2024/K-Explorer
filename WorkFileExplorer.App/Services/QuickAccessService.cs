@@ -10,29 +10,65 @@ public sealed class QuickAccessService : IQuickAccessService
         cancellationToken.ThrowIfCancellationRequested();
 
         var list = new List<QuickAccessItem>();
-        AddFixedPath(list, "다운로드", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"));
-        AddSpecialFolder(list, "문서", Environment.SpecialFolder.MyDocuments);
-        AddSpecialFolder(list, "바탕화면", Environment.SpecialFolder.DesktopDirectory);
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pinnedFolderSet = settings.PinnedFolders.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var directoryExistsCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        bool DirectoryExistsCached(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            if (directoryExistsCache.TryGetValue(path, out var exists))
+            {
+                return exists;
+            }
+
+            exists = Directory.Exists(path);
+            directoryExistsCache[path] = exists;
+            return exists;
+        }
+
+        void TryAddQuickAccessItem(QuickAccessItem item)
+        {
+            if (item is null || string.IsNullOrWhiteSpace(item.Path))
+            {
+                return;
+            }
+
+            if (!seenPaths.Add(item.Path))
+            {
+                return;
+            }
+
+            list.Add(item);
+        }
+
+        AddFixedPath(TryAddQuickAccessItem, "다운로드", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"), DirectoryExistsCached);
+        AddSpecialFolder(TryAddQuickAccessItem, "문서", Environment.SpecialFolder.MyDocuments, DirectoryExistsCached);
+        AddSpecialFolder(TryAddQuickAccessItem, "바탕화면", Environment.SpecialFolder.DesktopDirectory, DirectoryExistsCached);
 
         foreach (var path in settings.FavoriteFolders.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            if (Directory.Exists(path))
+            if (DirectoryExistsCached(path))
             {
-                list.Add(new QuickAccessItem
+                TryAddQuickAccessItem(new QuickAccessItem
                 {
                     Name = $"★ {Path.GetFileName(path)}",
                     Path = path,
                     Category = "즐겨찾기",
-                    IsPinned = settings.PinnedFolders.Contains(path, StringComparer.OrdinalIgnoreCase)
+                    IsPinned = pinnedFolderSet.Contains(path)
                 });
             }
         }
 
         foreach (var folder in snapshot.RecentFolders.Take(5))
         {
-            if (Directory.Exists(folder.Path))
+            if (DirectoryExistsCached(folder.Path))
             {
-                list.Add(new QuickAccessItem
+                TryAddQuickAccessItem(new QuickAccessItem
                 {
                     Name = folder.Name,
                     Path = folder.Path,
@@ -44,9 +80,9 @@ public sealed class QuickAccessService : IQuickAccessService
 
         foreach (var folder in snapshot.FrequentFolders.Take(8))
         {
-            if (Directory.Exists(folder.Path))
+            if (DirectoryExistsCached(folder.Path))
             {
-                list.Add(new QuickAccessItem
+                TryAddQuickAccessItem(new QuickAccessItem
                 {
                     Name = folder.Name,
                     Path = folder.Path,
@@ -58,9 +94,9 @@ public sealed class QuickAccessService : IQuickAccessService
 
         foreach (var messengerPath in DiscoverMessengerFolders(settings))
         {
-            if (Directory.Exists(messengerPath))
+            if (DirectoryExistsCached(messengerPath))
             {
-                list.Add(new QuickAccessItem
+                TryAddQuickAccessItem(new QuickAccessItem
                 {
                     Name = Path.GetFileName(messengerPath),
                     Path = messengerPath,
@@ -71,8 +107,6 @@ public sealed class QuickAccessService : IQuickAccessService
         }
 
         var deduped = list
-            .GroupBy(static item => item.Path, StringComparer.OrdinalIgnoreCase)
-            .Select(static group => group.First())
             .OrderBy(static item => CategoryRank(item.Category))
             .ThenByDescending(static item => item.IsPinned)
             .ThenBy(static item => item.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -117,14 +151,15 @@ public sealed class QuickAccessService : IQuickAccessService
         _ => 10
     };
 
-    private static void AddFixedPath(List<QuickAccessItem> list, string name, string path)
+    private static void AddFixedPath(Action<QuickAccessItem> addItem, string name, string path, Func<string, bool>? directoryExists = null)
     {
-        if (!Directory.Exists(path))
+        directoryExists ??= Directory.Exists;
+        if (!directoryExists(path))
         {
             return;
         }
 
-        list.Add(new QuickAccessItem
+        addItem(new QuickAccessItem
         {
             Name = name,
             Path = path,
@@ -133,17 +168,23 @@ public sealed class QuickAccessService : IQuickAccessService
         });
     }
 
-    private static void AddSpecialFolder(List<QuickAccessItem> list, string name, Environment.SpecialFolder specialFolder, string? fallback = null)
+    private static void AddSpecialFolder(
+        Action<QuickAccessItem> addItem,
+        string name,
+        Environment.SpecialFolder specialFolder,
+        Func<string, bool>? directoryExists = null,
+        string? fallback = null)
     {
+        directoryExists ??= Directory.Exists;
         var path = Environment.GetFolderPath(specialFolder);
         if (string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(fallback))
         {
             path = fallback;
         }
 
-        if (Directory.Exists(path))
+        if (directoryExists(path))
         {
-            list.Add(new QuickAccessItem
+            addItem(new QuickAccessItem
             {
                 Name = name,
                 Path = path,

@@ -71,26 +71,25 @@ public partial class App : Application
         var hasPosition = IsFinite(settings.WindowLeft) && IsFinite(settings.WindowTop);
         var hasSize = IsFinite(settings.WindowWidth) && settings.WindowWidth > 0 &&
                       IsFinite(settings.WindowHeight) && settings.WindowHeight > 0;
-        if (!hasPosition || !hasSize)
+        if (hasPosition && hasSize)
         {
-            return;
+            var virtualLeft = SystemParameters.VirtualScreenLeft;
+            var virtualTop = SystemParameters.VirtualScreenTop;
+            var virtualWidth = SystemParameters.VirtualScreenWidth;
+            var virtualHeight = SystemParameters.VirtualScreenHeight;
+
+            var width = Math.Max(window.MinWidth, Math.Min(settings.WindowWidth, virtualWidth));
+            var height = Math.Max(window.MinHeight, Math.Min(settings.WindowHeight, virtualHeight));
+            var left = Math.Clamp(settings.WindowLeft, virtualLeft, virtualLeft + virtualWidth - width);
+            var top = Math.Clamp(settings.WindowTop, virtualTop, virtualTop + virtualHeight - height);
+
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+            window.Left = left;
+            window.Top = top;
+            window.Width = width;
+            window.Height = height;
         }
 
-        var virtualLeft = SystemParameters.VirtualScreenLeft;
-        var virtualTop = SystemParameters.VirtualScreenTop;
-        var virtualWidth = SystemParameters.VirtualScreenWidth;
-        var virtualHeight = SystemParameters.VirtualScreenHeight;
-
-        var width = Math.Max(window.MinWidth, Math.Min(settings.WindowWidth, virtualWidth));
-        var height = Math.Max(window.MinHeight, Math.Min(settings.WindowHeight, virtualHeight));
-        var left = Math.Clamp(settings.WindowLeft, virtualLeft, virtualLeft + virtualWidth - width);
-        var top = Math.Clamp(settings.WindowTop, virtualTop, virtualTop + virtualHeight - height);
-
-        window.WindowStartupLocation = WindowStartupLocation.Manual;
-        window.Left = left;
-        window.Top = top;
-        window.Width = width;
-        window.Height = height;
         if (settings.WindowMaximized)
         {
             window.WindowState = WindowState.Maximized;

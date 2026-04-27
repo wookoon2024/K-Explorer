@@ -9,6 +9,10 @@ public sealed class SettingsStorageService : ISettingsStorageService
 {
     private readonly string _connectionString;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private Dictionary<string, string>? _cachedValues;
+    private Dictionary<string, List<string>>? _cachedLists;
+    private Dictionary<string, string>? _cachedMemos;
+    private bool _cacheInitialized;
 
     public SettingsStorageService()
     {
@@ -38,6 +42,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.DefaultTileViewEnabled = ParseBool(GetOrDefault(values, "default_tile_view_enabled", "0"), defaultValue: false);
             settings.UseExtensionColors = ParseBool(GetOrDefault(values, "use_extension_colors", "1"), defaultValue: true);
             settings.UsePinnedHighlightColor = ParseBool(GetOrDefault(values, "use_pinned_highlight_color", "1"), defaultValue: true);
+            settings.ThemeMode = GetOrDefault(values, "theme_mode", settings.ThemeMode);
             settings.ConfirmBeforeDelete = ParseBool(GetOrDefault(values, "confirm_before_delete", "1"), defaultValue: true);
             settings.ConflictPolicyDisplay = GetOrDefault(values, "conflict_policy_display", settings.ConflictPolicyDisplay);
             settings.DefaultSearchScope = GetOrDefault(values, "default_search_scope", settings.DefaultSearchScope);
@@ -50,6 +55,9 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.WindowWidth = ParseDouble(GetOrDefault(values, "window_width", settings.WindowWidth.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.WindowWidth);
             settings.WindowHeight = ParseDouble(GetOrDefault(values, "window_height", settings.WindowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.WindowHeight);
             settings.WindowMaximized = ParseBool(GetOrDefault(values, "window_maximized", "0"), defaultValue: false);
+            settings.FileListFontFamily = GetOrDefault(values, "file_list_font_family", settings.FileListFontFamily);
+            settings.FileListFontSize = ParseDouble(GetOrDefault(values, "file_list_font_size", settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListFontSize);
+            settings.FileListRowHeight = ParseDouble(GetOrDefault(values, "file_list_row_height", settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListRowHeight);
 
             var lists = await LoadListsAsync(connection, cancellationToken);
             settings.LeftOpenTabPaths = lists.TryGetValue("left_open_tab_paths", out var leftTabs) ? leftTabs : new List<string>();
@@ -60,6 +68,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.FavoriteFileCategoryFolders = lists.TryGetValue("favorite_file_category_folders", out var favoriteFileCategoryFolders) ? favoriteFileCategoryFolders : new List<string>();
             settings.FavoriteFileCategoryMappings = lists.TryGetValue("favorite_file_category_mappings", out var favoriteFileCategoryMappings) ? favoriteFileCategoryMappings : new List<string>();
             settings.ExtensionColorOverrides = lists.TryGetValue("extension_color_overrides", out var extensionColorOverrides) ? extensionColorOverrides : new List<string>();
+            settings.ThemeColorOverrides = lists.TryGetValue("theme_color_overrides", out var themeColorOverrides) ? themeColorOverrides : new List<string>();
             settings.PinnedFolders = lists.TryGetValue("pinned_folders", out var pinnedFolders) ? pinnedFolders : new List<string>();
             settings.PinnedFiles = lists.TryGetValue("pinned_files", out var pinnedFiles) ? pinnedFiles : new List<string>();
             settings.MessengerDownloadFolders = lists.TryGetValue("messenger_download_folders", out var messengerFolders) ? messengerFolders : new List<string>();
@@ -82,56 +91,83 @@ public sealed class SettingsStorageService : ISettingsStorageService
             await connection.OpenAsync(cancellationToken);
             await using var tx = (SqliteTransaction)(await connection.BeginTransactionAsync(cancellationToken));
 
-            var clearValues = connection.CreateCommand();
-            clearValues.Transaction = tx;
-            clearValues.CommandText = "DELETE FROM app_settings;";
-            await clearValues.ExecuteNonQueryAsync(cancellationToken);
+            if (!_cacheInitialized || _cachedValues is null || _cachedLists is null || _cachedMemos is null)
+            {
+                _cachedValues = await LoadKeyValuesAsync(connection, cancellationToken);
+                _cachedLists = await LoadListsAsync(connection, cancellationToken);
+                _cachedMemos = await LoadItemMemosAsync(connection, cancellationToken);
+                _cacheInitialized = true;
+            }
 
-            var clearLists = connection.CreateCommand();
-            clearLists.Transaction = tx;
-            clearLists.CommandText = "DELETE FROM app_settings_list;";
-            await clearLists.ExecuteNonQueryAsync(cancellationToken);
+            var currentValues = _cachedValues;
+            var currentLists = _cachedLists;
+            var currentMemos = _cachedMemos;
 
-            var clearMemos = connection.CreateCommand();
-            clearMemos.Transaction = tx;
-            clearMemos.CommandText = "DELETE FROM app_item_memos;";
-            await clearMemos.ExecuteNonQueryAsync(cancellationToken);
+            var targetValues = BuildSettingValues(settings);
+            foreach (var pair in targetValues)
+            {
+                if (currentValues.TryGetValue(pair.Key, out var existing) &&
+                    string.Equals(existing, pair.Value, StringComparison.Ordinal))
+                {
+                    continue;
+                }
 
-            await InsertSettingAsync(connection, tx, "left_start_path", settings.LeftStartPath, cancellationToken);
-            await InsertSettingAsync(connection, tx, "right_start_path", settings.RightStartPath, cancellationToken);
-            await InsertSettingAsync(connection, tx, "panel_count", settings.PanelCount.ToString(), cancellationToken);
-            await InsertSettingAsync(connection, tx, "panel_layout", settings.PanelLayout, cancellationToken);
-            await InsertSettingAsync(connection, tx, "remember_session_tabs", settings.RememberSessionTabs ? "1" : "0", cancellationToken);
-            await InsertSettingAsync(connection, tx, "default_tile_view_enabled", settings.DefaultTileViewEnabled ? "1" : "0", cancellationToken);
-            await InsertSettingAsync(connection, tx, "use_extension_colors", settings.UseExtensionColors ? "1" : "0", cancellationToken);
-            await InsertSettingAsync(connection, tx, "use_pinned_highlight_color", settings.UsePinnedHighlightColor ? "1" : "0", cancellationToken);
-            await InsertSettingAsync(connection, tx, "confirm_before_delete", settings.ConfirmBeforeDelete ? "1" : "0", cancellationToken);
-            await InsertSettingAsync(connection, tx, "conflict_policy_display", settings.ConflictPolicyDisplay, cancellationToken);
-            await InsertSettingAsync(connection, tx, "default_search_scope", settings.DefaultSearchScope, cancellationToken);
-            await InsertSettingAsync(connection, tx, "default_search_recursive", settings.DefaultSearchRecursive ? "1" : "0", cancellationToken);
-            await InsertSettingAsync(connection, tx, "four_panel_tab_state_json", settings.FourPanelTabStateJson, cancellationToken);
-            await InsertSettingAsync(connection, tx, "selected_left_tab_index", settings.SelectedLeftTabIndex.ToString(), cancellationToken);
-            await InsertSettingAsync(connection, tx, "selected_right_tab_index", settings.SelectedRightTabIndex.ToString(), cancellationToken);
-            await InsertSettingAsync(connection, tx, "window_left", settings.WindowLeft.ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken);
-            await InsertSettingAsync(connection, tx, "window_top", settings.WindowTop.ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken);
-            await InsertSettingAsync(connection, tx, "window_width", settings.WindowWidth.ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken);
-            await InsertSettingAsync(connection, tx, "window_height", settings.WindowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken);
-            await InsertSettingAsync(connection, tx, "window_maximized", settings.WindowMaximized ? "1" : "0", cancellationToken);
+                await UpsertSettingAsync(connection, tx, pair.Key, pair.Value, cancellationToken);
+            }
 
-            await InsertListAsync(connection, tx, "left_open_tab_paths", settings.LeftOpenTabPaths, cancellationToken, keepDuplicates: true);
-            await InsertListAsync(connection, tx, "right_open_tab_paths", settings.RightOpenTabPaths, cancellationToken, keepDuplicates: true);
-            await InsertListAsync(connection, tx, "four_panel_paths", settings.FourPanelPaths, cancellationToken, keepDuplicates: true);
-            await InsertListAsync(connection, tx, "favorite_folders", settings.FavoriteFolders, cancellationToken);
-            await InsertListAsync(connection, tx, "favorite_files", settings.FavoriteFiles, cancellationToken);
-            await InsertListAsync(connection, tx, "favorite_file_category_folders", settings.FavoriteFileCategoryFolders, cancellationToken);
-            await InsertListAsync(connection, tx, "favorite_file_category_mappings", settings.FavoriteFileCategoryMappings, cancellationToken, keepDuplicates: true);
-            await InsertListAsync(connection, tx, "extension_color_overrides", settings.ExtensionColorOverrides, cancellationToken);
-            await InsertListAsync(connection, tx, "pinned_folders", settings.PinnedFolders, cancellationToken);
-            await InsertListAsync(connection, tx, "pinned_files", settings.PinnedFiles, cancellationToken);
-            await InsertListAsync(connection, tx, "messenger_download_folders", settings.MessengerDownloadFolders, cancellationToken);
-            await InsertItemMemosAsync(connection, tx, settings.ItemMemos, cancellationToken);
+            foreach (var staleKey in currentValues.Keys.Where(key => !targetValues.ContainsKey(key)).ToArray())
+            {
+                await DeleteSettingAsync(connection, tx, staleKey, cancellationToken);
+            }
+
+            var targetLists = BuildSettingLists(settings);
+            foreach (var pair in targetLists)
+            {
+                if (currentLists.TryGetValue(pair.Key, out var existingList) &&
+                    existingList.SequenceEqual(pair.Value, StringComparer.Ordinal))
+                {
+                    continue;
+                }
+
+                await DeleteListByKeyAsync(connection, tx, pair.Key, cancellationToken);
+                await InsertListAsync(connection, tx, pair.Key, pair.Value, cancellationToken, keepDuplicates: true);
+            }
+
+            foreach (var staleListKey in currentLists.Keys.Where(key => !targetLists.ContainsKey(key)).ToArray())
+            {
+                await DeleteListByKeyAsync(connection, tx, staleListKey, cancellationToken);
+            }
+
+            var targetMemos = NormalizeItemMemos(settings.ItemMemos);
+            foreach (var pair in targetMemos)
+            {
+                if (currentMemos.TryGetValue(pair.Key, out var existingMemo) &&
+                    string.Equals(existingMemo, pair.Value, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                await UpsertItemMemoAsync(connection, tx, pair.Key, pair.Value, cancellationToken);
+            }
+
+            foreach (var staleMemoPath in currentMemos.Keys.Where(path => !targetMemos.ContainsKey(path)).ToArray())
+            {
+                await DeleteItemMemoAsync(connection, tx, staleMemoPath, cancellationToken);
+            }
 
             await tx.CommitAsync(cancellationToken);
+            _cachedValues = new Dictionary<string, string>(targetValues, StringComparer.OrdinalIgnoreCase);
+            _cachedLists = CloneLists(targetLists);
+            _cachedMemos = new Dictionary<string, string>(targetMemos, StringComparer.OrdinalIgnoreCase);
+            _cacheInitialized = true;
+        }
+        catch
+        {
+            _cacheInitialized = false;
+            _cachedValues = null;
+            _cachedLists = null;
+            _cachedMemos = null;
+            throw;
         }
         finally
         {
@@ -214,7 +250,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
         return result;
     }
 
-    private static async Task InsertSettingAsync(
+    private static async Task UpsertSettingAsync(
         SqliteConnection connection,
         SqliteTransaction tx,
         string key,
@@ -225,7 +261,10 @@ public sealed class SettingsStorageService : ISettingsStorageService
         command.Transaction = tx;
         command.CommandText = """
             INSERT INTO app_settings (setting_key, setting_value, updated_utc)
-            VALUES ($key, $value, $updated_utc);
+            VALUES ($key, $value, $updated_utc)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                setting_value = excluded.setting_value,
+                updated_utc = excluded.updated_utc;
             """;
         command.Parameters.AddWithValue("$key", key);
         command.Parameters.AddWithValue("$value", value ?? string.Empty);
@@ -285,15 +324,133 @@ public sealed class SettingsStorageService : ISettingsStorageService
         return result;
     }
 
-    private static async Task InsertItemMemosAsync(
+    private static async Task UpsertItemMemoAsync(
         SqliteConnection connection,
         SqliteTransaction tx,
-        IReadOnlyDictionary<string, string>? itemMemos,
+        string path,
+        string memo,
         CancellationToken cancellationToken)
     {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = """
+            INSERT INTO app_item_memos (item_path, memo_text, updated_utc)
+            VALUES ($item_path, $memo_text, $updated_utc)
+            ON CONFLICT(item_path) DO UPDATE SET
+                memo_text = excluded.memo_text,
+                updated_utc = excluded.updated_utc;
+            """;
+        command.Parameters.AddWithValue("$item_path", path);
+        command.Parameters.AddWithValue("$memo_text", memo);
+        command.Parameters.AddWithValue("$updated_utc", DateTime.UtcNow.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteSettingAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "DELETE FROM app_settings WHERE setting_key = $key;";
+        command.Parameters.AddWithValue("$key", key);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteListByKeyAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string listKey,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "DELETE FROM app_settings_list WHERE list_key = $list_key;";
+        command.Parameters.AddWithValue("$list_key", listKey);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteItemMemoAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string itemPath,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "DELETE FROM app_item_memos WHERE item_path = $item_path;";
+        command.Parameters.AddWithValue("$item_path", itemPath);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static Dictionary<string, string> BuildSettingValues(AppSettings settings)
+    {
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["left_start_path"] = settings.LeftStartPath ?? string.Empty,
+            ["right_start_path"] = settings.RightStartPath ?? string.Empty,
+            ["panel_count"] = settings.PanelCount.ToString(),
+            ["panel_layout"] = settings.PanelLayout ?? string.Empty,
+            ["remember_session_tabs"] = settings.RememberSessionTabs ? "1" : "0",
+            ["default_tile_view_enabled"] = settings.DefaultTileViewEnabled ? "1" : "0",
+            ["use_extension_colors"] = settings.UseExtensionColors ? "1" : "0",
+            ["use_pinned_highlight_color"] = settings.UsePinnedHighlightColor ? "1" : "0",
+            ["theme_mode"] = settings.ThemeMode ?? string.Empty,
+            ["confirm_before_delete"] = settings.ConfirmBeforeDelete ? "1" : "0",
+            ["conflict_policy_display"] = settings.ConflictPolicyDisplay ?? string.Empty,
+            ["default_search_scope"] = settings.DefaultSearchScope ?? string.Empty,
+            ["default_search_recursive"] = settings.DefaultSearchRecursive ? "1" : "0",
+            ["four_panel_tab_state_json"] = settings.FourPanelTabStateJson ?? string.Empty,
+            ["selected_left_tab_index"] = settings.SelectedLeftTabIndex.ToString(),
+            ["selected_right_tab_index"] = settings.SelectedRightTabIndex.ToString(),
+            ["window_left"] = settings.WindowLeft.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["window_top"] = settings.WindowTop.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["window_width"] = settings.WindowWidth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["window_height"] = settings.WindowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["window_maximized"] = settings.WindowMaximized ? "1" : "0",
+            ["file_list_font_family"] = settings.FileListFontFamily ?? string.Empty,
+            ["file_list_font_size"] = settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["file_list_row_height"] = settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+    }
+
+    private static Dictionary<string, List<string>> BuildSettingLists(AppSettings settings)
+    {
+        return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["left_open_tab_paths"] = NormalizeListValues(settings.LeftOpenTabPaths, keepDuplicates: true),
+            ["right_open_tab_paths"] = NormalizeListValues(settings.RightOpenTabPaths, keepDuplicates: true),
+            ["four_panel_paths"] = NormalizeListValues(settings.FourPanelPaths, keepDuplicates: true),
+            ["favorite_folders"] = NormalizeListValues(settings.FavoriteFolders, keepDuplicates: false),
+            ["favorite_files"] = NormalizeListValues(settings.FavoriteFiles, keepDuplicates: false),
+            ["favorite_file_category_folders"] = NormalizeListValues(settings.FavoriteFileCategoryFolders, keepDuplicates: false),
+            ["favorite_file_category_mappings"] = NormalizeListValues(settings.FavoriteFileCategoryMappings, keepDuplicates: true),
+            ["extension_color_overrides"] = NormalizeListValues(settings.ExtensionColorOverrides, keepDuplicates: false),
+            ["theme_color_overrides"] = NormalizeListValues(settings.ThemeColorOverrides, keepDuplicates: false),
+            ["pinned_folders"] = NormalizeListValues(settings.PinnedFolders, keepDuplicates: false),
+            ["pinned_files"] = NormalizeListValues(settings.PinnedFiles, keepDuplicates: false),
+            ["messenger_download_folders"] = NormalizeListValues(settings.MessengerDownloadFolders, keepDuplicates: false)
+        };
+    }
+
+    private static List<string> NormalizeListValues(IEnumerable<string>? values, bool keepDuplicates)
+    {
+        var source = (values ?? Array.Empty<string>())
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+
+        return keepDuplicates
+            ? source.ToList()
+            : source.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static Dictionary<string, string> NormalizeItemMemos(IReadOnlyDictionary<string, string>? itemMemos)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (itemMemos is null || itemMemos.Count == 0)
         {
-            return;
+            return result;
         }
 
         foreach (var pair in itemMemos)
@@ -303,17 +460,21 @@ public sealed class SettingsStorageService : ISettingsStorageService
                 continue;
             }
 
-            var command = connection.CreateCommand();
-            command.Transaction = tx;
-            command.CommandText = """
-                INSERT INTO app_item_memos (item_path, memo_text, updated_utc)
-                VALUES ($item_path, $memo_text, $updated_utc);
-                """;
-            command.Parameters.AddWithValue("$item_path", pair.Key);
-            command.Parameters.AddWithValue("$memo_text", pair.Value);
-            command.Parameters.AddWithValue("$updated_utc", DateTime.UtcNow.ToString("O"));
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            result[pair.Key] = pair.Value;
         }
+
+        return result;
+    }
+
+    private static Dictionary<string, List<string>> CloneLists(IReadOnlyDictionary<string, List<string>> source)
+    {
+        var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in source)
+        {
+            result[pair.Key] = pair.Value.ToList();
+        }
+
+        return result;
     }
 
     private static int ParseInt(string value)

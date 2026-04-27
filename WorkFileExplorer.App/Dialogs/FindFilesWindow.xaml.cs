@@ -140,6 +140,17 @@ public partial class FindFilesWindow : Window
         await Vm.OpenSearchResultAsync(item);
     }
 
+    private void OnMaskPresetClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null || sender is not Button button)
+        {
+            return;
+        }
+
+        var preset = (button.Tag as string)?.Trim();
+        Vm.SearchFileMasks = string.IsNullOrWhiteSpace(preset) ? "*" : preset;
+    }
+
     private async Task ExecuteLastSearchAsync()
     {
         if (Vm is null)

@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.ComponentModel;
 using System.Collections;
@@ -546,11 +547,23 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, EmbeddedTerminalSession> _terminalSessions = new(StringComparer.OrdinalIgnoreCase);
     private TerminalPanelTarget _selectedMenuPanelTarget = TerminalPanelTarget.Active;
     private readonly DispatcherTimer _terminalCaretTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly DispatcherTimer _imagePreviewHoverTimer = new() { Interval = TimeSpan.FromMilliseconds(160) };
+    private FileSystemItem? _pendingImagePreviewItem;
+    private Point _pendingImagePreviewPoint;
+    private string? _visibleImagePreviewPath;
+    private CancellationTokenSource? _imagePreviewLoadCts;
+    private int _imagePreviewLoadVersion;
+    private const int TypeAheadResetMilliseconds = 900;
+    private string _typeAheadBuffer = string.Empty;
+    private DateTime _typeAheadLastInputUtc = DateTime.MinValue;
+    private int _leftSelectionSummaryVersion;
+    private int _rightSelectionSummaryVersion;
 
     public MainWindow()
     {
         InitializeComponent();
         _terminalCaretTimer.Tick += OnTerminalCaretTimerTick;
+        _imagePreviewHoverTimer.Tick += OnImagePreviewHoverTimerTick;
         _terminalCaretTimer.Start();
         Loaded += (_, _) => _windowLoaded = true;
         Loaded += OnMainWindowLoaded;
@@ -595,6 +608,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _terminalCaretTimer.Stop();
+        _imagePreviewHoverTimer.Stop();
+        HideImageHoverPreview();
         StopAllTerminalSessions();
         DetachVmPropertyEvents();
         base.OnClosed(e);
@@ -985,6 +1000,7 @@ public partial class MainWindow : Window
 
     private void OnFourPanelPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        HideImageHoverPreview();
         _panelItemDragStart = e.GetPosition(null);
         _panelDragSourcePanel = TryResolvePanelFromSource(sender as DependencyObject);
 
@@ -1510,14 +1526,59 @@ public partial class MainWindow : Window
 
     private void OnLeftPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        UpdateSelectionSummary(left: true);
+        if (!ShouldHandlePanelSelectionChanged(sender, left: true))
+        {
+            return;
+        }
+
+        QueueSelectionSummaryUpdate(left: true);
         ShowMemoListSelectionMemo(left: true, e);
     }
 
     private void OnRightPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        UpdateSelectionSummary(left: false);
+        if (!ShouldHandlePanelSelectionChanged(sender, left: false))
+        {
+            return;
+        }
+
+        QueueSelectionSummaryUpdate(left: false);
         ShowMemoListSelectionMemo(left: false, e);
+    }
+
+    private void QueueSelectionSummaryUpdate(bool left)
+    {
+        var version = left
+            ? ++_leftSelectionSummaryVersion
+            : ++_rightSelectionSummaryVersion;
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            var latest = left ? _leftSelectionSummaryVersion : _rightSelectionSummaryVersion;
+            if (version != latest)
+            {
+                return;
+            }
+
+            UpdateSelectionSummary(left);
+        }, DispatcherPriority.Background);
+    }
+
+    private bool ShouldHandlePanelSelectionChanged(object sender, bool left)
+    {
+        if (Vm is null)
+        {
+            return false;
+        }
+
+        // Both grid/list are bound at the same time, so hidden control selection events are noise.
+        var listMode = Vm.IsTileViewEnabledForPanel(left) || Vm.IsCompactListViewEnabledForPanel(left);
+        return sender switch
+        {
+            ListBox => listMode,
+            DataGrid => !listMode,
+            _ => true
+        };
     }
 
     private void UpdateSelectionSummary(bool left)
@@ -3589,6 +3650,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (TryHandleTypeAheadDirectorySelection(e))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if ((e.Key == Key.Up || e.Key == Key.Down) &&
             Keyboard.Modifiers == ModifierKeys.None &&
             !Vm.IsFourPanelMode &&
@@ -3616,7 +3683,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (IsPanelInteractionFocused())
+        if (IsPanelInteractionFocused() && !IsTextInputFocused())
         {
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
@@ -3742,6 +3809,243 @@ public partial class MainWindow : Window
 
                 current = VisualTreeHelper.GetParent(current);
             }
+        }
+
+        return false;
+    }
+
+    private bool TryHandleTypeAheadDirectorySelection(KeyEventArgs e)
+    {
+        if (Vm is null || !IsPanelInteractionFocused() || IsTextInputFocused())
+        {
+            return false;
+        }
+
+        if (Keyboard.Modifiers != ModifierKeys.None)
+        {
+            return false;
+        }
+
+        if (!TryGetTypeAheadToken(e, out var token))
+        {
+            return false;
+        }
+
+        var prefix = BuildTypeAheadPrefix(token);
+        if (TrySelectDirectoryByPrefix(prefix))
+        {
+            return true;
+        }
+
+        if (prefix.Length > 1 && TrySelectDirectoryByPrefix(token))
+        {
+            _typeAheadBuffer = token;
+            return true;
+        }
+
+        return false;
+    }
+
+    private string BuildTypeAheadPrefix(string token)
+    {
+        var now = DateTime.UtcNow;
+        if (now - _typeAheadLastInputUtc > TimeSpan.FromMilliseconds(TypeAheadResetMilliseconds))
+        {
+            _typeAheadBuffer = token;
+        }
+        else
+        {
+            _typeAheadBuffer += token;
+        }
+
+        _typeAheadLastInputUtc = now;
+        return _typeAheadBuffer;
+    }
+
+    private bool TrySelectDirectoryByPrefix(string prefix)
+    {
+        if (Vm is null || string.IsNullOrEmpty(prefix))
+        {
+            return false;
+        }
+
+        if (Vm.IsFourPanelMode)
+        {
+            var slot = GetActiveFourPanelSlot();
+            if (slot?.Panel is null)
+            {
+                return false;
+            }
+
+            if (!TryFindNearestMatchingDirectory(slot.Panel.Items, slot.Panel.SelectedItem, prefix, out var match))
+            {
+                return false;
+            }
+
+            slot.Panel.SelectedItem = match;
+            SelectFourPanelItem(slot, match);
+            return true;
+        }
+
+        var left = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        var panel = left ? Vm.LeftPanel : Vm.RightPanel;
+        if (!TryFindNearestMatchingDirectory(panel.Items, panel.SelectedItem, prefix, out var item))
+        {
+            return false;
+        }
+
+        Vm.SetActivePanelCommand.Execute(left ? "Left" : "Right");
+        panel.SelectedItem = item;
+        SelectTwoPanelItem(left, item);
+        return true;
+    }
+
+    private void SelectTwoPanelItem(bool left, FileSystemItem item)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        if (Vm.IsTileViewEnabledForPanel(left) || Vm.IsCompactListViewEnabledForPanel(left))
+        {
+            var list = left ? LeftPanelTilesList : RightPanelTilesList;
+            list.SelectedItems.Clear();
+            list.SelectedItem = item;
+            list.ScrollIntoView(item);
+            list.Focus();
+            Keyboard.Focus(list);
+            return;
+        }
+
+        var grid = left ? LeftPanelGrid : RightPanelGrid;
+        var nameColumn = grid.Columns.FirstOrDefault(column =>
+            string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
+            ?? grid.Columns.FirstOrDefault();
+
+        grid.SelectedItems.Clear();
+        grid.SelectedItem = item;
+        if (nameColumn is not null)
+        {
+            grid.CurrentCell = new DataGridCellInfo(item, nameColumn);
+            grid.ScrollIntoView(item, nameColumn);
+        }
+        else
+        {
+            grid.ScrollIntoView(item);
+        }
+
+        grid.Focus();
+        Keyboard.Focus(grid);
+    }
+
+    private void SelectFourPanelItem(FourPanelSlotViewModel slot, FileSystemItem item)
+    {
+        if (slot.SelectedTab?.IsTileViewEnabled == true && _fourPanelTileLists.TryGetValue(slot, out var lists))
+        {
+            var list = OrderControlsForSelection(lists).FirstOrDefault();
+            if (list is not null)
+            {
+                list.SelectedItems.Clear();
+                list.SelectedItem = item;
+                list.ScrollIntoView(item);
+                list.Focus();
+                Keyboard.Focus(list);
+                return;
+            }
+        }
+
+        if (_fourPanelGrids.TryGetValue(slot, out var grids))
+        {
+            var grid = OrderControlsForSelection(grids).FirstOrDefault();
+            if (grid is null)
+            {
+                return;
+            }
+
+            var nameColumn = grid.Columns.FirstOrDefault(column =>
+                string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
+                ?? grid.Columns.FirstOrDefault();
+
+            grid.SelectedItems.Clear();
+            grid.SelectedItem = item;
+            if (nameColumn is not null)
+            {
+                grid.CurrentCell = new DataGridCellInfo(item, nameColumn);
+                grid.ScrollIntoView(item, nameColumn);
+            }
+            else
+            {
+                grid.ScrollIntoView(item);
+            }
+
+            grid.Focus();
+            Keyboard.Focus(grid);
+        }
+    }
+
+    private static bool TryFindNearestMatchingDirectory(
+        IEnumerable<FileSystemItem> items,
+        FileSystemItem? currentSelection,
+        string prefix,
+        out FileSystemItem match)
+    {
+        match = null!;
+        var visibleItems = items
+            .Where(item => !item.IsParentDirectory)
+            .ToList();
+
+        if (visibleItems.Count == 0)
+        {
+            return false;
+        }
+
+        var startIndex = currentSelection is null ? 0 : visibleItems.IndexOf(currentSelection);
+        if (startIndex < 0)
+        {
+            startIndex = 0;
+        }
+
+        for (var offset = 0; offset < visibleItems.Count; offset++)
+        {
+            var index = (startIndex + offset) % visibleItems.Count;
+            var candidate = visibleItems[index];
+            if (!candidate.IsDirectory)
+            {
+                continue;
+            }
+
+            if (candidate.Name.StartsWith(prefix, StringComparison.CurrentCultureIgnoreCase))
+            {
+                match = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetTypeAheadToken(KeyEventArgs e, out string token)
+    {
+        token = string.Empty;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        if (key is >= Key.A and <= Key.Z)
+        {
+            token = key.ToString().ToLowerInvariant();
+            return true;
+        }
+
+        if (key is >= Key.D0 and <= Key.D9)
+        {
+            token = ((char)('0' + (key - Key.D0))).ToString();
+            return true;
+        }
+
+        if (key is >= Key.NumPad0 and <= Key.NumPad9)
+        {
+            token = ((char)('0' + (key - Key.NumPad0))).ToString();
+            return true;
         }
 
         return false;
@@ -4159,6 +4463,7 @@ public partial class MainWindow : Window
 
     private void OnPanelItemsPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        HideImageHoverPreview();
         // While inline-renaming (TextBox), allow normal text selection drag.
         if (FindAncestor<TextBox>(e.OriginalSource as DependencyObject) is not null)
         {
@@ -4215,7 +4520,6 @@ public partial class MainWindow : Window
         if (invoked)
         {
             Vm.RefreshCommand.Execute(null);
-            TriggerPostShellRefresh();
         }
 
         e.Handled = true;
@@ -4257,32 +4561,16 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    private async void TriggerPostShellRefresh()
+    private void OnPanelItemsPreviewMouseMove(object sender, MouseEventArgs e)
     {
-        if (Vm is null)
+        if (sender is ItemsControl itemsControl && e.LeftButton != MouseButtonState.Pressed)
         {
+            UpdateImageHoverPreview(itemsControl, e);
             return;
         }
 
-        // Some shell extensions (zip/unzip, extractor tools) complete after InvokeCommand returns.
-        // Re-issue refresh a few times so the list updates without manual folder re-entry.
-        var delays = new[] { 350, 900, 1800 };
-        foreach (var delayMs in delays)
-        {
-            try
-            {
-                await Task.Delay(delayMs);
-                Vm.RefreshCommand.Execute(null);
-            }
-            catch
-            {
-                return;
-            }
-        }
-    }
+        HideImageHoverPreview();
 
-    private void OnPanelItemsPreviewMouseMove(object sender, MouseEventArgs e)
-    {
         // Do not start file drag while the pointer is interacting with a text editor.
         if (FindAncestor<TextBox>(e.OriginalSource as DependencyObject) is not null)
         {
@@ -5260,11 +5548,9 @@ public partial class MainWindow : Window
             var selected = tileList.SelectedItems.Cast<FileSystemItem>().ToArray();
             if (selected.Length > 0)
             {
-                LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} list selected={selected.Length}");
                 return selected;
             }
 
-            LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} list selected=0 fallbackSelectedItem={(selectedItem is null ? "null" : selectedItem.Name)}");
             return selectedItem is null ? Array.Empty<FileSystemItem>() : [selectedItem];
         }
 
@@ -5272,11 +5558,9 @@ public partial class MainWindow : Window
         var gridSelected = grid.SelectedItems.Cast<FileSystemItem>().ToArray();
         if (gridSelected.Length > 0)
         {
-            LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} grid selected={gridSelected.Length}");
             return gridSelected;
         }
 
-        LiveTrace.Write($"GetPanelSelectedItems {(left ? "L" : "R")} grid selected=0 fallbackSelectedItem={(selectedItem is null ? "null" : selectedItem.Name)}");
         return selectedItem is null ? Array.Empty<FileSystemItem>() : [selectedItem];
     }
 
@@ -5333,6 +5617,244 @@ public partial class MainWindow : Window
             grid.ScrollIntoView(nextItem);
         }
     }
+
+    private void OnPanelItemsPreviewMouseLeave(object sender, MouseEventArgs e)
+    {
+        HideImageHoverPreview();
+    }
+
+    private void UpdateImageHoverPreview(ItemsControl control, MouseEventArgs e)
+    {
+        if (control is null || !IsVisible)
+        {
+            HideImageHoverPreview();
+            return;
+        }
+
+        if (!TryGetItemUnderPointer(control, e.GetPosition(control), out var item) ||
+            item is null ||
+            !item.IsImageFile ||
+            string.IsNullOrWhiteSpace(item.FullPath))
+        {
+            HideImageHoverPreview();
+            return;
+        }
+
+        var pointer = e.GetPosition(RootGrid);
+        if (ImageHoverPreviewPopup.IsOpen &&
+            !string.IsNullOrWhiteSpace(_visibleImagePreviewPath) &&
+            string.Equals(_visibleImagePreviewPath, item.FullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            PositionImageHoverPreview(pointer);
+            return;
+        }
+
+        _pendingImagePreviewItem = item;
+        _pendingImagePreviewPoint = pointer;
+        _imagePreviewHoverTimer.Stop();
+        _imagePreviewHoverTimer.Start();
+    }
+
+    private async void OnImagePreviewHoverTimerTick(object? sender, EventArgs e)
+    {
+        _imagePreviewHoverTimer.Stop();
+        if (_pendingImagePreviewItem is null || string.IsNullOrWhiteSpace(_pendingImagePreviewItem.FullPath))
+        {
+            return;
+        }
+
+        var item = _pendingImagePreviewItem;
+        var pointer = _pendingImagePreviewPoint;
+        var requestVersion = ++_imagePreviewLoadVersion;
+
+        _imagePreviewLoadCts?.Cancel();
+        _imagePreviewLoadCts?.Dispose();
+        _imagePreviewLoadCts = new CancellationTokenSource();
+        var token = _imagePreviewLoadCts.Token;
+
+        ImageHoverPreviewPopup.IsOpen = false;
+        ImageHoverPreviewImage.Source = null;
+        ImageHoverPreviewNameText.Text = item.Name;
+        ImageHoverPreviewSizeText.Text = BuildImagePreviewSizeText(item);
+        ImageHoverPreviewDateText.Text = item.LastModified.ToString("yyyy-MM-dd HH:mm:ss");
+        ImageHoverPreviewDimensionText.Text = "미리보기 로딩 중...";
+
+        ImageHoverPreviewPopup.IsOpen = true;
+        PositionImageHoverPreview(pointer);
+
+        ImageHoverPreviewData? previewData;
+        try
+        {
+            previewData = await LoadImageHoverPreviewDataAsync(item.FullPath, token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested || requestVersion != _imagePreviewLoadVersion)
+        {
+            return;
+        }
+
+        if (previewData is null)
+        {
+            HideImageHoverPreview();
+            return;
+        }
+
+        ImageHoverPreviewImage.Source = previewData.PreviewSource;
+        ImageHoverPreviewNameText.Text = item.Name;
+        ImageHoverPreviewDimensionText.Text = BuildImagePreviewDimensionText(
+            previewData.OriginalWidth,
+            previewData.OriginalHeight,
+            previewData.PreviewSource.PixelWidth,
+            previewData.PreviewSource.PixelHeight);
+        PositionImageHoverPreview(pointer);
+        ImageHoverPreviewPopup.IsOpen = true;
+        _visibleImagePreviewPath = item.FullPath;
+    }
+
+    private void PositionImageHoverPreview(Point pointerInRoot)
+    {
+        var offsetX = pointerInRoot.X + 20;
+        var offsetY = pointerInRoot.Y + 20;
+
+        if (ImageHoverPreviewPopup.Child is FrameworkElement child)
+        {
+            child.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var desired = child.DesiredSize;
+
+            var maxX = Math.Max(8d, RootGrid.ActualWidth - desired.Width - 8d);
+            var maxY = Math.Max(8d, RootGrid.ActualHeight - desired.Height - 8d);
+            offsetX = Math.Clamp(offsetX, 8d, maxX);
+            offsetY = Math.Clamp(offsetY, 8d, maxY);
+        }
+
+        ImageHoverPreviewPopup.HorizontalOffset = offsetX;
+        ImageHoverPreviewPopup.VerticalOffset = offsetY;
+    }
+
+    private void HideImageHoverPreview()
+    {
+        _imagePreviewHoverTimer.Stop();
+        _imagePreviewLoadCts?.Cancel();
+        _imagePreviewLoadCts?.Dispose();
+        _imagePreviewLoadCts = null;
+        _pendingImagePreviewItem = null;
+        _visibleImagePreviewPath = null;
+
+        if (ImageHoverPreviewPopup.IsOpen)
+        {
+            ImageHoverPreviewPopup.IsOpen = false;
+        }
+
+        ImageHoverPreviewImage.Source = null;
+        ImageHoverPreviewNameText.Text = string.Empty;
+        ImageHoverPreviewSizeText.Text = string.Empty;
+        ImageHoverPreviewDateText.Text = string.Empty;
+        ImageHoverPreviewDimensionText.Text = string.Empty;
+    }
+
+    private static async Task<ImageHoverPreviewData?> LoadImageHoverPreviewDataAsync(string path, CancellationToken cancellationToken)
+    {
+        return await Task.Run(() =>
+        {
+            try
+            {
+                if (!Path.IsPathRooted(path) || !File.Exists(path))
+                {
+                    return null;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!TryReadOriginalImagePixelSize(path, out var originalWidth, out var originalHeight))
+                {
+                    return null;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+                image.DecodePixelWidth = 420;
+                image.StreamSource = stream;
+                image.EndInit();
+                image.Freeze();
+                return new ImageHoverPreviewData(image, originalWidth, originalHeight);
+            }
+            catch
+            {
+                return null;
+            }
+        }, cancellationToken).ConfigureAwait(true);
+    }
+
+    private static string BuildImagePreviewSizeText(FileSystemItem item)
+    {
+        var bytes = Math.Max(0, item.SizeBytes);
+        var megaBytes = bytes / (1024d * 1024d);
+        return $"{megaBytes:0.##} MB ({bytes:N0} bytes)";
+    }
+
+    private static string BuildImagePreviewDimensionText(
+        int originalWidth,
+        int originalHeight,
+        int previewWidth,
+        int previewHeight)
+    {
+        if (originalWidth <= 0 || originalHeight <= 0)
+        {
+            return string.Empty;
+        }
+
+        if (previewWidth <= 0 || previewHeight <= 0)
+        {
+            return $"{originalWidth} x {originalHeight}";
+        }
+
+        if (previewWidth >= originalWidth && previewHeight >= originalHeight)
+        {
+            return $"{originalWidth} x {originalHeight}";
+        }
+
+        var reduceRatio = Math.Clamp((double)previewWidth / originalWidth * 100d, 1d, 100d);
+        return $"{originalWidth} x {originalHeight} (reduced to {previewWidth} x {previewHeight} = {reduceRatio:0.#}%)";
+    }
+
+    private static bool TryReadOriginalImagePixelSize(string path, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+
+        try
+        {
+            if (!Path.IsPathRooted(path) || !File.Exists(path))
+            {
+                return false;
+            }
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.None);
+            var frame = decoder.Frames.FirstOrDefault();
+            if (frame is null || frame.PixelWidth <= 0 || frame.PixelHeight <= 0)
+            {
+                return false;
+            }
+
+            width = frame.PixelWidth;
+            height = frame.PixelHeight;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private sealed record ImageHoverPreviewData(BitmapSource PreviewSource, int OriginalWidth, int OriginalHeight);
 
     private void MoveActivePanelTabByArrow(int delta)
     {
@@ -5478,6 +6000,11 @@ public partial class MainWindow : Window
             }
 
             if (focused is DataGrid grid && TryGetFourPanel(grid) is not null)
+            {
+                return true;
+            }
+
+            if (focused is ListBox list && TryGetFourPanel(list) is not null)
             {
                 return true;
             }
@@ -5996,6 +6523,14 @@ public partial class MainWindow : Window
                 continue;
             }
 
+            session.IsFocused = session.ConsoleTextBox.IsKeyboardFocusWithin;
+            if (!session.IsFocused)
+            {
+                session.IsCaretVisible = true;
+                RefreshTerminalDisplay(session);
+                continue;
+            }
+
             session.IsCaretVisible = !session.IsCaretVisible;
             RefreshTerminalDisplay(session);
         }
@@ -6003,7 +6538,7 @@ public partial class MainWindow : Window
 
     private static string BuildTerminalDisplayText(EmbeddedTerminalSession session)
     {
-        return session.DisplayBuffer.GetTextWithCaret(session.IsFocused && session.IsCaretVisible);
+        return session.DisplayBuffer.GetText();
     }
 
     private void RefreshTerminalDisplay(EmbeddedTerminalSession session)
