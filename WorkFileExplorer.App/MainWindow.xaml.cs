@@ -1487,6 +1487,7 @@ public partial class MainWindow : Window
             if (!string.IsNullOrWhiteSpace(newName))
             {
                 await Vm.RenameItemInPanelAsync(panel, item, newName);
+                RestoreKeyboardFocusAfterRename(targetFourPanel: panel);
             }
 
             return true;
@@ -1527,6 +1528,19 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (Vm is not null)
+        {
+            var senderType = sender.GetType().Name;
+            var vmSelected = Vm.LeftPanel.SelectedItem;
+            LiveTrace.Write($"UI.Left.SelectionChanged sender={senderType} vmSelected='{vmSelected?.FullPath ?? "(null)"}' vmIsParent={vmSelected?.IsParentDirectory == true} guard={Vm.LeftPanel.IsParentSelectionSuppressionActive}");
+            if (Vm.LeftPanel.IsParentSelectionSuppressionActive && Vm.LeftPanel.TryRestoreNonParentSelection())
+            {
+                LiveTrace.Write($"UI.Left.SelectionChanged restored non-parent='{Vm.LeftPanel.SelectedItem?.FullPath ?? "(null)"}'");
+            }
+
+            EnsureGridCurrentCellMatchesSelection(LeftPanelGrid, Vm.LeftPanel.SelectedItem);
+        }
+
         QueueSelectionSummaryUpdate(left: true);
         ShowMemoListSelectionMemo(left: true, e);
     }
@@ -1536,6 +1550,19 @@ public partial class MainWindow : Window
         if (!ShouldHandlePanelSelectionChanged(sender, left: false))
         {
             return;
+        }
+
+        if (Vm is not null)
+        {
+            var senderType = sender.GetType().Name;
+            var vmSelected = Vm.RightPanel.SelectedItem;
+            LiveTrace.Write($"UI.Right.SelectionChanged sender={senderType} vmSelected='{vmSelected?.FullPath ?? "(null)"}' vmIsParent={vmSelected?.IsParentDirectory == true} guard={Vm.RightPanel.IsParentSelectionSuppressionActive}");
+            if (Vm.RightPanel.IsParentSelectionSuppressionActive && Vm.RightPanel.TryRestoreNonParentSelection())
+            {
+                LiveTrace.Write($"UI.Right.SelectionChanged restored non-parent='{Vm.RightPanel.SelectedItem?.FullPath ?? "(null)"}'");
+            }
+
+            EnsureGridCurrentCellMatchesSelection(RightPanelGrid, Vm.RightPanel.SelectedItem);
         }
 
         QueueSelectionSummaryUpdate(left: false);
@@ -2771,6 +2798,7 @@ public partial class MainWindow : Window
             }
 
             await Vm.RenameItemInPanelAsync(panel, item, newName);
+            RestoreKeyboardFocusAfterRename(targetFourPanel: panel);
             return;
         }
 
@@ -3597,6 +3625,31 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (Keyboard.Modifiers == ModifierKeys.None &&
+            e.Key == Key.Escape &&
+            TryResolveFocusedQuickFilterSide(out var quickFilterLeft))
+        {
+            FocusPanelAfterPathNavigation(quickFilterLeft);
+            e.Handled = true;
+            return;
+        }
+
+        if (IsPanelInteractionFocused() && !IsTextInputFocused() &&
+            Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.A)
+        {
+            ToggleSelectAllInFocusedPanel();
+            e.Handled = true;
+            return;
+        }
+
+        if (IsPanelInteractionFocused() && !IsTextInputFocused() &&
+            Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Escape)
+        {
+            OnSelectNoneClick(sender, e);
+            e.Handled = true;
+            return;
+        }
+
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
         {
             FocusActiveQuickFilterTextBox();
@@ -3644,7 +3697,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (TryHandleTypeAheadDirectorySelection(e))
+        if (TryHandlePanelQuickFilterTyping(e))
         {
             e.Handled = true;
             return;
@@ -3660,19 +3713,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Left/Right arrows should not move focus to the other panel while list/grid is focused.
         if ((e.Key == Key.Left || e.Key == Key.Right) &&
             Keyboard.Modifiers == ModifierKeys.None &&
-            !Vm.IsFourPanelMode &&
             !IsTextInputFocused() &&
             IsPanelInteractionFocused())
         {
-            var targetLeft = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
-            if (Vm.IsTileViewEnabledForPanel(targetLeft) || Vm.IsCompactListViewEnabledForPanel(targetLeft))
-            {
-                return;
-            }
-
-            MoveActivePanelTabByArrow(e.Key == Key.Right ? 1 : -1);
             e.Handled = true;
             return;
         }
@@ -3708,9 +3754,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.Key == Key.Back)
+        if (e.Key == Key.Back && IsPanelInteractionFocused())
         {
-            Vm.GoUpCommand.Execute(null);
+            // Do not navigate to parent folder with Backspace while focus is in file list.
             e.Handled = true;
             return;
         }
@@ -3766,6 +3812,122 @@ public partial class MainWindow : Window
 
             e.Handled = true;
         }
+    }
+
+    private static void EnsureGridCurrentCellMatchesSelection(DataGrid grid, FileSystemItem? selectedItem)
+    {
+        if (selectedItem is null || selectedItem.IsParentDirectory)
+        {
+            return;
+        }
+
+        var nameColumn = grid.Columns.FirstOrDefault(column =>
+            string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
+            ?? grid.Columns.FirstOrDefault();
+        if (nameColumn is null)
+        {
+            return;
+        }
+
+        grid.SelectedItem = selectedItem;
+        grid.CurrentCell = new DataGridCellInfo(selectedItem, nameColumn);
+    }
+
+    private void OnWindowPreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (Vm is null || Vm.IsFourPanelMode || string.IsNullOrEmpty(e.Text))
+        {
+            return;
+        }
+
+        if (!IsPanelInteractionFocused() || IsTextInputFocused())
+        {
+            return;
+        }
+
+        if (Keyboard.Modifiers != ModifierKeys.None)
+        {
+            return;
+        }
+
+        var targetLeft = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        var panel = targetLeft ? Vm.LeftPanel : Vm.RightPanel;
+        panel.QuickFilterText += e.Text;
+        Vm.SetActivePanelCommand.Execute(targetLeft ? "Left" : "Right");
+        FocusQuickFilterTextBoxForPanel(targetLeft);
+        e.Handled = true;
+    }
+
+    private void ToggleSelectAllInFocusedPanel()
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        if (Vm.IsFourPanelMode)
+        {
+            if (IsActiveFourPanelFullySelected())
+            {
+                ClearSelectionInActiveFourPanel();
+            }
+            else
+            {
+                SelectAllInActiveFourPanel();
+            }
+
+            return;
+        }
+
+        var left = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        var listMode = Vm.IsTileViewEnabledForPanel(left) || Vm.IsCompactListViewEnabledForPanel(left);
+        if (listMode)
+        {
+            var list = left ? LeftPanelTilesList : RightPanelTilesList;
+            if (list.Items.Count > 0 && list.SelectedItems.Count == list.Items.Count)
+            {
+                list.SelectedItems.Clear();
+            }
+            else
+            {
+                SelectAllInList(list);
+            }
+
+            return;
+        }
+
+        var grid = left ? LeftPanelGrid : RightPanelGrid;
+        if (grid.Items.Count > 0 && grid.SelectedItems.Count == grid.Items.Count)
+        {
+            grid.SelectedItems.Clear();
+        }
+        else
+        {
+            SelectAllInGrid(grid);
+        }
+    }
+
+    private bool IsActiveFourPanelFullySelected()
+    {
+        var slot = GetActiveFourPanelSlot();
+        if (slot is null)
+        {
+            return false;
+        }
+
+        if (slot.SelectedTab?.IsTileViewEnabled == true && _fourPanelTileLists.TryGetValue(slot, out var tileLists))
+        {
+            var list = OrderControlsForSelection(tileLists).FirstOrDefault();
+            return list is not null && list.Items.Count > 0 && list.SelectedItems.Count == list.Items.Count;
+        }
+
+        if (_fourPanelGrids.TryGetValue(slot, out var grids))
+        {
+            var grid = OrderControlsForSelection(grids).FirstOrDefault();
+            return grid is not null && grid.Items.Count > 0 && grid.SelectedItems.Count == grid.Items.Count;
+        }
+
+        return false;
     }
 
     private void OnWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
@@ -3850,6 +4012,70 @@ public partial class MainWindow : Window
 
                 current = VisualTreeHelper.GetParent(current);
             }
+        }
+
+        return false;
+    }
+
+    private bool TryHandlePanelQuickFilterTyping(KeyEventArgs e)
+    {
+        if (Vm is null || Vm.IsFourPanelMode || !IsPanelInteractionFocused() || IsTextInputFocused())
+        {
+            return false;
+        }
+
+        if (Keyboard.Modifiers != ModifierKeys.None)
+        {
+            return false;
+        }
+
+        var targetLeft = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        var panel = targetLeft ? Vm.LeftPanel : Vm.RightPanel;
+        if (panel is null)
+        {
+            return false;
+        }
+
+        if (e.Key == Key.Back)
+        {
+            if (!string.IsNullOrEmpty(panel.QuickFilterText))
+            {
+                panel.QuickFilterText = panel.QuickFilterText[..^1];
+                Vm.SetActivePanelCommand.Execute(targetLeft ? "Left" : "Right");
+                FocusQuickFilterTextBoxForPanel(targetLeft);
+                return true;
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    private void FocusQuickFilterTextBoxForPanel(bool left)
+    {
+        var box = left ? LeftQuickFilterTextBox : RightQuickFilterTextBox;
+        box.Focus();
+        Keyboard.Focus(box);
+        var end = box.Text?.Length ?? 0;
+        box.SelectionStart = end;
+        box.SelectionLength = 0;
+        box.CaretIndex = end;
+    }
+
+    private bool TryResolveFocusedQuickFilterSide(out bool left)
+    {
+        left = false;
+        if (ReferenceEquals(Keyboard.FocusedElement, LeftQuickFilterTextBox))
+        {
+            left = true;
+            return true;
+        }
+
+        if (ReferenceEquals(Keyboard.FocusedElement, RightQuickFilterTextBox))
+        {
+            left = false;
+            return true;
         }
 
         return false;
@@ -4512,6 +4738,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (IsScrollChromeInteraction(e.OriginalSource as DependencyObject))
+        {
+            _panelDragSourcePanel = null;
+            return;
+        }
+
         if (sender is ItemsControl itemsControl &&
             Keyboard.Modifiers == ModifierKeys.None &&
             TryGetItemUnderPointer(itemsControl, e.GetPosition(itemsControl), out var clickedItem) &&
@@ -4618,6 +4850,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Scrolling with scrollbar/thumb should never trigger file drag-drop.
+        if (IsScrollChromeInteraction(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
         if (_isPanelItemDragInProgress || e.LeftButton != MouseButtonState.Pressed || Vm is null)
         {
             return;
@@ -4712,7 +4950,7 @@ public partial class MainWindow : Window
         var targetDirectory = ResolveDropTargetDirectory(e.OriginalSource as DependencyObject, targetPanel);
         try
         {
-            await Vm.CopyOrMoveBetweenPanelsAsync(payload.SourcePanel, targetPanel, payload.Items, move, targetDirectory);
+            await Vm.CopyOrMoveBetweenPanelsAsync(payload.SourcePanel, targetPanel, payload.Items, move, targetDirectory, promptOnConflict: true);
         }
         catch (Exception ex)
         {
@@ -5294,6 +5532,13 @@ public partial class MainWindow : Window
         return null;
     }
 
+    private static bool IsScrollChromeInteraction(DependencyObject? source)
+    {
+        return FindAncestor<ScrollBar>(source) is not null ||
+               FindAncestor<Thumb>(source) is not null ||
+               FindAncestor<ScrollViewer>(source) is not null && FindAncestor<DataGridRow>(source) is null && FindAncestor<ListBoxItem>(source) is null;
+    }
+
     private bool? ResolveKeyboardTargetPanelSide()
     {
         if (Keyboard.FocusedElement is DependencyObject focused)
@@ -5515,6 +5760,7 @@ public partial class MainWindow : Window
         }
 
         await Vm.RenameSelectedAsync(newName);
+        RestoreKeyboardFocusAfterRename(targetLeftPanel: Vm.IsLeftPanelActive);
     }
 
     private void BeginInlineRename()
@@ -5619,28 +5865,47 @@ public partial class MainWindow : Window
             return;
         }
 
-        var currentIndex = panel.SelectedItem is null
-            ? -1
-            : panel.Items.IndexOf(panel.SelectedItem);
-
-        var nextIndex = currentIndex < 0
-            ? (delta > 0 ? 0 : panel.Items.Count - 1)
-            : Math.Clamp(currentIndex + delta, 0, panel.Items.Count - 1);
-
-        var nextItem = panel.Items[nextIndex];
-        panel.SelectedItem = nextItem;
-
         if (Vm.IsTileViewEnabledForPanel(left))
         {
             var list = left ? LeftPanelTilesList : RightPanelTilesList;
+            var visibleOrder = list.Items.Cast<object>().OfType<FileSystemItem>().ToList();
+            if (visibleOrder.Count == 0)
+            {
+                return;
+            }
+
+            var currentIndex = panel.SelectedItem is null
+                ? -1
+                : visibleOrder.IndexOf(panel.SelectedItem);
+            var nextIndex = currentIndex < 0
+                ? (delta > 0 ? 0 : visibleOrder.Count - 1)
+                : Math.Clamp(currentIndex + delta, 0, visibleOrder.Count - 1);
+            var nextListItem = visibleOrder[nextIndex];
+            panel.SelectedItem = nextListItem;
+
             list.Focus();
             Keyboard.Focus(list);
-            list.SelectedItem = nextItem;
-            list.ScrollIntoView(nextItem);
+            list.SelectedItem = nextListItem;
+            list.ScrollIntoView(nextListItem);
             return;
         }
 
         var grid = left ? LeftPanelGrid : RightPanelGrid;
+        var visibleGridOrder = grid.Items.Cast<object>().OfType<FileSystemItem>().ToList();
+        if (visibleGridOrder.Count == 0)
+        {
+            return;
+        }
+
+        var currentGridIndex = panel.SelectedItem is null
+            ? -1
+            : visibleGridOrder.IndexOf(panel.SelectedItem);
+        var nextGridIndex = currentGridIndex < 0
+            ? (delta > 0 ? 0 : visibleGridOrder.Count - 1)
+            : Math.Clamp(currentGridIndex + delta, 0, visibleGridOrder.Count - 1);
+        var nextItem = visibleGridOrder[nextGridIndex];
+        panel.SelectedItem = nextItem;
+
         var nameColumn = grid.Columns.FirstOrDefault(column =>
             string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
             ?? grid.Columns.FirstOrDefault();
@@ -6998,6 +7263,7 @@ public partial class MainWindow : Window
 
             var newName = (item.RenameCandidate ?? string.Empty).Trim();
             var originalName = _inlineRenameOriginalName ?? item.Name;
+            var renamedDestinationPath = Path.Combine(Path.GetDirectoryName(item.FullPath) ?? string.Empty, newName);
             _inlineRenameSourcePath = null;
             _inlineRenameOriginalName = null;
 
@@ -7006,12 +7272,22 @@ public partial class MainWindow : Window
                 return;
             }
 
-            await Vm.RenameSelectedAsync(newName);
+            var targetPanel = TryResolvePanelFromSource(grid) ?? GetActiveFourPanel() ?? (Vm.IsLeftPanelActive ? Vm.LeftPanel : Vm.RightPanel);
+            targetPanel.SuppressParentSelectionFor(TimeSpan.FromSeconds(2));
+            LiveTrace.Write($"UI.GridInlineRename commit panel='{targetPanel.CurrentPath}' item='{item.FullPath}' new='{newName}' selectedBefore='{targetPanel.SelectedItem?.FullPath ?? "(null)"}' isParentBefore={targetPanel.SelectedItem?.IsParentDirectory == true}");
+            await Vm.RenameItemInPanelAsync(targetPanel, item, newName);
+            RestoreKeyboardFocusAfterRename(
+                targetLeftPanel: ReferenceEquals(targetPanel, Vm.LeftPanel) ? true : ReferenceEquals(targetPanel, Vm.RightPanel) ? false : null,
+                targetFourPanel: ReferenceEquals(targetPanel, Vm.LeftPanel) || ReferenceEquals(targetPanel, Vm.RightPanel) ? null : targetPanel);
 
             // After inline rename, restore keyboard focus/current cell so Up/Down keeps working immediately.
             _ = Dispatcher.BeginInvoke(() =>
             {
-                if (grid.SelectedItem is not FileSystemItem selected)
+                var selected = targetPanel.Items.FirstOrDefault(entry =>
+                    !entry.IsParentDirectory &&
+                    string.Equals(entry.FullPath, renamedDestinationPath, StringComparison.OrdinalIgnoreCase))
+                    ?? targetPanel.SelectedItem;
+                if (selected is null || selected.IsParentDirectory)
                 {
                     return;
                 }
@@ -7025,9 +7301,39 @@ public partial class MainWindow : Window
 
                 grid.Focus();
                 Keyboard.Focus(grid);
+                grid.SelectedItem = selected;
                 grid.CurrentCell = new DataGridCellInfo(selected, nameColumn);
                 grid.ScrollIntoView(selected);
+                targetPanel.SelectedItem = selected;
+                LiveTrace.Write($"UI.GridInlineRename post-focus selected='{selected.FullPath}' gridSelected='{(grid.SelectedItem as FileSystemItem)?.FullPath ?? "(null)"}'");
             }, System.Windows.Threading.DispatcherPriority.Input);
+
+            // DataGrid can still advance to the next row after Enter commit.
+            // Re-apply selection at a later priority to keep focus on the renamed item.
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                var selected = targetPanel.Items.FirstOrDefault(entry =>
+                    !entry.IsParentDirectory &&
+                    string.Equals(entry.FullPath, renamedDestinationPath, StringComparison.OrdinalIgnoreCase))
+                    ?? targetPanel.SelectedItem;
+                if (selected is null || selected.IsParentDirectory)
+                {
+                    return;
+                }
+
+                var nameColumn = grid.Columns.FirstOrDefault(column =>
+                    string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal)) ?? grid.Columns.FirstOrDefault();
+                if (nameColumn is null)
+                {
+                    return;
+                }
+
+                grid.SelectedItem = selected;
+                grid.CurrentCell = new DataGridCellInfo(selected, nameColumn);
+                grid.ScrollIntoView(selected);
+                targetPanel.SelectedItem = selected;
+                LiveTrace.Write($"UI.GridInlineRename late-fix selected='{selected.FullPath}' gridSelected='{(grid.SelectedItem as FileSystemItem)?.FullPath ?? "(null)"}'");
+            }, System.Windows.Threading.DispatcherPriority.Background);
         }
         catch (Exception ex)
         {
@@ -7065,6 +7371,26 @@ public partial class MainWindow : Window
 
             textBox.Select(0, selectLength);
         }
+    }
+
+    private void OnGridInlineRenameTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        var grid = FindAncestor<DataGrid>(textBox);
+        if (grid is null)
+        {
+            return;
+        }
+
+        // Prevent DataGrid default Enter behavior that moves selection to the next row.
+        e.Handled = true;
+        textBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        grid.CommitEdit(DataGridEditingUnit.Cell, true);
+        grid.CommitEdit(DataGridEditingUnit.Row, true);
     }
 
     private async void OnInlineRenameTextBoxKeyDown(object sender, KeyEventArgs e)
@@ -7163,7 +7489,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        await Vm.RenameSelectedAsync(newName);
+        var targetPanel = TryResolvePanelFromSource(textBox) ?? GetActiveFourPanel() ?? (Vm.IsLeftPanelActive ? Vm.LeftPanel : Vm.RightPanel);
+        targetPanel.SuppressParentSelectionFor(TimeSpan.FromSeconds(2));
+        await Vm.RenameItemInPanelAsync(targetPanel, item, newName);
+        RestoreKeyboardFocusAfterRename(
+            targetLeftPanel: ReferenceEquals(targetPanel, Vm.LeftPanel) ? true : ReferenceEquals(targetPanel, Vm.RightPanel) ? false : null,
+            targetFourPanel: ReferenceEquals(targetPanel, Vm.LeftPanel) || ReferenceEquals(targetPanel, Vm.RightPanel) ? null : targetPanel);
         }
         finally
         {
@@ -7327,6 +7658,29 @@ public partial class MainWindow : Window
             .OfType<FileSystemItem>()
             .FirstOrDefault(item => !item.IsParentDirectory)
             ?? itemsControl.Items.Cast<object>().OfType<FileSystemItem>().FirstOrDefault();
+    }
+
+    private void RestoreKeyboardFocusAfterRename(bool? targetLeftPanel = null, PanelViewModel? targetFourPanel = null)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        if (Vm.IsFourPanelMode)
+        {
+            var slot = targetFourPanel is null
+                ? GetActiveFourPanelSlot()
+                : Vm.FourPanels.FirstOrDefault(candidate => ReferenceEquals(candidate.Panel, targetFourPanel));
+            if (slot is not null)
+            {
+                FocusFourPanelAfterPathNavigation(slot);
+            }
+
+            return;
+        }
+
+        FocusPanelAfterPathNavigation(targetLeftPanel ?? Vm.IsLeftPanelActive);
     }
 
     private void FocusPanelAfterPathNavigation(bool left)

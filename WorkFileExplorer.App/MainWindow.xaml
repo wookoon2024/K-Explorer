@@ -15,6 +15,7 @@
         Background="{Binding ThemeWindowBackground}"
         FontFamily="Segoe UI"
         PreviewKeyDown="OnWindowPreviewKeyDown"
+        PreviewTextInput="OnWindowPreviewTextInput"
         PreviewMouseDown="OnWindowPreviewMouseDown">
     <Window.Resources>
         <converters:NonLockingImageSourceConverter x:Key="NonLockingImageSourceConverter" />
@@ -1680,6 +1681,7 @@
                               Grid.Row="0"
                               ItemsSource="{Binding LeftPanel.Items}"
                               SelectedItem="{Binding LeftPanel.SelectedItem, Mode=TwoWay}"
+                              IsSynchronizedWithCurrentItem="False"
                               AutoGenerateColumns="False"
                               IsReadOnly="False"
                               SelectionMode="Extended"
@@ -1756,6 +1758,7 @@
                                             <TextBox Grid.Column="2"
                                                      Text="{Binding RenameCandidate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                      Loaded="OnInlineRenameTextBoxLoaded"
+                                                     PreviewKeyDown="OnGridInlineRenameTextBoxPreviewKeyDown"
                                                      BorderThickness="1"
                                                      Padding="1,0" />
                                         </Grid>
@@ -2023,6 +2026,7 @@
                               Grid.Row="0"
                               ItemsSource="{Binding RightPanel.Items}"
                               SelectedItem="{Binding RightPanel.SelectedItem, Mode=TwoWay}"
+                              IsSynchronizedWithCurrentItem="False"
                               AutoGenerateColumns="False"
                               IsReadOnly="False"
                               SelectionMode="Extended"
@@ -2099,6 +2103,7 @@
                                             <TextBox Grid.Column="2"
                                                      Text="{Binding RenameCandidate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                      Loaded="OnInlineRenameTextBoxLoaded"
+                                                     PreviewKeyDown="OnGridInlineRenameTextBoxPreviewKeyDown"
                                                      BorderThickness="1"
                                                      Padding="1,0" />
                                         </Grid>

@@ -1207,8 +1207,26 @@ public sealed class MainWindowViewModel : ObservableObject
                 {
                     continue;
                 }
+                var effectivePolicy = policy;
+                string? destinationPath;
+                bool exists;
 
-                if (!TryResolveTransferDestination(transferItem, targetPanel.CurrentPath, policy, out var destinationPath, out var exists))
+                var directDestination = Path.Combine(targetPanel.CurrentPath, transferItem.Name);
+                exists = transferItem.IsDirectory
+                    ? Directory.Exists(directDestination)
+                    : File.Exists(directDestination);
+                if (exists)
+                {
+                    var overwrite = PromptOverwriteOnConflict(directDestination);
+                    if (!overwrite)
+                    {
+                        continue;
+                    }
+
+                    effectivePolicy = TransferConflictPolicy.Overwrite;
+                    destinationPath = directDestination;
+                }
+                else if (!TryResolveTransferDestination(transferItem, targetPanel.CurrentPath, policy, out destinationPath, out exists))
                 {
                     continue;
                 }
@@ -1235,7 +1253,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     }
                     else
                     {
-                        File.Move(item.Path, destinationPath, overwrite: policy == TransferConflictPolicy.Overwrite);
+                        File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                     }
 
                     movedItems.Add(item);
@@ -1245,11 +1263,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 if (item.IsDirectory)
                 {
-                    CopyDirectory(item.Path, destinationPath, policy == TransferConflictPolicy.Overwrite || !exists);
+                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists);
                 }
                 else
                 {
-                    File.Copy(item.Path, destinationPath, overwrite: policy == TransferConflictPolicy.Overwrite);
+                    File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                 }
             }
         });
@@ -1344,6 +1362,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
         }
 
+        await CloseTabsForDeletedDirectoriesAsync(deletedItems);
         await ReloadPanelsForPathsAsync([panel.CurrentPath]);
         QueuePostMutationRefresh();
         SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
@@ -1363,7 +1382,6 @@ public sealed class MainWindowViewModel : ObservableObject
     public async Task RenameSelectedAsync(string newName)
     {
         var panel = GetActivePanel();
-        var activePanelIsLeft = IsLeftPanelActive;
         var item = panel.SelectedItem;
         if (item is null) return;
         newName = (newName ?? string.Empty).Trim();
@@ -1372,17 +1390,23 @@ public sealed class MainWindowViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(parent)) return;
         var dest = Path.Combine(parent, newName);
         if (string.Equals(dest, item.FullPath, StringComparison.OrdinalIgnoreCase)) return;
+        LiveTrace.Write($"VM.RenameSelected start panel='{panel.CurrentPath}' from='{item.FullPath}' to='{dest}' selectedWasParent={item.IsParentDirectory}");
         if (item.IsDirectory) Directory.Move(item.FullPath, dest); else File.Move(item.FullPath, dest);
         ReplacePathInSettings(item.FullPath, dest, item.IsDirectory);
         await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
 
-        var targetPanel = activePanelIsLeft ? LeftPanel : RightPanel;
-        var renamedItem = targetPanel.Items.FirstOrDefault(entry =>
+        var renamedItem = panel.Items.FirstOrDefault(entry =>
+            !entry.IsParentDirectory &&
             string.Equals(entry.FullPath, dest, StringComparison.OrdinalIgnoreCase));
         if (renamedItem is not null)
         {
-            targetPanel.SelectedItem = renamedItem;
+            panel.SelectedItem = renamedItem;
+            LiveTrace.Write($"VM.RenameSelected selected renamed='{renamedItem.FullPath}'");
+            return;
         }
+
+        panel.SelectedItem = panel.Items.FirstOrDefault(entry => !entry.IsParentDirectory);
+        LiveTrace.Write($"VM.RenameSelected fallback selected='{panel.SelectedItem?.FullPath ?? "(null)"}' isParent={panel.SelectedItem?.IsParentDirectory == true}");
     }
 
     public async Task CreateNewFolderAsync(string folderName)
@@ -1723,6 +1747,7 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             var panel = leftPanel ? LeftPanel : RightPanel;
             SetActivePanel(leftPanel ? "Left" : "Right");
+            var previousPath = panel.CurrentPath;
 
             if (string.Equals(panel.CurrentPath, DriveRootVirtualPath, StringComparison.Ordinal))
             {
@@ -1742,6 +1767,7 @@ public sealed class MainWindowViewModel : ObservableObject
             }
 
             await LoadPanelAsync(panel, parent.FullName, true);
+            SelectParentDirectoryItem(panel, previousPath);
         }
         catch
         {
@@ -1762,6 +1788,7 @@ public sealed class MainWindowViewModel : ObservableObject
         try
         {
             var panel = GetActivePanel();
+            var previousPath = panel.CurrentPath;
             if (string.Equals(panel.CurrentPath, DriveRootVirtualPath, StringComparison.Ordinal))
             {
                 return;
@@ -1780,6 +1807,7 @@ public sealed class MainWindowViewModel : ObservableObject
             }
 
             await LoadPanelAsync(panel, parent.FullName, true);
+            SelectParentDirectoryItem(panel, previousPath);
         }
         catch
         {
@@ -2645,6 +2673,7 @@ public sealed class MainWindowViewModel : ObservableObject
             }
 
             await LoadPanelAsync(panel, parent.FullName, false);
+            SelectParentDirectoryItem(panel, current);
         }
         catch
         {
@@ -3012,7 +3041,8 @@ public sealed class MainWindowViewModel : ObservableObject
         PanelViewModel targetPanel,
         IReadOnlyList<FileSystemItem>? selectedItems,
         bool move,
-        string? targetDirectoryOverride = null)
+        string? targetDirectoryOverride = null,
+        bool promptOnConflict = false)
     {
         var destinationDirectory = string.IsNullOrWhiteSpace(targetDirectoryOverride)
             ? targetPanel.CurrentPath
@@ -3041,9 +3071,42 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             foreach (var item in items)
             {
-                if (!TryResolveTransferDestination(item, destinationDirectory, policy, out var dest, out var exists))
+                var effectivePolicy = policy;
+                string? dest;
+                bool exists;
+
+                if (promptOnConflict)
                 {
-                    continue;
+                    var directDestination = Path.Combine(destinationDirectory, item.Name);
+                    exists = item.IsDirectory
+                        ? Directory.Exists(directDestination)
+                        : File.Exists(directDestination);
+
+                    if (exists)
+                    {
+                        var overwrite = PromptOverwriteOnConflict(directDestination);
+                        if (!overwrite)
+                        {
+                            continue;
+                        }
+
+                        effectivePolicy = TransferConflictPolicy.Overwrite;
+                        dest = directDestination;
+                    }
+                    else
+                    {
+                        if (!TryResolveTransferDestination(item, destinationDirectory, policy, out dest, out exists))
+                        {
+                            continue;
+                        }
+                    }
+                }
+                else
+                {
+                    if (!TryResolveTransferDestination(item, destinationDirectory, policy, out dest, out exists))
+                    {
+                        continue;
+                    }
                 }
 
                 try
@@ -3064,7 +3127,7 @@ public sealed class MainWindowViewModel : ObservableObject
                         }
                         else
                         {
-                            File.Move(item.FullPath, dest!, overwrite: policy == TransferConflictPolicy.Overwrite);
+                            File.Move(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                         }
 
                         movedPathEntries.Add((item.FullPath, dest!, item.IsDirectory));
@@ -3073,17 +3136,17 @@ public sealed class MainWindowViewModel : ObservableObject
                     {
                         if (item.IsDirectory)
                         {
-                            CopyDirectory(item.FullPath, dest!, policy == TransferConflictPolicy.Overwrite || !exists);
+                            CopyDirectory(item.FullPath, dest!, effectivePolicy == TransferConflictPolicy.Overwrite || !exists);
                         }
                         else
                         {
-                            File.Copy(item.FullPath, dest!, overwrite: policy == TransferConflictPolicy.Overwrite);
+                            File.Copy(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                         }
                     }
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    if (!TryTransferWithElevation(item, dest!, move, policy, exists))
+                    if (!TryTransferWithElevation(item, dest!, move, effectivePolicy, exists))
                     {
                         throw;
                     }
@@ -3179,6 +3242,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
         }
 
+        await CloseTabsForDeletedDirectoriesAsync(deletedItems);
         await ReloadPanelsForPathsAsync([panel.CurrentPath]);
         QueuePostMutationRefresh();
         SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
@@ -3223,6 +3287,191 @@ public sealed class MainWindowViewModel : ObservableObject
             reason = ex.Message;
             return false;
         }
+    }
+
+    private async Task CloseTabsForDeletedDirectoriesAsync(IEnumerable<FileSystemItem> deletedItems)
+    {
+        var deletedDirectoryPaths = deletedItems
+            .Where(item => item.IsDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
+            .Select(item => _fileSystemService.NormalizePath(item.FullPath).TrimEnd('\\'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (deletedDirectoryPaths.Length == 0)
+        {
+            return;
+        }
+
+        await CloseInvalidTabsForSideAsync(left: true, deletedDirectoryPaths);
+        await CloseInvalidTabsForSideAsync(left: false, deletedDirectoryPaths);
+        await CloseInvalidTabsForFourPanelAsync(deletedDirectoryPaths);
+    }
+
+    private async Task CloseInvalidTabsForSideAsync(bool left, IReadOnlyList<string> deletedDirectoryPaths)
+    {
+        var tabs = left ? LeftTabs : RightTabs;
+        if (tabs.Count == 0)
+        {
+            return;
+        }
+
+        var invalidTabs = tabs
+            .Where(tab => IsPathInsideDeletedDirectory(tab.Panel.CurrentPath, deletedDirectoryPaths))
+            .ToList();
+        if (invalidTabs.Count == 0)
+        {
+            return;
+        }
+
+        var selectedIndexBefore = tabs.IndexOf(left ? (SelectedLeftTab ?? tabs[0]) : (SelectedRightTab ?? tabs[0]));
+
+        if (tabs.Count - invalidTabs.Count <= 0)
+        {
+            var survivor = invalidTabs[0];
+            foreach (var tab in invalidTabs.Skip(1))
+            {
+                tabs.Remove(tab);
+            }
+
+            if (left)
+            {
+                SelectedLeftTab = survivor;
+            }
+            else
+            {
+                SelectedRightTab = survivor;
+            }
+
+            var fallbackPath = ResolveFallbackPathForDeletedTab(survivor.Panel.CurrentPath);
+            await LoadPanelAsync(survivor.Panel, fallbackPath, false);
+            return;
+        }
+
+        foreach (var tab in invalidTabs)
+        {
+            tabs.Remove(tab);
+        }
+
+        if (left)
+        {
+            if (SelectedLeftTab is null || !tabs.Contains(SelectedLeftTab))
+            {
+                var nextIndex = Math.Clamp(selectedIndexBefore - 1, 0, tabs.Count - 1);
+                SelectedLeftTab = tabs[nextIndex];
+            }
+        }
+        else
+        {
+            if (SelectedRightTab is null || !tabs.Contains(SelectedRightTab))
+            {
+                var nextIndex = Math.Clamp(selectedIndexBefore - 1, 0, tabs.Count - 1);
+                SelectedRightTab = tabs[nextIndex];
+            }
+        }
+    }
+
+    private async Task CloseInvalidTabsForFourPanelAsync(IReadOnlyList<string> deletedDirectoryPaths)
+    {
+        foreach (var slot in _fourPanels)
+        {
+            if (slot.Tabs.Count == 0)
+            {
+                continue;
+            }
+
+            var invalidTabs = slot.Tabs
+                .Where(tab => IsPathInsideDeletedDirectory(tab.Panel.CurrentPath, deletedDirectoryPaths))
+                .ToList();
+            if (invalidTabs.Count == 0)
+            {
+                continue;
+            }
+
+            var selectedIndexBefore = slot.Tabs.IndexOf(slot.SelectedTab ?? slot.Tabs[0]);
+
+            if (slot.Tabs.Count - invalidTabs.Count <= 0)
+            {
+                var survivor = invalidTabs[0];
+                foreach (var tab in invalidTabs.Skip(1))
+                {
+                    slot.Tabs.Remove(tab);
+                }
+
+                slot.SelectedTab = survivor;
+                var fallbackPath = ResolveFallbackPathForDeletedTab(survivor.Panel.CurrentPath);
+                await LoadPanelAsync(survivor.Panel, fallbackPath, false);
+                continue;
+            }
+
+            foreach (var tab in invalidTabs)
+            {
+                slot.Tabs.Remove(tab);
+            }
+
+            if (slot.SelectedTab is null || !slot.Tabs.Contains(slot.SelectedTab))
+            {
+                var nextIndex = Math.Clamp(selectedIndexBefore - 1, 0, slot.Tabs.Count - 1);
+                slot.SelectedTab = slot.Tabs[nextIndex];
+            }
+        }
+    }
+
+    private bool IsPathInsideDeletedDirectory(string? currentPath, IReadOnlyList<string> deletedDirectoryPaths)
+    {
+        if (string.IsNullOrWhiteSpace(currentPath) || IsVirtualListPath(currentPath))
+        {
+            return false;
+        }
+
+        var normalizedPath = _fileSystemService.NormalizePath(currentPath).TrimEnd('\\');
+        foreach (var deletedDirectory in deletedDirectoryPaths)
+        {
+            if (string.Equals(normalizedPath, deletedDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var prefix = deletedDirectory + "\\";
+            if (normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private string ResolveFallbackPathForDeletedTab(string? deletedPath)
+    {
+        var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(deletedPath) || IsVirtualListPath(deletedPath))
+        {
+            return _fileSystemService.DirectoryExists(userHome) ? userHome : DriveRootVirtualPath;
+        }
+
+        try
+        {
+            var candidate = _fileSystemService.NormalizePath(deletedPath);
+            while (!string.IsNullOrWhiteSpace(candidate))
+            {
+                var parent = Directory.GetParent(candidate);
+                if (parent is null)
+                {
+                    break;
+                }
+
+                if (_fileSystemService.DirectoryExists(parent.FullName))
+                {
+                    return parent.FullName;
+                }
+
+                candidate = parent.FullName;
+            }
+        }
+        catch
+        {
+        }
+
+        return _fileSystemService.DirectoryExists(userHome) ? userHome : DriveRootVirtualPath;
     }
 
     private static void ClearDirectoryAttributes(string rootPath)
@@ -3282,6 +3531,7 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             return;
         }
+        LiveTrace.Write($"VM.RenameInPanel start panel='{panel.CurrentPath}' from='{item.FullPath}' to='{destination}'");
 
         if (item.IsDirectory)
         {
@@ -3295,7 +3545,13 @@ public sealed class MainWindowViewModel : ObservableObject
         ReplacePathInSettings(item.FullPath, destination, item.IsDirectory);
         await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
         panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
+            !entry.IsParentDirectory &&
             string.Equals(entry.FullPath, destination, StringComparison.OrdinalIgnoreCase));
+        if (panel.SelectedItem is null || panel.SelectedItem.IsParentDirectory)
+        {
+            panel.SelectedItem = panel.Items.FirstOrDefault(entry => !entry.IsParentDirectory);
+        }
+        LiveTrace.Write($"VM.RenameInPanel end selected='{panel.SelectedItem?.FullPath ?? "(null)"}' isParent={panel.SelectedItem?.IsParentDirectory == true}");
     }
 
     public async Task CreateNewFolderInPanelAsync(PanelViewModel panel, string folderName)
@@ -3354,8 +3610,26 @@ public sealed class MainWindowViewModel : ObservableObject
                 {
                     continue;
                 }
+                var effectivePolicy = policy;
+                string? destinationPath;
+                bool exists;
 
-                if (!TryResolveTransferDestination(transferItem, panel.CurrentPath, policy, out var destinationPath, out var exists))
+                var directDestination = Path.Combine(panel.CurrentPath, transferItem.Name);
+                exists = transferItem.IsDirectory
+                    ? Directory.Exists(directDestination)
+                    : File.Exists(directDestination);
+                if (exists)
+                {
+                    var overwrite = PromptOverwriteOnConflict(directDestination);
+                    if (!overwrite)
+                    {
+                        continue;
+                    }
+
+                    effectivePolicy = TransferConflictPolicy.Overwrite;
+                    destinationPath = directDestination;
+                }
+                else if (!TryResolveTransferDestination(transferItem, panel.CurrentPath, policy, out destinationPath, out exists))
                 {
                     continue;
                 }
@@ -3382,7 +3656,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     }
                     else
                     {
-                        File.Move(item.Path, destinationPath, overwrite: policy == TransferConflictPolicy.Overwrite);
+                        File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                     }
 
                     movedItems.Add(item);
@@ -3391,11 +3665,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 if (item.IsDirectory)
                 {
-                    CopyDirectory(item.Path, destinationPath, policy == TransferConflictPolicy.Overwrite || !exists);
+                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists);
                 }
                 else
                 {
-                    File.Copy(item.Path, destinationPath, overwrite: policy == TransferConflictPolicy.Overwrite);
+                    File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                 }
             }
         });
@@ -3432,7 +3706,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
         if (item.IsDirectory)
         {
+            var previousPath = panel.CurrentPath;
             await LoadPanelAsync(panel, item.FullPath, true);
+            LiveTrace.Write($"OpenItemAsync dir-nav from='{previousPath}' to='{item.FullPath}' parentItem={item.IsParentDirectory}");
+            SelectParentDirectoryItem(panel, previousPath);
+
             return;
         }
 
@@ -3463,8 +3741,13 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var sw = Stopwatch.StartNew();
         var side = ReferenceEquals(panel, LeftPanel) ? "L" : ReferenceEquals(panel, RightPanel) ? "R" : "?";
-        var previousSelectedPath = panel.SelectedItem?.FullPath;
-        var previousSelectedWasParent = panel.SelectedItem?.IsParentDirectory == true;
+        var selectedItem = panel.SelectedItem;
+        var previousSelectedPath = selectedItem?.IsParentDirectory == true
+            ? panel.LastNonParentSelectedPath ?? selectedItem.FullPath
+            : selectedItem?.FullPath;
+        var previousSelectedWasParent = selectedItem?.IsParentDirectory == true &&
+                                        string.IsNullOrWhiteSpace(panel.LastNonParentSelectedPath);
+        LiveTrace.Write($"LoadPanelAsync[{side}] previousSelectedPath='{previousSelectedPath ?? "(null)"}' selectedIsParent={selectedItem?.IsParentDirectory == true} lastNonParent='{panel.LastNonParentSelectedPath ?? "(null)"}'");
         LiveTrace.Write($"LoadPanelAsync[{side}] start path='{path}', track={track}, suppressHistory={suppressHistoryRecord}");
         try
         {
@@ -3566,7 +3849,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 {
                     UpdateHistoryForPanel(panel, normalized, suppressHistoryRecord);
                     panel.CurrentPath = normalized;
-                    panel.SetItems(Array.Empty<FileSystemItem>());
+                    panel.SetItems(BuildParentDirectoryOnlyItems(normalized));
                     panel.ApplyFilter(SearchText);
                     SelectTopItemAfterLoad(panel);
                     UpdateTabTitleForPanel(panel);
@@ -5348,8 +5631,47 @@ public sealed class MainWindowViewModel : ObservableObject
         return panel.SelectedItem is null ? Array.Empty<FileSystemItem>() : [panel.SelectedItem];
     }
 
+    private static IReadOnlyList<FileSystemItem> BuildParentDirectoryOnlyItems(string currentPath)
+    {
+        try
+        {
+            var parent = Directory.GetParent(currentPath);
+            if (parent is null)
+            {
+                return Array.Empty<FileSystemItem>();
+            }
+
+            return
+            [
+                new FileSystemItem
+                {
+                    Name = "..",
+                    Extension = string.Empty,
+                    FullPath = parent.FullName,
+                    IsParentDirectory = true,
+                    IsDirectory = true,
+                    SizeBytes = 0,
+                    SizeDisplay = "<디렉터리>",
+                    LastModified = parent.LastWriteTime,
+                    TypeDisplay = "Parent"
+                }
+            ];
+        }
+        catch
+        {
+            return Array.Empty<FileSystemItem>();
+        }
+    }
+
     private static void SelectTopItemAfterLoad(PanelViewModel panel)
     {
+        var firstNonParent = panel.Items.FirstOrDefault(item => !item.IsParentDirectory);
+        if (firstNonParent is not null)
+        {
+            panel.SelectedItem = firstNonParent;
+            return;
+        }
+
         var parentDirectoryItem = panel.Items.FirstOrDefault(item => item.IsParentDirectory);
         if (parentDirectoryItem is not null)
         {
@@ -5358,6 +5680,50 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         panel.SelectedItem = panel.Items.FirstOrDefault();
+    }
+
+    private static void SelectParentDirectoryItem(PanelViewModel panel, string? previousPath)
+    {
+        if (string.IsNullOrWhiteSpace(previousPath))
+        {
+            return;
+        }
+
+        static string Normalize(string path) => path.TrimEnd('\\');
+        var normalizedPrevious = Normalize(previousPath);
+
+        var parentItem = panel.Items.FirstOrDefault(item =>
+            item.IsParentDirectory &&
+            !string.IsNullOrWhiteSpace(item.FullPath) &&
+            string.Equals(Normalize(item.FullPath), normalizedPrevious, StringComparison.OrdinalIgnoreCase))
+            ?? panel.Items.FirstOrDefault(item => item.IsParentDirectory);
+        if (parentItem is not null)
+        {
+            panel.ClearParentSelectionSuppression();
+            panel.SelectedItem = parentItem;
+            LiveTrace.Write($"SelectParentDirectoryItem path='{panel.CurrentPath}' previous='{previousPath}' selectedParent='{parentItem.FullPath}'");
+        }
+    }
+
+    private static bool PromptOverwriteOnConflict(string targetPath)
+    {
+        return Application.Current?.Dispatcher?.Invoke(() =>
+        {
+            var owner = Application.Current?.Windows
+                .OfType<Window>()
+                .FirstOrDefault(window => window.IsActive)
+                ?? Application.Current?.MainWindow;
+            if (owner is null)
+            {
+                return false;
+            }
+
+            var message =
+                "\uAC19\uC740 \uC774\uB984\uC758 \uD30C\uC77C(\uB610\uB294 \uD3F4\uB354)\uC774 \uC774\uBBF8 \uC788\uC2B5\uB2C8\uB2E4." +
+                "\n\n\uB36E\uC5B4\uC4F0\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?" +
+                $"\n\n\uB300\uC0C1: {targetPath}";
+            return StyledDialogWindow.ShowConfirm(owner, "\uD30C\uC77C \uCDA9\uB3CC", message);
+        }) ?? false;
     }
 
     private static void RestoreSelectionOrTopAfterLoad(PanelViewModel panel, string? preferredPath, bool preferredWasParent)
@@ -5376,10 +5742,19 @@ public sealed class MainWindowViewModel : ObservableObject
 
         if (preferredWasParent)
         {
+            var firstNonParent = panel.Items.FirstOrDefault(item => !item.IsParentDirectory);
+            if (firstNonParent is not null)
+            {
+                panel.SelectedItem = firstNonParent;
+                LiveTrace.Write($"RestoreSelectionOrTopAfterLoad prefer-non-parent path='{panel.CurrentPath}' selected='{firstNonParent.FullPath}'");
+                return;
+            }
+
             var parent = panel.Items.FirstOrDefault(item => item.IsParentDirectory);
             if (parent is not null)
             {
                 panel.SelectedItem = parent;
+                LiveTrace.Write($"RestoreSelectionOrTopAfterLoad parent-only path='{panel.CurrentPath}' selected='..'");
                 return;
             }
         }

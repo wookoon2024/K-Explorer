@@ -1,4 +1,5 @@
-﻿using WorkFileExplorer.App.Models;
+using WorkFileExplorer.App.Helpers;
+using WorkFileExplorer.App.Models;
 
 namespace WorkFileExplorer.App.ViewModels;
 
@@ -7,6 +8,8 @@ public sealed class PanelViewModel : ObservableObject
     private readonly List<FileSystemItem> _allItems = new();
     private string _currentPath = string.Empty;
     private FileSystemItem? _selectedItem;
+    private string? _lastNonParentSelectedPath;
+    private DateTime _suppressParentSelectionUntilUtc;
     private string _quickFilterText = string.Empty;
     private bool _quickFilterStartsWith;
     private bool _quickFilterExactMatch;
@@ -25,7 +28,69 @@ public sealed class PanelViewModel : ObservableObject
     public FileSystemItem? SelectedItem
     {
         get => _selectedItem;
-        set => SetProperty(ref _selectedItem, value);
+        set
+        {
+            if (value is not null &&
+                value.IsParentDirectory &&
+                DateTime.UtcNow < _suppressParentSelectionUntilUtc)
+            {
+                LiveTrace.Write($"Panel.SelectedItem parent-attempt blocked path='{CurrentPath}' parent='{value.FullPath}' lastNonParent='{_lastNonParentSelectedPath ?? "(null)"}'");
+                var fallback = ResolveNonParentSelectionCandidate();
+                if (fallback is not null)
+                {
+                    LiveTrace.Write($"Panel.SelectedItem fallback path='{CurrentPath}' selected='{fallback.FullPath}'");
+                    value = fallback;
+                }
+            }
+            else if (value is not null && value.IsParentDirectory)
+            {
+                LiveTrace.Write($"Panel.SelectedItem parent-set path='{CurrentPath}' parent='{value.FullPath}' guardActive={DateTime.UtcNow < _suppressParentSelectionUntilUtc} lastNonParent='{_lastNonParentSelectedPath ?? "(null)"}'");
+            }
+
+            if (value is not null &&
+                !value.IsParentDirectory &&
+                !string.IsNullOrWhiteSpace(value.FullPath))
+            {
+                _lastNonParentSelectedPath = value.FullPath;
+            }
+
+            SetProperty(ref _selectedItem, value);
+        }
+    }
+
+    public string? LastNonParentSelectedPath => _lastNonParentSelectedPath;
+    public bool IsParentSelectionSuppressionActive => DateTime.UtcNow < _suppressParentSelectionUntilUtc;
+
+    public void SuppressParentSelectionFor(TimeSpan duration)
+    {
+        var until = DateTime.UtcNow + duration;
+        if (until > _suppressParentSelectionUntilUtc)
+        {
+            _suppressParentSelectionUntilUtc = until;
+            LiveTrace.Write($"Panel.SuppressParentSelection path='{CurrentPath}' untilUtc={_suppressParentSelectionUntilUtc:O}");
+        }
+    }
+
+    public void ClearParentSelectionSuppression()
+    {
+        _suppressParentSelectionUntilUtc = DateTime.MinValue;
+    }
+
+    public bool TryRestoreNonParentSelection()
+    {
+        if (_selectedItem is null || !_selectedItem.IsParentDirectory)
+        {
+            return false;
+        }
+
+        var fallback = ResolveNonParentSelectionCandidate();
+        if (fallback is null)
+        {
+            return false;
+        }
+
+        SelectedItem = fallback;
+        return true;
     }
 
     public string QuickFilterText
@@ -180,13 +245,6 @@ public sealed class PanelViewModel : ObservableObject
             if (item.IsParentDirectory)
             {
                 filteredItems.Add(item);
-                if (selectedByPath is null &&
-                    !string.IsNullOrWhiteSpace(previousSelectedPath) &&
-                    string.Equals(item.FullPath, previousSelectedPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    selectedByPath = item;
-                }
-
                 continue;
             }
 
@@ -231,5 +289,22 @@ public sealed class PanelViewModel : ObservableObject
 
         SelectedItem = nextSelected;
     }
+
+    private FileSystemItem? ResolveNonParentSelectionCandidate()
+    {
+        if (!string.IsNullOrWhiteSpace(_lastNonParentSelectedPath))
+        {
+            var byPath = Items.FirstOrDefault(item =>
+                !item.IsParentDirectory &&
+                string.Equals(item.FullPath, _lastNonParentSelectedPath, StringComparison.OrdinalIgnoreCase));
+            if (byPath is not null)
+            {
+                return byPath;
+            }
+        }
+
+        return Items.FirstOrDefault(item => !item.IsParentDirectory);
+    }
 }
+
 
