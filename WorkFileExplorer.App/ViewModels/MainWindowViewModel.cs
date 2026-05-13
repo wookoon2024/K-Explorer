@@ -1172,13 +1172,15 @@ public sealed class MainWindowViewModel : ObservableObject
         var targetPanel = GetActivePanel();
         var policy = GetTransferConflictPolicy();
         var items = _clipboardItems.ToArray();
+        var applyAllChoice = (StyledDialogWindow.ConflictChoice?)null;
         var movedItems = new List<ClipboardTransferItem>();
         var movedPathEntries = new List<(string OldPath, string NewPath, bool IsDirectory)>();
 
         await Task.Run(() =>
         {
-            foreach (var item in items)
+            for (var idx = 0; idx < items.Length; idx++)
             {
+                var item = items[idx];
                 if (!_fileSystemService.DirectoryExists(targetPanel.CurrentPath))
                 {
                     continue;
@@ -1217,14 +1219,45 @@ public sealed class MainWindowViewModel : ObservableObject
                     : File.Exists(directDestination);
                 if (exists)
                 {
-                    var overwrite = PromptOverwriteOnConflict(directDestination);
-                    if (!overwrite)
+                    var conflictChoice = applyAllChoice switch
+                    {
+                        StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
+                        StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
+                        _ => PromptOverwriteOnConflict(
+                            directDestination,
+                            currentIndex: idx + 1,
+                            totalCount: items.Length,
+                            showApplyAllOptions: items.Length > 1)
+                    };
+                    if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
                     {
                         continue;
                     }
 
-                    effectivePolicy = TransferConflictPolicy.Overwrite;
-                    destinationPath = directDestination;
+                    if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                    {
+                        applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
+                        effectivePolicy = TransferConflictPolicy.Overwrite;
+                        destinationPath = directDestination;
+                    }
+                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
+                    {
+                        applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
+                        effectivePolicy = TransferConflictPolicy.RenameNew;
+                        destinationPath = EnsureUniquePath(targetPanel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                        exists = false;
+                    }
+                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
+                    {
+                        effectivePolicy = TransferConflictPolicy.RenameNew;
+                        destinationPath = EnsureUniquePath(targetPanel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                        exists = false;
+                    }
+                    else
+                    {
+                        effectivePolicy = TransferConflictPolicy.Overwrite;
+                        destinationPath = directDestination;
+                    }
                 }
                 else if (!TryResolveTransferDestination(transferItem, targetPanel.CurrentPath, policy, out destinationPath, out exists))
                 {
@@ -3065,12 +3098,14 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         var policy = GetTransferConflictPolicy();
+        var applyAllChoice = (StyledDialogWindow.ConflictChoice?)null;
         var usedElevation = false;
         var movedPathEntries = new List<(string OldPath, string NewPath, bool IsDirectory)>();
         await Task.Run(() =>
         {
-            foreach (var item in items)
+            for (var idx = 0; idx < items.Length; idx++)
             {
+                var item = items[idx];
                 var effectivePolicy = policy;
                 string? dest;
                 bool exists;
@@ -3084,14 +3119,45 @@ public sealed class MainWindowViewModel : ObservableObject
 
                     if (exists)
                     {
-                        var overwrite = PromptOverwriteOnConflict(directDestination);
-                        if (!overwrite)
+                        var conflictChoice = applyAllChoice switch
+                        {
+                            StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
+                            StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
+                            _ => PromptOverwriteOnConflict(
+                                directDestination,
+                                currentIndex: idx + 1,
+                                totalCount: items.Length,
+                                showApplyAllOptions: items.Length > 1)
+                        };
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
                         {
                             continue;
                         }
 
-                        effectivePolicy = TransferConflictPolicy.Overwrite;
-                        dest = directDestination;
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                        {
+                            applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
+                            effectivePolicy = TransferConflictPolicy.Overwrite;
+                            dest = directDestination;
+                        }
+                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
+                        {
+                            applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
+                            effectivePolicy = TransferConflictPolicy.RenameNew;
+                            dest = EnsureUniquePath(destinationDirectory, item.Name, item.IsDirectory);
+                            exists = false;
+                        }
+                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
+                        {
+                            effectivePolicy = TransferConflictPolicy.RenameNew;
+                            dest = EnsureUniquePath(destinationDirectory, item.Name, item.IsDirectory);
+                            exists = false;
+                        }
+                        else
+                        {
+                            effectivePolicy = TransferConflictPolicy.Overwrite;
+                            dest = directDestination;
+                        }
                     }
                     else
                     {
@@ -3576,12 +3642,14 @@ public sealed class MainWindowViewModel : ObservableObject
 
         var policy = GetTransferConflictPolicy();
         var items = _clipboardItems.ToArray();
+        var applyAllChoice = (StyledDialogWindow.ConflictChoice?)null;
         var movedItems = new List<ClipboardTransferItem>();
 
         await Task.Run(() =>
         {
-            foreach (var item in items)
+            for (var idx = 0; idx < items.Length; idx++)
             {
+                var item = items[idx];
                 if (!_fileSystemService.DirectoryExists(panel.CurrentPath))
                 {
                     continue;
@@ -3620,14 +3688,45 @@ public sealed class MainWindowViewModel : ObservableObject
                     : File.Exists(directDestination);
                 if (exists)
                 {
-                    var overwrite = PromptOverwriteOnConflict(directDestination);
-                    if (!overwrite)
+                    var conflictChoice = applyAllChoice switch
+                    {
+                        StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
+                        StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
+                        _ => PromptOverwriteOnConflict(
+                            directDestination,
+                            currentIndex: idx + 1,
+                            totalCount: items.Length,
+                            showApplyAllOptions: items.Length > 1)
+                    };
+                    if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
                     {
                         continue;
                     }
 
-                    effectivePolicy = TransferConflictPolicy.Overwrite;
-                    destinationPath = directDestination;
+                    if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                    {
+                        applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
+                        effectivePolicy = TransferConflictPolicy.Overwrite;
+                        destinationPath = directDestination;
+                    }
+                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
+                    {
+                        applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
+                        effectivePolicy = TransferConflictPolicy.RenameNew;
+                        destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                        exists = false;
+                    }
+                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
+                    {
+                        effectivePolicy = TransferConflictPolicy.RenameNew;
+                        destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                        exists = false;
+                    }
+                    else
+                    {
+                        effectivePolicy = TransferConflictPolicy.Overwrite;
+                        destinationPath = directDestination;
+                    }
                 }
                 else if (!TryResolveTransferDestination(transferItem, panel.CurrentPath, policy, out destinationPath, out exists))
                 {
@@ -5619,10 +5718,10 @@ public sealed class MainWindowViewModel : ObservableObject
         var extension = isDirectory ? string.Empty : Path.GetExtension(name);
         for (var i = 1; i < 1000; i++)
         {
-            var candidate = Path.Combine(targetDirectory, $"{fileName} ({i}){extension}");
+            var candidate = Path.Combine(targetDirectory, $"{fileName}({i}){extension}");
             if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate;
         }
-        return Path.Combine(targetDirectory, $"{fileName} ({Guid.NewGuid():N}){extension}");
+        return Path.Combine(targetDirectory, $"{fileName}({Guid.NewGuid():N}){extension}");
     }
 
     private static IReadOnlyList<FileSystemItem> ResolveSelection(PanelViewModel panel, IReadOnlyList<FileSystemItem>? selectedItems)
@@ -5705,7 +5804,11 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    private static bool PromptOverwriteOnConflict(string targetPath)
+    private static StyledDialogWindow.ConflictChoice PromptOverwriteOnConflict(
+        string targetPath,
+        int currentIndex = 1,
+        int totalCount = 1,
+        bool showApplyAllOptions = false)
     {
         return Application.Current?.Dispatcher?.Invoke(() =>
         {
@@ -5715,15 +5818,16 @@ public sealed class MainWindowViewModel : ObservableObject
                 ?? Application.Current?.MainWindow;
             if (owner is null)
             {
-                return false;
+                return StyledDialogWindow.ConflictChoice.Cancel;
             }
 
             var message =
                 "\uAC19\uC740 \uC774\uB984\uC758 \uD30C\uC77C(\uB610\uB294 \uD3F4\uB354)\uC774 \uC774\uBBF8 \uC788\uC2B5\uB2C8\uB2E4." +
-                "\n\n\uB36E\uC5B4\uC4F0\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?" +
+                $"\n\n\uC9C4\uD589: {Math.Max(1, currentIndex)}/{Math.Max(1, totalCount)}" +
+                "\n\n\uC5B4\uB5A4 \uBC29\uC2DD\uC73C\uB85C \uCC98\uB9AC\uD560\uAE4C\uC694?" +
                 $"\n\n\uB300\uC0C1: {targetPath}";
-            return StyledDialogWindow.ShowConfirm(owner, "\uD30C\uC77C \uCDA9\uB3CC", message);
-        }) ?? false;
+            return StyledDialogWindow.ShowConflictChoice(owner, "\uD30C\uC77C \uCDA9\uB3CC", message, showApplyAllOptions);
+        }) ?? StyledDialogWindow.ConflictChoice.Cancel;
     }
 
     private static void RestoreSelectionOrTopAfterLoad(PanelViewModel panel, string? preferredPath, bool preferredWasParent)

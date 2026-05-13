@@ -594,7 +594,18 @@
                                  LostFocus="OnInlineRenameTextBoxLostFocus"
                                  Visibility="Collapsed"
                                  MinWidth="54"
+                                 VerticalAlignment="Stretch"
+                                 FontFamily="{Binding DataContext.FileListFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                 FontSize="{Binding DataContext.FileListFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
                                  HorizontalContentAlignment="Center"
+                                 VerticalContentAlignment="Center"
+                                 SnapsToDevicePixels="True"
+                                 UseLayoutRounding="True"
+                                 TextOptions.TextFormattingMode="Display"
+                                 TextOptions.TextRenderingMode="ClearType"
+                                 TextOptions.TextHintingMode="Fixed"
+                                 SpellCheck.IsEnabled="False"
+                                 AcceptsReturn="False"
                                  Padding="2,0" />
                     </Grid>
                 </Border>
@@ -635,7 +646,17 @@
                              KeyDown="OnInlineRenameTextBoxKeyDown"
                              LostFocus="OnInlineRenameTextBoxLostFocus"
                              Visibility="Collapsed"
+                             VerticalAlignment="Stretch"
+                             FontFamily="{Binding DataContext.FileListFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                             FontSize="{Binding DataContext.FileListFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
                              VerticalContentAlignment="Center"
+                             SnapsToDevicePixels="True"
+                             UseLayoutRounding="True"
+                             TextOptions.TextFormattingMode="Display"
+                             TextOptions.TextRenderingMode="ClearType"
+                             TextOptions.TextHintingMode="Fixed"
+                             SpellCheck.IsEnabled="False"
+                             AcceptsReturn="False"
                              Padding="2,0" />
                 </Grid>
             </Grid>
@@ -1760,6 +1781,17 @@
                                                      Loaded="OnInlineRenameTextBoxLoaded"
                                                      PreviewKeyDown="OnGridInlineRenameTextBoxPreviewKeyDown"
                                                      BorderThickness="1"
+                                                     VerticalAlignment="Stretch"
+                                                     FontFamily="{Binding DataContext.FileListFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                     FontSize="{Binding DataContext.FileListFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                     VerticalContentAlignment="Center"
+                                                     SnapsToDevicePixels="True"
+                                                     UseLayoutRounding="True"
+                                                     TextOptions.TextFormattingMode="Display"
+                                                     TextOptions.TextRenderingMode="ClearType"
+                                                     TextOptions.TextHintingMode="Fixed"
+                                                     SpellCheck.IsEnabled="False"
+                                                     AcceptsReturn="False"
                                                      Padding="1,0" />
                                         </Grid>
                                     </DataTemplate>
@@ -2105,6 +2137,17 @@
                                                      Loaded="OnInlineRenameTextBoxLoaded"
                                                      PreviewKeyDown="OnGridInlineRenameTextBoxPreviewKeyDown"
                                                      BorderThickness="1"
+                                                     VerticalAlignment="Stretch"
+                                                     FontFamily="{Binding DataContext.FileListFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                     FontSize="{Binding DataContext.FileListFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                     VerticalContentAlignment="Center"
+                                                     SnapsToDevicePixels="True"
+                                                     UseLayoutRounding="True"
+                                                     TextOptions.TextFormattingMode="Display"
+                                                     TextOptions.TextRenderingMode="ClearType"
+                                                     TextOptions.TextHintingMode="Fixed"
+                                                     SpellCheck.IsEnabled="False"
+                                                     AcceptsReturn="False"
                                                      Padding="1,0" />
                                         </Grid>
                                     </DataTemplate>

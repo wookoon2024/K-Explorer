@@ -133,6 +133,13 @@ public sealed class FileSystemService : IFileSystemService
             }
             catch
             {
+                // Keep at least the already-built parent entry ("..") when possible.
+                if (items.Count > 0)
+                {
+                    items.Sort(FileSystemItemComparer);
+                    return items;
+                }
+
                 return Array.Empty<FileSystemItem>();
             }
 

@@ -525,6 +525,8 @@ public partial class MainWindow : Window
     private bool _isTileInlineRenameCommitting;
     private string? _inlineRenameSourcePath;
     private string? _inlineRenameOriginalName;
+    private string? _leftSelectionAnchorPath;
+    private string? _rightSelectionAnchorPath;
     private DateTime _lastTabInteractionUtc = DateTime.MinValue;
     private bool _windowLoaded;
     private readonly Dictionary<FourPanelSlotViewModel, List<DataGrid>> _fourPanelGrids = new();
@@ -3704,11 +3706,11 @@ public partial class MainWindow : Window
         }
 
         if ((e.Key == Key.Up || e.Key == Key.Down) &&
-            Keyboard.Modifiers == ModifierKeys.None &&
+            (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Shift) &&
             !Vm.IsFourPanelMode &&
             !IsTextInputFocused())
         {
-            MoveActivePanelSelectionByArrow(e.Key == Key.Down ? 1 : -1);
+            MoveActivePanelSelectionByArrow(e.Key == Key.Down ? 1 : -1, extendSelection: Keyboard.Modifiers == ModifierKeys.Shift);
             e.Handled = true;
             return;
         }
@@ -5733,9 +5735,86 @@ public partial class MainWindow : Window
         }
 
         var targetPanel = activeLeft ? Vm.LeftPanel : Vm.RightPanel;
+        var deletionAnchor = CaptureDeletionAnchor(activeLeft, selected);
         await Vm.DeleteItemsFromPanelAsync(targetPanel, selected);
+        RestoreSelectionFromDeletionAnchor(activeLeft, deletionAnchor);
         LiveTrace.Write("DeleteSelection completed");
         RestoreKeyboardFocusAfterDelete(activeLeft);
+    }
+
+    private readonly record struct DeletionAnchor(int PreferredIndex);
+
+    private DeletionAnchor CaptureDeletionAnchor(bool left, IReadOnlyList<FileSystemItem> selected)
+    {
+        var selectedPaths = selected
+            .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
+            .Select(item => item.FullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (selectedPaths.Count == 0)
+        {
+            return new DeletionAnchor(-1);
+        }
+
+        var visibleOrder = GetVisibleOrderForPanel(left);
+        if (visibleOrder.Count == 0)
+        {
+            return new DeletionAnchor(-1);
+        }
+
+        var minIndex = -1;
+        for (var i = 0; i < visibleOrder.Count; i++)
+        {
+            var path = visibleOrder[i].FullPath;
+            if (!string.IsNullOrWhiteSpace(path) && selectedPaths.Contains(path))
+            {
+                minIndex = i;
+                break;
+            }
+        }
+
+        return new DeletionAnchor(minIndex);
+    }
+
+    private void RestoreSelectionFromDeletionAnchor(bool left, DeletionAnchor anchor)
+    {
+        if (Vm is null || anchor.PreferredIndex < 0)
+        {
+            return;
+        }
+
+        var panel = left ? Vm.LeftPanel : Vm.RightPanel;
+        var visibleOrder = GetVisibleOrderForPanel(left);
+        if (visibleOrder.Count == 0)
+        {
+            return;
+        }
+
+        var index = Math.Clamp(anchor.PreferredIndex, 0, visibleOrder.Count - 1);
+        var candidate = visibleOrder[index];
+        if (candidate.IsParentDirectory)
+        {
+            candidate = visibleOrder.FirstOrDefault(item => !item.IsParentDirectory) ?? candidate;
+        }
+
+        panel.SelectedItem = candidate;
+        ApplySingleSelectionToPanelControl(left, candidate);
+    }
+
+    private IReadOnlyList<FileSystemItem> GetVisibleOrderForPanel(bool left)
+    {
+        if (Vm is null)
+        {
+            return Array.Empty<FileSystemItem>();
+        }
+
+        if (Vm.IsTileViewEnabledForPanel(left))
+        {
+            var list = left ? LeftPanelTilesList : RightPanelTilesList;
+            return list.Items.Cast<object>().OfType<FileSystemItem>().ToList();
+        }
+
+        var grid = left ? LeftPanelGrid : RightPanelGrid;
+        return grid.Items.Cast<object>().OfType<FileSystemItem>().ToList();
     }
 
     private async Task RenameSelectionAsync()
@@ -5851,7 +5930,7 @@ public partial class MainWindow : Window
         return selectedItem is null ? Array.Empty<FileSystemItem>() : [selectedItem];
     }
 
-    private void MoveActivePanelSelectionByArrow(int delta)
+    private void MoveActivePanelSelectionByArrow(int delta, bool extendSelection = false)
     {
         if (Vm is null || delta == 0 || Vm.IsFourPanelMode)
         {
@@ -5881,11 +5960,21 @@ public partial class MainWindow : Window
                 ? (delta > 0 ? 0 : visibleOrder.Count - 1)
                 : Math.Clamp(currentIndex + delta, 0, visibleOrder.Count - 1);
             var nextListItem = visibleOrder[nextIndex];
+
+            var anchorIndex = ResolveAnchorIndex(left, visibleOrder, currentIndex, extendSelection);
             panel.SelectedItem = nextListItem;
 
             list.Focus();
             Keyboard.Focus(list);
-            list.SelectedItem = nextListItem;
+            if (extendSelection && anchorIndex >= 0)
+            {
+                ApplyRangeSelectionToList(list, visibleOrder, anchorIndex, nextIndex);
+            }
+            else
+            {
+                list.SelectedItems.Clear();
+                list.SelectedItem = nextListItem;
+            }
             list.ScrollIntoView(nextListItem);
             return;
         }
@@ -5904,6 +5993,8 @@ public partial class MainWindow : Window
             ? (delta > 0 ? 0 : visibleGridOrder.Count - 1)
             : Math.Clamp(currentGridIndex + delta, 0, visibleGridOrder.Count - 1);
         var nextItem = visibleGridOrder[nextGridIndex];
+
+        var anchorGridIndex = ResolveAnchorIndex(left, visibleGridOrder, currentGridIndex, extendSelection);
         panel.SelectedItem = nextItem;
 
         var nameColumn = grid.Columns.FirstOrDefault(column =>
@@ -5912,7 +6003,15 @@ public partial class MainWindow : Window
 
         grid.Focus();
         Keyboard.Focus(grid);
-        grid.SelectedItem = nextItem;
+        if (extendSelection && anchorGridIndex >= 0)
+        {
+            ApplyRangeSelectionToGrid(grid, visibleGridOrder, anchorGridIndex, nextGridIndex);
+        }
+        else
+        {
+            grid.SelectedItems.Clear();
+            grid.SelectedItem = nextItem;
+        }
         if (nameColumn is not null)
         {
             grid.CurrentCell = new DataGridCellInfo(nextItem, nameColumn);
@@ -5922,6 +6021,70 @@ public partial class MainWindow : Window
         {
             grid.ScrollIntoView(nextItem);
         }
+    }
+
+    private int ResolveAnchorIndex(bool left, IReadOnlyList<FileSystemItem> visibleOrder, int currentIndex, bool extendSelection)
+    {
+        ref var anchorPath = ref left ? ref _leftSelectionAnchorPath : ref _rightSelectionAnchorPath;
+        if (!extendSelection)
+        {
+            anchorPath = null;
+            return -1;
+        }
+
+        if (!string.IsNullOrWhiteSpace(anchorPath))
+        {
+            for (var i = 0; i < visibleOrder.Count; i++)
+            {
+                if (string.Equals(visibleOrder[i].FullPath, anchorPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+        }
+
+        var seedIndex = currentIndex >= 0 ? currentIndex : 0;
+        if (seedIndex >= 0 && seedIndex < visibleOrder.Count)
+        {
+            anchorPath = visibleOrder[seedIndex].FullPath;
+            return seedIndex;
+        }
+
+        return -1;
+    }
+
+    private static void ApplyRangeSelectionToList(ListBox list, IReadOnlyList<FileSystemItem> visibleOrder, int fromIndex, int toIndex)
+    {
+        var start = Math.Min(fromIndex, toIndex);
+        var end = Math.Max(fromIndex, toIndex);
+        list.SelectedItems.Clear();
+        for (var i = start; i <= end; i++)
+        {
+            var item = visibleOrder[i];
+            if (!item.IsParentDirectory)
+            {
+                list.SelectedItems.Add(item);
+            }
+        }
+
+        list.SelectedItem = visibleOrder[toIndex];
+    }
+
+    private static void ApplyRangeSelectionToGrid(DataGrid grid, IReadOnlyList<FileSystemItem> visibleOrder, int fromIndex, int toIndex)
+    {
+        var start = Math.Min(fromIndex, toIndex);
+        var end = Math.Max(fromIndex, toIndex);
+        grid.SelectedItems.Clear();
+        for (var i = start; i <= end; i++)
+        {
+            var item = visibleOrder[i];
+            if (!item.IsParentDirectory)
+            {
+                grid.SelectedItems.Add(item);
+            }
+        }
+
+        grid.SelectedItem = visibleOrder[toIndex];
     }
 
     private void OnPanelItemsPreviewMouseLeave(object sender, MouseEventArgs e)
@@ -6859,6 +7022,33 @@ public partial class MainWindow : Window
         if (_terminalSessions.TryGetValue(key, out var session))
         {
             RefreshTerminalDisplay(session);
+        }
+    }
+
+    private void ApplySingleSelectionToPanelControl(bool left, FileSystemItem item)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        if (Vm.IsTileViewEnabledForPanel(left))
+        {
+            var list = left ? LeftPanelTilesList : RightPanelTilesList;
+            list.SelectedItems.Clear();
+            list.SelectedItem = item;
+            return;
+        }
+
+        var grid = left ? LeftPanelGrid : RightPanelGrid;
+        grid.SelectedItems.Clear();
+        grid.SelectedItem = item;
+        var nameColumn = grid.Columns.FirstOrDefault(column =>
+            string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
+            ?? grid.Columns.FirstOrDefault();
+        if (nameColumn is not null)
+        {
+            grid.CurrentCell = new DataGridCellInfo(item, nameColumn);
         }
     }
 

@@ -21,14 +21,15 @@ Windows용 업무형 파일 탐색기입니다. 빠른 키보드 중심 탐색 �
 
 ## 다운로드
 - 최신 릴리즈: `https://github.com/wookoon2024/K-Explorer/releases/latest`
-- 최신 버전: `v1.3.3`
-- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.3`
-- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.3.zip`
-- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.3.zip)
-- 배포 파일: `K-Explorer-win-x64-v1.3.3.zip`
-- 최종 배포일: `2026-04-29`
+- 최신 버전: `v1.3.4`
+- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.4`
+- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.4.zip`
+- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.4.zip)
+- 배포 파일: `K-Explorer-win-x64-v1.3.4.zip`
+- 최종 배포일: `2026-05-13`
 
 ## 버전 히스토리
+- [v1.3.4 릴리즈 노트](RELEASE_NOTES_v1.3.4.md)
 - [v1.3.3 릴리즈 노트](RELEASE_NOTES_v1.3.3.md)
 - [v1.3.2 릴리즈 노트](RELEASE_NOTES_v1.3.2.md)
 - [v1.3.1 릴리즈 노트](RELEASE_NOTES_v1.3.1.md)
