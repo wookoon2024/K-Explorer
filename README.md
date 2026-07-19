@@ -24,14 +24,15 @@ Windows용 업무형 파일 탐색기입니다. 빠른 키보드 중심 탐색 �
 
 ## 다운로드
 - 최신 릴리즈: `https://github.com/wookoon2024/K-Explorer/releases/latest`
-- 최신 버전: `v1.3.5`
-- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.5`
-- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.5.zip`
-- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.5.zip)
-- 배포 파일: `K-Explorer-win-x64-v1.3.5.zip`
+- 최신 버전: `v1.3.6`
+- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.6`
+- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.6.zip`
+- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.6.zip)
+- 배포 파일: `K-Explorer-win-x64-v1.3.6.zip`
 - 최종 배포일: `2026-07-19`
 
 ## 버전 히스토리
+- [v1.3.6 릴리즈 노트](RELEASE_NOTES_v1.3.6.md)
 - [v1.3.5 릴리즈 노트](RELEASE_NOTES_v1.3.5.md)
 - [v1.3.4 릴리즈 노트](RELEASE_NOTES_v1.3.4.md)
 - [v1.3.3 릴리즈 노트](RELEASE_NOTES_v1.3.3.md)
