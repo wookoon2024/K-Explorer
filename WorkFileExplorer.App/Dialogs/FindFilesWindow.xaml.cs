@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
@@ -336,6 +336,7 @@ public partial class FindFilesWindow : Window
             TextQuery = vm.SearchUseTextQuery ? vm.SearchTextQuery : string.Empty,
             EncodingName = vm.SearchEncoding,
             CaseSensitive = vm.SearchCaseSensitive,
+            ExactMatch = vm.SearchExactMatch,
             UseRegex = vm.SearchUseRegex,
             MinSizeKb = minSize,
             MaxSizeKb = maxSize,

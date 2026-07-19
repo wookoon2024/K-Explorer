@@ -100,6 +100,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _searchMaxDepthText = string.Empty;
     private string _searchDepthOption = "모두 (무제한 깊이)";
     private bool _searchCaseSensitive;
+    private bool _searchExactMatch;
     private bool _searchUseRegex;
     private bool _searchUseTextQuery;
     private bool _searchUseMinSize;
@@ -694,6 +695,12 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         get => _searchCaseSensitive;
         set => SetProperty(ref _searchCaseSensitive, value);
+    }
+
+    public bool SearchExactMatch
+    {
+        get => _searchExactMatch;
+        set => SetProperty(ref _searchExactMatch, value);
     }
 
     public bool SearchUseRegex
@@ -2097,6 +2104,7 @@ public sealed class MainWindowViewModel : ObservableObject
             TextQuery = SearchTextQuery,
             EncodingName = SearchEncoding,
             CaseSensitive = SearchCaseSensitive,
+            ExactMatch = SearchExactMatch,
             UseRegex = SearchUseRegex,
             MinSizeKb = hasMin ? minKb : null,
             MaxSizeKb = hasMax ? maxKb : null
@@ -2137,9 +2145,9 @@ public sealed class MainWindowViewModel : ObservableObject
         CancellationToken cancellationToken,
         IProgress<IReadOnlyList<FileSystemItem>>? progress)
     {
-        var masks = ParsePatternList(options.FileMasks, "*");
-        var excludedDirectories = ParsePatternList(options.ExcludedDirectories);
-        var excludedFiles = ParsePatternList(options.ExcludedFiles);
+        var masks = ParsePatternList(options.FileMasks, "*", options.ExactMatch);
+        var excludedDirectories = ParsePatternList(options.ExcludedDirectories, "", true);
+        var excludedFiles = ParsePatternList(options.ExcludedFiles, "", true);
 
         return await Task.Run(() =>
         {
@@ -2225,7 +2233,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private IEnumerable<FileSystemItem> EnumerateSearchCandidates(IEnumerable<string> roots, int? maxDepth, IReadOnlyList<string> excludedDirectories, bool excludeHidden, CancellationToken cancellationToken)
     {
-        var attributesToSkip = excludeHidden ? FileAttributes.System | FileAttributes.Hidden : FileAttributes.System;
+        var attributesToSkip = excludeHidden ? FileAttributes.System | FileAttributes.Hidden : 0;
         var options = new EnumerationOptions { RecurseSubdirectories = false, IgnoreInaccessible = true, ReturnSpecialDirectories = false, AttributesToSkip = attributesToSkip };
         foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -6669,11 +6677,11 @@ public sealed class MainWindowViewModel : ObservableObject
         return true;
     }
 
-    private static IReadOnlyList<string> ParsePatternList(string? source, string fallback = "")
+    private static IReadOnlyList<string> ParsePatternList(string? source, string fallback = "", bool exactMatch = true)
     {
         var raw = string.IsNullOrWhiteSpace(source) ? fallback : source;
         return raw.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(NormalizeFileMaskToken)
+            .Select(t => NormalizeFileMaskToken(t, exactMatch))
             .ToArray();
     }
 
@@ -6715,7 +6723,7 @@ public sealed class MainWindowViewModel : ObservableObject
         return Regex.IsMatch(input, regex, RegexOptions.IgnoreCase);
     }
 
-    private static string NormalizeFileMaskToken(string token)
+    private static string NormalizeFileMaskToken(string token, bool exactMatch)
     {
         var value = (token ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(value))
@@ -6727,6 +6735,11 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             return value;
         }
+        
+        if (exactMatch)
+        {
+            return value;
+        }
 
         if (value.StartsWith('.'))
         {
@@ -6735,7 +6748,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         return value.Contains('.')
             ? value
-            : $"*.{value}";
+            : $"*{value}*";
     }
 
     private static bool FilterTextContent(FileSystemItem item, FindFilesOptions options, CancellationToken cancellationToken)
