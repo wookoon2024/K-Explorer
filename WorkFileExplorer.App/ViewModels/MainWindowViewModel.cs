@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
@@ -85,6 +85,12 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _searchExtension = string.Empty;
     private string _searchMinSizeKb = string.Empty;
     private string _searchMaxSizeKb = string.Empty;
+    private string _searchMinSizeUnit = "KB";
+    private string _searchMaxSizeUnit = "KB";
+    private bool _searchExcludeHidden;
+    private bool _searchIncludeDirectories;
+    private bool _searchUseMaxResults;
+    private string _searchMaxResultsText = string.Empty;
     private string _searchFileMasks = "*";
     private string _searchExcludedDirectories = string.Empty;
     private string _searchExcludedFiles = string.Empty;
@@ -200,7 +206,11 @@ public sealed class MainWindowViewModel : ObservableObject
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         for (var index = 0; index < 4; index++)
         {
-            _fourPanels.Add(new FourPanelSlotViewModel($"P{index + 1}", home));
+            var slot = new FourPanelSlotViewModel($"P{index + 1}", home)
+            {
+                ParentViewModel = this
+            };
+            _fourPanels.Add(slot);
         }
 
         _fourPanels[0].IsActive = true;
@@ -233,6 +243,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(LeftCanGoForward));
             OnPropertyChanged(nameof(LeftPanelIsTileViewEnabled));
             OnPropertyChanged(nameof(LeftPanelIsCompactListViewEnabled));
+            OnPropertyChanged(nameof(LeftFavoriteButtonText));
             LiveTrace.Write($"TabSwitch[L] notify-primary {step.ElapsedMilliseconds}ms");
 
             step.Restart();
@@ -253,6 +264,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
             LiveTrace.Write($"TabSwitch[L] done {sw.ElapsedMilliseconds}ms");
             LiveTrace.WriteProcessSnapshot("TabSwitch[L] done");
+
+            Application.Current?.Dispatcher?.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.ContextIdle,
+                () => LiveTrace.Write($"TabSwitch[L] render-complete {sw.ElapsedMilliseconds}ms"));
         }
     }
 
@@ -279,6 +294,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(RightCanGoForward));
             OnPropertyChanged(nameof(RightPanelIsTileViewEnabled));
             OnPropertyChanged(nameof(RightPanelIsCompactListViewEnabled));
+            OnPropertyChanged(nameof(RightFavoriteButtonText));
             LiveTrace.Write($"TabSwitch[R] notify-primary {step.ElapsedMilliseconds}ms");
 
             step.Restart();
@@ -299,6 +315,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
             LiveTrace.Write($"TabSwitch[R] done {sw.ElapsedMilliseconds}ms");
             LiveTrace.WriteProcessSnapshot("TabSwitch[R] done");
+
+            Application.Current?.Dispatcher?.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.ContextIdle,
+                () => LiveTrace.Write($"TabSwitch[R] render-complete {sw.ElapsedMilliseconds}ms"));
         }
     }
 
@@ -348,6 +368,16 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool RightCanGoBack => SelectedRightTab?.CanGoBack ?? false;
 
     public bool RightCanGoForward => SelectedRightTab?.CanGoForward ?? false;
+
+    public bool IsFolderFavorite(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        return _settings.FavoriteFolders.Contains(path, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public string LeftFavoriteButtonText => IsFolderFavorite(LeftCurrentPath) ? "즐찾해제" : "즐겨찾기";
+
+    public string RightFavoriteButtonText => IsFolderFavorite(RightCurrentPath) ? "즐찾해제" : "즐겨찾기";
 
     public bool IsLeftTerminalVisible
     {
@@ -437,14 +467,14 @@ public sealed class MainWindowViewModel : ObservableObject
     public string LeftFolderInfo => BuildFolderInfo(LeftPanel);
     public string RightFolderInfo => BuildFolderInfo(RightPanel);
 
-    public ObservableCollection<QuickAccessItem> QuickAccessItems { get; } = new();
-    public ObservableCollection<QuickAccessItem> FavoriteToolbarFolders { get; } = new();
-    public ObservableCollection<TrackedFileRecord> FavoriteToolbarFiles { get; } = new();
-    public ObservableCollection<TrackedFileRecord> RecentFiles { get; } = new();
-    public ObservableCollection<TrackedFileRecord> FrequentFiles { get; } = new();
-    public ObservableCollection<QuickAccessItem> PinnedFolders { get; } = new();
-    public ObservableCollection<TrackedFileRecord> PinnedFiles { get; } = new();
-    public ObservableCollection<FileSystemItem> SearchResults { get; } = new();
+    public RangeObservableCollection<QuickAccessItem> QuickAccessItems { get; } = new();
+    public RangeObservableCollection<QuickAccessItem> FavoriteToolbarFolders { get; } = new();
+    public RangeObservableCollection<TrackedFileRecord> FavoriteToolbarFiles { get; } = new();
+    public RangeObservableCollection<TrackedFileRecord> RecentFiles { get; } = new();
+    public RangeObservableCollection<TrackedFileRecord> FrequentFiles { get; } = new();
+    public RangeObservableCollection<QuickAccessItem> PinnedFolders { get; } = new();
+    public RangeObservableCollection<TrackedFileRecord> PinnedFiles { get; } = new();
+    public RangeObservableCollection<FileSystemItem> SearchResults { get; } = new();
     public ObservableCollection<string> WorkLogs { get; } = new();
 
     public IReadOnlyList<string> SearchScopes { get; } = ["Active panel", "Both panels"];
@@ -478,8 +508,16 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool IsLeftPanelActive
     {
         get => _isLeftPanelActive;
-        set => SetProperty(ref _isLeftPanelActive, value);
+        set
+        {
+            if (SetProperty(ref _isLeftPanelActive, value))
+            {
+                OnPropertyChanged(nameof(IsRightPanelActive));
+            }
+        }
     }
+
+    public bool IsRightPanelActive => !IsLeftPanelActive;
 
     public bool IsTileViewEnabled
     {
@@ -578,6 +616,44 @@ public sealed class MainWindowViewModel : ObservableObject
         set => SetProperty(ref _searchMaxSizeKb, value);
     }
 
+    public IReadOnlyList<string> SearchSizeUnits { get; } = new[] { "KB", "MB", "GB" };
+
+    public string SearchMinSizeUnit
+    {
+        get => _searchMinSizeUnit;
+        set => SetProperty(ref _searchMinSizeUnit, value);
+    }
+
+    public string SearchMaxSizeUnit
+    {
+        get => _searchMaxSizeUnit;
+        set => SetProperty(ref _searchMaxSizeUnit, value);
+    }
+
+    public bool SearchExcludeHidden
+    {
+        get => _searchExcludeHidden;
+        set => SetProperty(ref _searchExcludeHidden, value);
+    }
+
+    public bool SearchIncludeDirectories
+    {
+        get => _searchIncludeDirectories;
+        set => SetProperty(ref _searchIncludeDirectories, value);
+    }
+
+    public bool SearchUseMaxResults
+    {
+        get => _searchUseMaxResults;
+        set => SetProperty(ref _searchUseMaxResults, value);
+    }
+
+    public string SearchMaxResultsText
+    {
+        get => _searchMaxResultsText;
+        set => SetProperty(ref _searchMaxResultsText, value);
+    }
+
     public string SearchScope
     {
         get => _searchScope;
@@ -630,6 +706,51 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         get => _searchStartDirectory;
         set => SetProperty(ref _searchStartDirectory, value);
+    }
+
+    public ObservableCollection<string> SearchStartDirectoryHistory { get; } = new();
+
+    public ObservableCollection<string> SearchFileMaskHistory { get; } = new();
+
+    private const int FindFilesHistoryLimit = 20;
+
+    public async Task RecordFindFilesSearchHistoryAsync()
+    {
+        AddSearchHistoryEntry(SearchStartDirectoryHistory, SearchStartDirectory);
+        AddSearchHistoryEntry(SearchFileMaskHistory, SearchFileMasks);
+        _settings.SearchStartDirectoryHistory = SearchStartDirectoryHistory.ToList();
+        _settings.SearchFileMaskHistory = SearchFileMaskHistory.ToList();
+        try
+        {
+            await _settingsStorageService.SaveSettingsAsync(_settings);
+        }
+        catch (Exception ex)
+        {
+            LiveTrace.Write($"RecordFindFilesSearchHistory save failed: {ex}");
+        }
+    }
+
+    private static void AddSearchHistoryEntry(ObservableCollection<string> history, string? value)
+    {
+        var entry = value?.Trim();
+        if (string.IsNullOrEmpty(entry))
+        {
+            return;
+        }
+
+        for (var i = history.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(history[i], entry, StringComparison.OrdinalIgnoreCase))
+            {
+                history.RemoveAt(i);
+            }
+        }
+
+        history.Insert(0, entry);
+        while (history.Count > FindFilesHistoryLimit)
+        {
+            history.RemoveAt(history.Count - 1);
+        }
     }
 
     public string SearchMaxDepthText
@@ -734,6 +855,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public string ThemeHeaderForeground => ResolveThemeColor("HeaderForeground");
     public string ThemeSelectionBackground => ResolveThemeColor("SelectionBackground");
     public string ThemeSelectionForeground => ResolveThemeColor("SelectionForeground");
+    public string ThemeInactiveSelectionBackground => IsWhiteTheme ? "#D7DEE6" : "#3C4654";
 
     public async Task InitializeAsync()
     {
@@ -777,6 +899,7 @@ public sealed class MainWindowViewModel : ObservableObject
         RestoreSessionTabsFromSettings();
         ApplyDefaultViewToAllTabs(_settings.DefaultTileViewEnabled);
         SearchStartDirectory = LeftCurrentPath;
+        RestoreFindFilesSearchHistory();
         LiveTrace.Write($"Initial paths: left='{LeftCurrentPath}', right='{RightCurrentPath}'");
 
         await RestorePathHistoryAsync();
@@ -804,6 +927,25 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         LiveTrace.Write("InitializeAsync end");
+    }
+
+    private void RestoreFindFilesSearchHistory()
+    {
+        SearchStartDirectoryHistory.Clear();
+        foreach (var entry in _settings.SearchStartDirectoryHistory
+                     .Where(e => !string.IsNullOrWhiteSpace(e))
+                     .Take(FindFilesHistoryLimit))
+        {
+            SearchStartDirectoryHistory.Add(entry.Trim());
+        }
+
+        SearchFileMaskHistory.Clear();
+        foreach (var entry in _settings.SearchFileMaskHistory
+                     .Where(e => !string.IsNullOrWhiteSpace(e))
+                     .Take(FindFilesHistoryLimit))
+        {
+            SearchFileMaskHistory.Add(entry.Trim());
+        }
     }
 
     public async Task SaveSessionStateAsync()
@@ -1176,11 +1318,18 @@ public sealed class MainWindowViewModel : ObservableObject
         var movedItems = new List<ClipboardTransferItem>();
         var movedPathEntries = new List<(string OldPath, string NewPath, bool IsDirectory)>();
 
+        using var progress = TransferProgressWindow.Start(_clipboardCutMode ? "이동" : "복사", items.Length);
         await Task.Run(() =>
         {
             for (var idx = 0; idx < items.Length; idx++)
             {
+                if (progress.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 var item = items[idx];
+                progress.ReportItem(idx, item.Path);
                 if (!_fileSystemService.DirectoryExists(targetPanel.CurrentPath))
                 {
                     continue;
@@ -1229,6 +1378,10 @@ public sealed class MainWindowViewModel : ObservableObject
                             totalCount: items.Length,
                             showApplyAllOptions: items.Length > 1)
                     };
+                    if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                    {
+                        break;
+                    }
                     if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
                     {
                         continue;
@@ -1270,6 +1423,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     continue;
                 }
 
+                progress.NotifyWorkStarted();
                 if (_clipboardCutMode)
                 {
                     if (item.IsDirectory)
@@ -1351,10 +1505,19 @@ public sealed class MainWindowViewModel : ObservableObject
 
         var deletedItems = new List<FileSystemItem>(items.Length);
         var failedItems = new List<(string Path, string Reason)>();
+        using var progress = TransferProgressWindow.Start("삭제", items.Length);
         await Task.Run(() =>
         {
+            var done = 0;
             foreach (var item in items)
             {
+                if (progress.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                progress.NotifyWorkStarted();
+                progress.ReportItem(done++, item.FullPath);
                 if (TryDeleteFileSystemItem(item, out var reason))
                 {
                     deletedItems.Add(item);
@@ -1424,7 +1587,12 @@ public sealed class MainWindowViewModel : ObservableObject
         var dest = Path.Combine(parent, newName);
         if (string.Equals(dest, item.FullPath, StringComparison.OrdinalIgnoreCase)) return;
         LiveTrace.Write($"VM.RenameSelected start panel='{panel.CurrentPath}' from='{item.FullPath}' to='{dest}' selectedWasParent={item.IsParentDirectory}");
-        if (item.IsDirectory) Directory.Move(item.FullPath, dest); else File.Move(item.FullPath, dest);
+        if (!TryRenameEntry(item, dest, out var renameError))
+        {
+            ShowRenameError(item.Name, renameError);
+            return;
+        }
+
         ReplacePathInSettings(item.FullPath, dest, item.IsDirectory);
         await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
 
@@ -1440,6 +1608,55 @@ public sealed class MainWindowViewModel : ObservableObject
 
         panel.SelectedItem = panel.Items.FirstOrDefault(entry => !entry.IsParentDirectory);
         LiveTrace.Write($"VM.RenameSelected fallback selected='{panel.SelectedItem?.FullPath ?? "(null)"}' isParent={panel.SelectedItem?.IsParentDirectory == true}");
+    }
+
+    private static bool TryRenameEntry(FileSystemItem item, string destination, out string errorMessage)
+    {
+        if (File.Exists(destination) || Directory.Exists(destination))
+        {
+            errorMessage = "같은 이름의 파일(또는 폴더)이 이미 있습니다.";
+            return false;
+        }
+
+        try
+        {
+            if (item.IsDirectory)
+            {
+                Directory.Move(item.FullPath, destination);
+            }
+            else
+            {
+                File.Move(item.FullPath, destination);
+            }
+
+            errorMessage = string.Empty;
+            return true;
+        }
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) is 32 or 33)
+        {
+            // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION
+            errorMessage = "파일이 다른 프로그램에서 사용 중이라 이름을 변경할 수 없습니다.\n해당 파일을 사용하는 프로그램을 닫고 다시 시도하세요.";
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            errorMessage = "접근 권한이 없어 이름을 변경할 수 없습니다.";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    private static void ShowRenameError(string itemName, string reason)
+    {
+        LiveTrace.Write($"VM.Rename failed name='{itemName}' reason='{reason}'");
+        if (Application.Current?.MainWindow is Window owner)
+        {
+            StyledDialogWindow.ShowInfo(owner, "이름 바꾸기 실패", $"'{itemName}'의 이름을 바꾸지 못했습니다.\n\n{reason}");
+        }
     }
 
     public async Task CreateNewFolderAsync(string folderName)
@@ -1905,7 +2122,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public async Task<IReadOnlyList<FileSystemItem>> FindFilesAsync(
         FindFilesOptions options,
         CancellationToken cancellationToken,
-        IProgress<FileSystemItem>? progress)
+        IProgress<IReadOnlyList<FileSystemItem>>? progress)
     {
         IEnumerable<string> roots = string.IsNullOrWhiteSpace(options.StartDirectory)
             ? new[] { GetActivePanel().CurrentPath }
@@ -1918,7 +2135,7 @@ public sealed class MainWindowViewModel : ObservableObject
         FindFilesOptions options,
         IEnumerable<string> roots,
         CancellationToken cancellationToken,
-        IProgress<FileSystemItem>? progress)
+        IProgress<IReadOnlyList<FileSystemItem>>? progress)
     {
         var masks = ParsePatternList(options.FileMasks, "*");
         var excludedDirectories = ParsePatternList(options.ExcludedDirectories);
@@ -1927,7 +2144,7 @@ public sealed class MainWindowViewModel : ObservableObject
         return await Task.Run(() =>
         {
             IEnumerable<FileSystemItem> items = options.SearchSubdirectories
-                ? EnumerateSearchCandidates(roots, options.MaxDepth, excludedDirectories, cancellationToken)
+                ? EnumerateSearchCandidates(roots, options.MaxDepth, excludedDirectories, options.ExcludeHidden, cancellationToken)
                 : (string.Equals(SearchScope, "Both panels", StringComparison.OrdinalIgnoreCase)
                     ? LeftPanel.GetAllItems().Concat(RightPanel.GetAllItems())
                     : GetActivePanel().GetAllItems());
@@ -1935,9 +2152,19 @@ public sealed class MainWindowViewModel : ObservableObject
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var result = new List<FileSystemItem>(capacity: 256);
 
+            // Report progress in batches: one dispatcher post per item floods the UI
+            // thread and freezes the window when the search yields thousands of hits.
+            var progressBatch = progress is null ? null : new List<FileSystemItem>(capacity: 256);
+            var progressFlush = progress is null ? null : Stopwatch.StartNew();
+
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                if (item.IsDirectory && !options.IncludeDirectories)
+                {
+                    continue;
+                }
 
                 if (!MatchesFileMasks(item, masks))
                 {
@@ -1970,21 +2197,36 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 result.Add(item);
-                progress?.Report(item);
+                if (progressBatch is not null)
+                {
+                    progressBatch.Add(item);
+                    if (progressBatch.Count >= 500 || progressFlush!.ElapsedMilliseconds >= 200)
+                    {
+                        progress!.Report(progressBatch.ToArray());
+                        progressBatch.Clear();
+                        progressFlush!.Restart();
+                    }
+                }
 
-                if (result.Count >= 500)
+                if (options.MaxResults is { } maxResults && result.Count >= maxResults)
                 {
                     break;
                 }
+            }
+
+            if (progressBatch is { Count: > 0 })
+            {
+                progress!.Report(progressBatch.ToArray());
             }
 
             return (IReadOnlyList<FileSystemItem>)result;
         }, cancellationToken);
     }
 
-    private IEnumerable<FileSystemItem> EnumerateSearchCandidates(IEnumerable<string> roots, int? maxDepth, IReadOnlyList<string> excludedDirectories, CancellationToken cancellationToken)
+    private IEnumerable<FileSystemItem> EnumerateSearchCandidates(IEnumerable<string> roots, int? maxDepth, IReadOnlyList<string> excludedDirectories, bool excludeHidden, CancellationToken cancellationToken)
     {
-        var options = new EnumerationOptions { RecurseSubdirectories = false, IgnoreInaccessible = true, ReturnSpecialDirectories = false, AttributesToSkip = FileAttributes.System };
+        var attributesToSkip = excludeHidden ? FileAttributes.System | FileAttributes.Hidden : FileAttributes.System;
+        var options = new EnumerationOptions { RecurseSubdirectories = false, IgnoreInaccessible = true, ReturnSpecialDirectories = false, AttributesToSkip = attributesToSkip };
         foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
@@ -2098,7 +2340,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void SetActivePanel(string? panelKey)
     {
-        IsLeftPanelActive = !string.Equals(panelKey, "Right", StringComparison.OrdinalIgnoreCase);
+        var nextLeft = !string.Equals(panelKey, "Right", StringComparison.OrdinalIgnoreCase);
+        if (nextLeft != IsLeftPanelActive)
+        {
+            LiveTrace.Write($"VM.SetActivePanel change {(IsLeftPanelActive ? "L" : "R")} -> {(nextLeft ? "L" : "R")}\n{Environment.StackTrace}");
+        }
+
+        IsLeftPanelActive = nextLeft;
         SearchStartDirectory = GetActivePanel().CurrentPath;
         OnPropertyChanged(nameof(IsTileViewEnabled));
         OnPropertyChanged(nameof(IsCompactListViewEnabled));
@@ -2315,6 +2563,12 @@ public sealed class MainWindowViewModel : ObservableObject
     public void SetActiveFourPanel(int index)
     {
         var normalized = Math.Clamp(index, 0, _fourPanels.Count - 1);
+        var previous = _fourPanels.ToList().FindIndex(slot => slot.IsActive);
+        if (previous != normalized)
+        {
+            LiveTrace.Write($"VM.SetActiveFourPanel change {previous} -> {normalized}\n{Environment.StackTrace}");
+        }
+
         for (var i = 0; i < _fourPanels.Count; i++)
         {
             _fourPanels[i].IsActive = i == normalized;
@@ -2488,6 +2742,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ThemeHeaderForeground));
         OnPropertyChanged(nameof(ThemeSelectionBackground));
         OnPropertyChanged(nameof(ThemeSelectionForeground));
+        OnPropertyChanged(nameof(ThemeInactiveSelectionBackground));
     }
 
     private static List<string> NormalizeThemeColorOverrides(IEnumerable<string>? overrides)
@@ -2799,6 +3054,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
         await PersistSettingsAsync();
         await RefreshSidebarAndDashboardAsync();
+
+        OnPropertyChanged(nameof(LeftFavoriteButtonText));
+        OnPropertyChanged(nameof(RightFavoriteButtonText));
+        foreach (var slot in _fourPanels)
+        {
+            slot.NotifyPropertyChanged(nameof(slot.FavoriteButtonText));
+        }
     }
 
     public async Task ApplyFavoriteFileCategoryFoldersAsync(IReadOnlyList<string>? categoryPaths)
@@ -3033,6 +3295,11 @@ public sealed class MainWindowViewModel : ObservableObject
     public IReadOnlyDictionary<string, IReadOnlyList<string>> GetFavoriteFileCategoriesWithFiles()
     {
         NormalizeFavoriteFileCategorySettings();
+        if (PruneMissingFavoriteEntries())
+        {
+            _ = PersistSettingsAsync();
+        }
+
         var mappings = ParseFavoriteFileCategoryMappings(_settings.FavoriteFileCategoryMappings);
         var grouped = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -3100,12 +3367,21 @@ public sealed class MainWindowViewModel : ObservableObject
         var policy = GetTransferConflictPolicy();
         var applyAllChoice = (StyledDialogWindow.ConflictChoice?)null;
         var usedElevation = false;
+        var cancelled = false;
         var movedPathEntries = new List<(string OldPath, string NewPath, bool IsDirectory)>();
+        using var progress = TransferProgressWindow.Start(move ? "이동" : "복사", items.Length);
         await Task.Run(() =>
         {
             for (var idx = 0; idx < items.Length; idx++)
             {
+                if (progress.Token.IsCancellationRequested)
+                {
+                    cancelled = true;
+                    break;
+                }
+
                 var item = items[idx];
+                progress.ReportItem(idx, item.FullPath);
                 var effectivePolicy = policy;
                 string? dest;
                 bool exists;
@@ -3129,6 +3405,10 @@ public sealed class MainWindowViewModel : ObservableObject
                                 totalCount: items.Length,
                                 showApplyAllOptions: items.Length > 1)
                         };
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                        {
+                            break;
+                        }
                         if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
                         {
                             continue;
@@ -3175,6 +3455,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     }
                 }
 
+                progress.NotifyWorkStarted();
                 try
                 {
                     if (move)
@@ -3183,7 +3464,7 @@ public sealed class MainWindowViewModel : ObservableObject
                         {
                             if (exists)
                             {
-                                CopyDirectory(item.FullPath, dest!, overwrite: true);
+                                CopyDirectory(item.FullPath, dest!, overwrite: true, progress.ReportCurrentFile, progress.Token);
                                 Directory.Delete(item.FullPath, true);
                             }
                             else
@@ -3202,13 +3483,18 @@ public sealed class MainWindowViewModel : ObservableObject
                     {
                         if (item.IsDirectory)
                         {
-                            CopyDirectory(item.FullPath, dest!, effectivePolicy == TransferConflictPolicy.Overwrite || !exists);
+                            CopyDirectory(item.FullPath, dest!, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, progress.ReportCurrentFile, progress.Token);
                         }
                         else
                         {
                             File.Copy(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                         }
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    cancelled = true;
+                    break;
                 }
                 catch (UnauthorizedAccessException)
                 {
@@ -3240,7 +3526,11 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         await ReloadPanelsForPathsAndDashboardAsync(affectedPaths);
-        if (usedElevation)
+        if (cancelled)
+        {
+            StatusText = move ? "이동이 취소되었습니다." : "복사가 취소되었습니다.";
+        }
+        else if (usedElevation)
         {
             StatusText = "보호 경로 작업을 관리자 권한으로 처리했습니다.";
         }
@@ -3264,10 +3554,19 @@ public sealed class MainWindowViewModel : ObservableObject
         var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
         var deletedItems = new List<FileSystemItem>(items.Length);
         var failedItems = new List<(string Path, string Reason)>();
+        using var progress = TransferProgressWindow.Start("삭제", items.Length);
         await Task.Run(() =>
         {
+            var done = 0;
             foreach (var item in items)
             {
+                if (progress.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                progress.NotifyWorkStarted();
+                progress.ReportItem(done++, item.FullPath);
                 if (TryDeleteFileSystemItem(item, out var reason))
                 {
                     deletedItems.Add(item);
@@ -3599,13 +3898,10 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         LiveTrace.Write($"VM.RenameInPanel start panel='{panel.CurrentPath}' from='{item.FullPath}' to='{destination}'");
 
-        if (item.IsDirectory)
+        if (!TryRenameEntry(item, destination, out var renameError))
         {
-            Directory.Move(item.FullPath, destination);
-        }
-        else
-        {
-            File.Move(item.FullPath, destination);
+            ShowRenameError(item.Name, renameError);
+            return;
         }
 
         ReplacePathInSettings(item.FullPath, destination, item.IsDirectory);
@@ -3645,11 +3941,18 @@ public sealed class MainWindowViewModel : ObservableObject
         var applyAllChoice = (StyledDialogWindow.ConflictChoice?)null;
         var movedItems = new List<ClipboardTransferItem>();
 
+        using var progress = TransferProgressWindow.Start(_clipboardCutMode ? "이동" : "복사", items.Length);
         await Task.Run(() =>
         {
             for (var idx = 0; idx < items.Length; idx++)
             {
+                if (progress.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 var item = items[idx];
+                progress.ReportItem(idx, item.Path);
                 if (!_fileSystemService.DirectoryExists(panel.CurrentPath))
                 {
                     continue;
@@ -3698,6 +4001,10 @@ public sealed class MainWindowViewModel : ObservableObject
                             totalCount: items.Length,
                             showApplyAllOptions: items.Length > 1)
                     };
+                    if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                    {
+                        break;
+                    }
                     if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
                     {
                         continue;
@@ -3739,6 +4046,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     continue;
                 }
 
+                progress.NotifyWorkStarted();
                 if (_clipboardCutMode)
                 {
                     if (item.IsDirectory)
@@ -4715,6 +5023,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(LeftPathHistory));
             OnPropertyChanged(nameof(LeftCanGoBack));
             OnPropertyChanged(nameof(LeftCanGoForward));
+            OnPropertyChanged(nameof(LeftFavoriteButtonText));
             _ = PersistPathHistoryAsync();
             return;
         }
@@ -4727,6 +5036,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(RightPathHistory));
             OnPropertyChanged(nameof(RightCanGoBack));
             OnPropertyChanged(nameof(RightCanGoForward));
+            OnPropertyChanged(nameof(RightFavoriteButtonText));
             _ = PersistPathHistoryAsync();
             return;
         }
@@ -4741,6 +5051,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             if (suppressHistoryRecord) tab.RecordPathWithoutHistoryShift(path);
             else tab.RecordVisitedPath(path);
+            slot.NotifyPropertyChanged(nameof(slot.FavoriteButtonText));
             return;
         }
     }
@@ -5135,6 +5446,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task RefreshSidebarAndDashboardAsync()
     {
+        // Drop favorites whose targets were deleted (in-app or externally) so the
+        // toolbar buttons and flyouts never list dead entries. Callers persist settings.
+        PruneMissingFavoriteEntries();
+
         var snapshot = await _usageTrackingService.GetSnapshotAsync();
         var quickAccess = await _quickAccessService.GetItemsAsync(_settings, snapshot);
         var fileExistsCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -5497,6 +5812,62 @@ public sealed class MainWindowViewModel : ObservableObject
         _settings.FavoriteFileCategoryMappings = SerializeFavoriteFileCategoryMappings(mappings);
     }
 
+    private bool PruneMissingFavoriteEntries()
+    {
+        // Only treat an entry as deleted when its drive root is reachable but the path
+        // itself is gone: an unplugged USB drive or disconnected share must not wipe
+        // the user's favorites. UNC paths are never judged (existence checks can hang).
+        static bool IsSafelyMissing(string path)
+        {
+            try
+            {
+                if (path.StartsWith(@"\\", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                var root = Path.GetPathRoot(path);
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+                {
+                    return false;
+                }
+
+                return !File.Exists(path) && !Directory.Exists(path);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        var removedFiles = _settings.FavoriteFiles
+            .Where(path => !string.IsNullOrWhiteSpace(path) && IsSafelyMissing(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removedFolders = _settings.FavoriteFolders
+            .Where(path => !string.IsNullOrWhiteSpace(path) && IsSafelyMissing(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (removedFiles.Count == 0 && removedFolders.Count == 0)
+        {
+            return false;
+        }
+
+        if (removedFiles.Count > 0)
+        {
+            _settings.FavoriteFiles.RemoveAll(path => removedFiles.Contains(path));
+            RemoveFavoriteFileCategories(removedFiles);
+        }
+
+        if (removedFolders.Count > 0)
+        {
+            _settings.FavoriteFolders.RemoveAll(path => removedFolders.Contains(path));
+        }
+
+        StatusText = $"삭제된 항목 {removedFiles.Count + removedFolders.Count}개를 즐겨찾기에서 자동 해제했습니다.";
+        return true;
+    }
+
     private void RemoveFavoriteFileCategories(IEnumerable<string> filePaths)
     {
         var targets = (filePaths ?? Array.Empty<string>())
@@ -5705,9 +6076,24 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private static void CopyDirectory(string source, string dest, bool overwrite)
     {
+        CopyDirectory(source, dest, overwrite, onFile: null, CancellationToken.None);
+    }
+
+    private static void CopyDirectory(string source, string dest, bool overwrite, Action<string>? onFile, CancellationToken cancellationToken)
+    {
         Directory.CreateDirectory(dest);
-        foreach (var file in Directory.EnumerateFiles(source)) File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), overwrite);
-        foreach (var dir in Directory.EnumerateDirectories(source)) CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)), overwrite);
+        foreach (var file in Directory.EnumerateFiles(source))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            onFile?.Invoke(file);
+            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), overwrite);
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(source))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)), overwrite, onFile, cancellationToken);
+        }
     }
 
     private static string EnsureUniquePath(string targetDirectory, string name, bool isDirectory)
@@ -6742,10 +7128,9 @@ public sealed class MainWindowViewModel : ObservableObject
         StatusText = $"검색 완료: {SearchResults.Count}개";
     }
 
-    private void ResetCollection<T>(ObservableCollection<T> collection, IEnumerable<T> items)
+    private void ResetCollection<T>(RangeObservableCollection<T> collection, IEnumerable<T> items)
     {
-        collection.Clear();
-        foreach (var item in items) collection.Add(item);
+        collection.ReplaceRange(items);
     }
 
     private void RunCommandSafely(Func<Task> action)

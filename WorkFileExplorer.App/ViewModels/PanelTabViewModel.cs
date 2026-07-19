@@ -61,7 +61,15 @@ public sealed class PanelTabViewModel : ObservableObject
         }
 
         if (!string.IsNullOrWhiteSpace(Panel.CurrentPath) &&
-            !string.Equals(Panel.CurrentPath, path, StringComparison.OrdinalIgnoreCase))
+            string.Equals(Panel.CurrentPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            // Reload of the current path is not a navigation: keep back/forward stacks
+            // and skip the list churn — removing/re-inserting the entry the path
+            // ComboBox has selected makes WPF clear the combo's text.
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(Panel.CurrentPath))
         {
             _backStack.Push(Panel.CurrentPath);
         }
@@ -163,6 +171,14 @@ public sealed class PanelTabViewModel : ObservableObject
 
     private void AppendCandidate(string path)
     {
+        if (_historyCandidates.Count > 0 &&
+            string.Equals(_historyCandidates[0], path, StringComparison.OrdinalIgnoreCase))
+        {
+            // Already the newest entry; remove/insert churn would clear the text of
+            // the ComboBox bound to this list.
+            return;
+        }
+
         var existing = _historyCandidates.FirstOrDefault(item =>
             string.Equals(item, path, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)

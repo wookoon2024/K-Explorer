@@ -30,6 +30,8 @@ public sealed class AppSettings
     public List<string> PinnedFolders { get; set; } = new();
     public List<string> PinnedFiles { get; set; } = new();
     public List<string> MessengerDownloadFolders { get; set; } = new();
+    public List<string> SearchStartDirectoryHistory { get; set; } = new();
+    public List<string> SearchFileMaskHistory { get; set; } = new();
     public Dictionary<string, string> ItemMemos { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public double WindowLeft { get; set; } = double.NaN;
     public double WindowTop { get; set; } = double.NaN;

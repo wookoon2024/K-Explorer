@@ -293,56 +293,40 @@
                         <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="확장자별 텍스트 색상과 핀 고정 항목 강조를 설정합니다." />
 
                         <GroupBox Header="표시 색상">
-                            <Grid Margin="6">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="180" />
-                                    <ColumnDefinition Width="140" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
+                            <StackPanel Margin="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Width="90" VerticalAlignment="Center" Text="테마" />
+                                    <ComboBox x:Name="ComboThemeMode"
+                                              Width="180"
+                                              Height="26"
+                                              SelectionChanged="OnThemeModeSelectionChanged">
+                                        <ComboBoxItem Content="Black" />
+                                        <ComboBoxItem Content="White" />
+                                    </ComboBox>
+                                    <Button Height="26"
+                                            Width="96"
+                                            Margin="8,0,0,0"
+                                            Content="테마 기본값"
+                                            ToolTip="현재 테마의 색상을 기본값으로 되돌립니다."
+                                            Click="OnResetThemeColorsClick" />
+                                </StackPanel>
 
-                                <TextBlock Grid.Row="0"
-                                           Grid.Column="0"
-                                           VerticalAlignment="Center"
-                                           Text="테마" />
-                                <ComboBox x:Name="ComboThemeMode"
-                                          Grid.Row="0"
-                                          Grid.ColumnSpan="3"
-                                          Grid.Column="1"
-                                          Width="220"
-                                          Height="26"
-                                          HorizontalAlignment="Left"
-                                          SelectionChanged="OnThemeModeSelectionChanged">
-                                    <ComboBoxItem Content="Black" />
-                                    <ComboBoxItem Content="White" />
-                                </ComboBox>
-
-                                <Border Grid.Row="1"
-                                        Grid.ColumnSpan="4"
-                                        Margin="0,10,0,0"
-                                        Padding="8"
+                                <Border Margin="0,10,0,0"
+                                        Padding="10,8"
                                         BorderBrush="#CCD4DF"
                                         BorderThickness="1"
                                         Background="#F8FAFD">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="120" />
-                                            <ColumnDefinition Width="70" />
-                                            <ColumnDefinition Width="20" />
-                                            <ColumnDefinition Width="110" />
-                                            <ColumnDefinition Width="120" />
-                                            <ColumnDefinition Width="70" />
+                                            <ColumnDefinition Width="76" />
+                                            <ColumnDefinition Width="26" />
+                                            <ColumnDefinition Width="96" />
+                                            <ColumnDefinition Width="56" />
+                                            <ColumnDefinition Width="28" />
+                                            <ColumnDefinition Width="76" />
+                                            <ColumnDefinition Width="26" />
+                                            <ColumnDefinition Width="96" />
+                                            <ColumnDefinition Width="56" />
                                         </Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
@@ -352,138 +336,121 @@
                                         </Grid.RowDefinitions>
 
                                         <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="창 배경" />
-                                        <TextBox x:Name="TextThemeWindowBackground" Grid.Row="0" Grid.Column="1" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
-                                        <Button Grid.Row="0" Grid.Column="2" Height="24" Margin="6,0,0,0" Content="선택" Tag="WindowBackground" Click="OnPickThemeColorClick" />
+                                        <Border Grid.Row="0" Grid.Column="1" Width="20" Height="20" BorderBrush="#AAB4C2" BorderThickness="1" Background="{Binding Text, ElementName=TextThemeWindowBackground}" />
+                                        <TextBox x:Name="TextThemeWindowBackground" Grid.Row="0" Grid.Column="2" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
+                                        <Button Grid.Row="0" Grid.Column="3" Height="24" Margin="6,0,0,0" Content="선택" Tag="WindowBackground" Click="OnPickThemeColorClick" />
 
-                                        <TextBlock Grid.Row="0" Grid.Column="4" VerticalAlignment="Center" Text="목록 배경" />
-                                        <TextBox x:Name="TextThemePanelBackground" Grid.Row="0" Grid.Column="5" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
-                                        <Button Grid.Row="0" Grid.Column="6" Height="24" Margin="6,0,0,0" Content="선택" Tag="PanelBackground" Click="OnPickThemeColorClick" />
+                                        <TextBlock Grid.Row="0" Grid.Column="5" VerticalAlignment="Center" Text="목록 배경" />
+                                        <Border Grid.Row="0" Grid.Column="6" Width="20" Height="20" BorderBrush="#AAB4C2" BorderThickness="1" Background="{Binding Text, ElementName=TextThemePanelBackground}" />
+                                        <TextBox x:Name="TextThemePanelBackground" Grid.Row="0" Grid.Column="7" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
+                                        <Button Grid.Row="0" Grid.Column="8" Height="24" Margin="6,0,0,0" Content="선택" Tag="PanelBackground" Click="OnPickThemeColorClick" />
 
                                         <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,6,0,0" VerticalAlignment="Center" Text="목록 글자" />
-                                        <TextBox x:Name="TextThemePanelForeground" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
-                                        <Button Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" Height="24" Content="선택" Tag="PanelForeground" Click="OnPickThemeColorClick" />
+                                        <Border Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Width="20" Height="20" BorderBrush="#AAB4C2" BorderThickness="1" Background="{Binding Text, ElementName=TextThemePanelForeground}" />
+                                        <TextBox x:Name="TextThemePanelForeground" Grid.Row="1" Grid.Column="2" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
+                                        <Button Grid.Row="1" Grid.Column="3" Margin="6,6,0,0" Height="24" Content="선택" Tag="PanelForeground" Click="OnPickThemeColorClick" />
 
-                                        <TextBlock Grid.Row="1" Grid.Column="4" Margin="0,6,0,0" VerticalAlignment="Center" Text="헤더 배경" />
-                                        <TextBox x:Name="TextThemeHeaderBackground" Grid.Row="1" Grid.Column="5" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
-                                        <Button Grid.Row="1" Grid.Column="6" Margin="6,6,0,0" Height="24" Content="선택" Tag="HeaderBackground" Click="OnPickThemeColorClick" />
+                                        <TextBlock Grid.Row="1" Grid.Column="5" Margin="0,6,0,0" VerticalAlignment="Center" Text="헤더 배경" />
+                                        <Border Grid.Row="1" Grid.Column="6" Margin="0,6,0,0" Width="20" Height="20" BorderBrush="#AAB4C2" BorderThickness="1" Background="{Binding Text, ElementName=TextThemeHeaderBackground}" />
+                                        <TextBox x:Name="TextThemeHeaderBackground" Grid.Row="1" Grid.Column="7" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
+                                        <Button Grid.Row="1" Grid.Column="8" Margin="6,6,0,0" Height="24" Content="선택" Tag="HeaderBackground" Click="OnPickThemeColorClick" />
 
                                         <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,6,0,0" VerticalAlignment="Center" Text="헤더 글자" />
-                                        <TextBox x:Name="TextThemeHeaderForeground" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
-                                        <Button Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" Height="24" Content="선택" Tag="HeaderForeground" Click="OnPickThemeColorClick" />
+                                        <Border Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" Width="20" Height="20" BorderBrush="#AAB4C2" BorderThickness="1" Background="{Binding Text, ElementName=TextThemeHeaderForeground}" />
+                                        <TextBox x:Name="TextThemeHeaderForeground" Grid.Row="2" Grid.Column="2" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
+                                        <Button Grid.Row="2" Grid.Column="3" Margin="6,6,0,0" Height="24" Content="선택" Tag="HeaderForeground" Click="OnPickThemeColorClick" />
 
-                                        <TextBlock Grid.Row="2" Grid.Column="4" Margin="0,6,0,0" VerticalAlignment="Center" Text="선택 배경" />
-                                        <TextBox x:Name="TextThemeSelectionBackground" Grid.Row="2" Grid.Column="5" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
-                                        <Button Grid.Row="2" Grid.Column="6" Margin="6,6,0,0" Height="24" Content="선택" Tag="SelectionBackground" Click="OnPickThemeColorClick" />
+                                        <TextBlock Grid.Row="2" Grid.Column="5" Margin="0,6,0,0" VerticalAlignment="Center" Text="선택 배경" />
+                                        <Border Grid.Row="2" Grid.Column="6" Margin="0,6,0,0" Width="20" Height="20" BorderBrush="#AAB4C2" BorderThickness="1" Background="{Binding Text, ElementName=TextThemeSelectionBackground}" />
+                                        <TextBox x:Name="TextThemeSelectionBackground" Grid.Row="2" Grid.Column="7" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
+                                        <Button Grid.Row="2" Grid.Column="8" Margin="6,6,0,0" Height="24" Content="선택" Tag="SelectionBackground" Click="OnPickThemeColorClick" />
 
                                         <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,6,0,0" VerticalAlignment="Center" Text="테두리" />
-                                        <TextBox x:Name="TextThemeBorderColor" Grid.Row="3" Grid.Column="1" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
-                                        <Button Grid.Row="3" Grid.Column="2" Margin="6,6,0,0" Height="24" Content="선택" Tag="BorderColor" Click="OnPickThemeColorClick" />
-
-                                        <Button Grid.Row="3"
-                                                Grid.Column="5"
-                                                Margin="0,6,0,0"
-                                                Height="24"
-                                                Width="88"
-                                                HorizontalAlignment="Left"
-                                                Content="테마 기본값"
-                                                Click="OnResetThemeColorsClick" />
+                                        <Border Grid.Row="3" Grid.Column="1" Margin="0,6,0,0" Width="20" Height="20" BorderBrush="#AAB4C2" BorderThickness="1" Background="{Binding Text, ElementName=TextThemeBorderColor}" />
+                                        <TextBox x:Name="TextThemeBorderColor" Grid.Row="3" Grid.Column="2" Margin="0,6,0,0" Height="24" IsReadOnly="True" VerticalContentAlignment="Center" />
+                                        <Button Grid.Row="3" Grid.Column="3" Margin="6,6,0,0" Height="24" Content="선택" Tag="BorderColor" Click="OnPickThemeColorClick" />
                                     </Grid>
                                 </Border>
 
                                 <CheckBox x:Name="CheckUseExtensionColors"
-                                          Grid.Row="2"
-                                          Grid.ColumnSpan="4"
+                                          Margin="0,12,0,0"
                                           Content="확장자별 글자색 사용"
                                           IsChecked="True" />
                                 <CheckBox x:Name="CheckUsePinnedHighlight"
-                                          Grid.Row="3"
-                                          Grid.ColumnSpan="4"
-                                          Margin="0,8,0,0"
+                                          Margin="0,6,0,0"
                                           Content="핀 고정 항목 강조(노랑) 사용"
                                           IsChecked="True" />
 
-                                <Border Grid.Row="4"
-                                        Grid.ColumnSpan="4"
-                                        Margin="0,12,0,10"
+                                <Border Margin="0,12,0,10"
                                         BorderBrush="#CCD4DF"
                                         BorderThickness="0,1,0,0" />
 
-                                <TextBlock Grid.Row="5"
-                                           Grid.ColumnSpan="4"
-                                           Margin="0,0,0,8"
-                                           VerticalAlignment="Top"
-                                           Foreground="#44566D"
-                                           Text="확장자 텍스트 색상 규칙 (.pdf 입력 후 색상 선택)" />
-
-                                <TextBox x:Name="TextExtensionRuleExtension"
-                                         Grid.Row="5"
-                                         Grid.Column="0"
-                                         Height="26"
-                                         Margin="0,24,6,0"
-                                         VerticalAlignment="Top"
-                                         VerticalContentAlignment="Center"
-                                         ToolTip=".pdf 처럼 입력" />
-                                <TextBox x:Name="TextExtensionRuleColor"
-                                         Grid.Row="5"
-                                         Grid.Column="1"
-                                         Height="26"
-                                         Margin="0,24,6,0"
-                                         VerticalAlignment="Top"
-                                         VerticalContentAlignment="Center"
-                                         ToolTip="색상 선택 버튼으로 고르세요"
-                                         IsReadOnly="True" />
-                                <Button Grid.Row="5"
-                                        Grid.Column="2"
-                                        Height="26"
-                                        Width="72"
-                                        Margin="0,24,6,0"
-                                        VerticalAlignment="Top"
-                                        Content="색상 선택"
-                                        Click="OnPickExtensionRuleColorClick" />
-                                <Button Grid.Row="5"
-                                        Grid.Column="3"
-                                        Height="26"
-                                        Width="72"
-                                        Margin="0,24,0,0"
-                                        VerticalAlignment="Top"
-                                        Content="추가/수정"
-                                        Click="OnAddOrUpdateExtensionColorRuleClick" />
-                                <Button Grid.Row="5"
-                                        Grid.Column="3"
-                                        Height="26"
-                                        Width="72"
-                                        Margin="78,24,0,0"
-                                        VerticalAlignment="Top"
-                                        Content="선택삭제"
-                                        Click="OnRemoveExtensionColorRuleClick" />
+                                <TextBlock FontWeight="SemiBold"
+                                           Foreground="#223044"
+                                           Text="확장자별 텍스트 색상 규칙" />
                                 <TextBlock x:Name="TextExtensionRuleHint"
-                                           Grid.Row="5"
-                                           Grid.ColumnSpan="4"
-                                           Margin="0,56,0,0"
-                                           VerticalAlignment="Top"
+                                           Margin="0,4,0,8"
                                            Foreground="#4B5B70"
-                                           Text="같은 확장자는 색상만 갱신됩니다." />
+                                           Text="확장자를 입력하고 색상을 골라 추가하세요. 목록에서 행을 클릭하면 편집칸에 불러오고, 같은 확장자는 색상만 갱신됩니다. (Delete 키로 삭제)" />
+
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBox x:Name="TextExtensionRuleExtension"
+                                             Width="110"
+                                             Height="26"
+                                             VerticalContentAlignment="Center"
+                                             ToolTip=".pdf 처럼 입력 (Enter로 추가)"
+                                             KeyDown="OnExtensionRuleTextKeyDown" />
+                                    <Border Width="26"
+                                            Height="26"
+                                            Margin="8,0,0,0"
+                                            BorderBrush="#AAB4C2"
+                                            BorderThickness="1"
+                                            Background="{Binding Text, ElementName=TextExtensionRuleColor}" />
+                                    <TextBox x:Name="TextExtensionRuleColor"
+                                             Width="90"
+                                             Height="26"
+                                             Margin="4,0,0,0"
+                                             VerticalContentAlignment="Center"
+                                             ToolTip="색상 선택 버튼으로 고르세요"
+                                             IsReadOnly="True" />
+                                    <Button Height="26"
+                                            Width="76"
+                                            Margin="8,0,0,0"
+                                            Content="색상 선택"
+                                            Click="OnPickExtensionRuleColorClick" />
+                                    <Button Height="26"
+                                            Width="76"
+                                            Margin="6,0,0,0"
+                                            Content="추가/수정"
+                                            Click="OnAddOrUpdateExtensionColorRuleClick" />
+                                    <Button Height="26"
+                                            Width="76"
+                                            Margin="6,0,0,0"
+                                            Content="선택 삭제"
+                                            Click="OnRemoveExtensionColorRuleClick" />
+                                </StackPanel>
 
                                 <DataGrid x:Name="ExtensionColorRulesGrid"
-                                          Grid.Row="6"
-                                          Grid.ColumnSpan="4"
                                           Margin="0,8,0,0"
-                                          Height="220"
+                                          Height="240"
+                                          Width="480"
+                                          HorizontalAlignment="Left"
                                           AutoGenerateColumns="False"
                                           CanUserAddRows="False"
                                           CanUserDeleteRows="False"
                                           IsReadOnly="True"
                                           SelectionMode="Single"
                                           HeadersVisibility="Column"
-                                          SelectionChanged="OnExtensionColorRulesSelectionChanged">
+                                          SelectionChanged="OnExtensionColorRulesSelectionChanged"
+                                          PreviewKeyDown="OnExtensionRulesGridPreviewKeyDown">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="확장자" Width="120" Binding="{Binding Extension}" />
                                         <DataGridTextColumn Header="색상" Width="120" Binding="{Binding Color}" />
-                                        <DataGridTemplateColumn Header="미리보기" Width="100">
+                                        <DataGridTemplateColumn Header="미리보기" Width="*">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
-                                                    <Border Width="64"
-                                                            Height="14"
+                                                    <Border Height="14"
+                                                            Margin="4,0"
                                                             BorderBrush="#AAB4C2"
                                                             BorderThickness="1"
                                                             Background="{Binding Color}" />
@@ -492,7 +459,7 @@
                                         </DataGridTemplateColumn>
                                     </DataGrid.Columns>
                                 </DataGrid>
-                            </Grid>
+                            </StackPanel>
                         </GroupBox>
 
                         <StackPanel Margin="0,0,0,0" Orientation="Horizontal">

@@ -1,7 +1,7 @@
 ﻿<Window x:Class="WorkFileExplorer.App.Dialogs.ImageViewerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Image Viewer"
+        Title="이미지 뷰어"
         Width="1200"
         Height="820"
         MinWidth="700"
@@ -67,19 +67,19 @@
         </Grid.RowDefinitions>
         <DockPanel Grid.Row="0" Margin="0,0,0,8">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" Content="Prev" Click="OnPrevClick" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" Content="Next" Click="OnNextClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" Content="이전" ToolTip="이전 이미지 (←)" Click="OnPrevClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" Content="다음" ToolTip="다음 이미지 (→)" Click="OnNextClick" />
                 <Separator Margin="6,0,2,0" />
-                <Button Style="{StaticResource ViewerToolbarIconButtonStyle}" Content="-" Click="OnZoomOutClick" />
-                <Button Style="{StaticResource ViewerToolbarIconButtonStyle}" Content="+" Click="OnZoomInClick" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="46" Margin="6,0,0,0" Content="Fit" Click="OnFitClick" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="52" Content="100%" Click="OnActualSizeClick" />
+                <Button Style="{StaticResource ViewerToolbarIconButtonStyle}" Content="-" ToolTip="축소 (Ctrl+-)" Click="OnZoomOutClick" />
+                <Button Style="{StaticResource ViewerToolbarIconButtonStyle}" Content="+" ToolTip="확대 (Ctrl++)" Click="OnZoomInClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="52" Margin="6,0,0,0" Content="맞춤" ToolTip="창 크기에 맞춤 (Ctrl+0)" Click="OnFitClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="52" Content="원본" ToolTip="원본 크기 100% (Ctrl+1)" Click="OnActualSizeClick" />
                 <Separator Margin="6,0,2,0" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="52" Content="RotL" Click="OnRotateLeftClick" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="52" Content="RotR" Click="OnRotateRightClick" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="52" Content="Flip" Click="OnFlipClick" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="58" Content="Full" Click="OnToggleFullScreenClick" />
-                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="82" Content="Folder" Click="OnOpenFolderClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="58" Content="좌회전" ToolTip="왼쪽으로 회전 (L)" Click="OnRotateLeftClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="58" Content="우회전" ToolTip="오른쪽으로 회전 (R)" Click="OnRotateRightClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="52" Content="반전" ToolTip="좌우 반전 (H)" Click="OnFlipClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="70" Content="전체화면" ToolTip="전체 화면 (F11)" Click="OnToggleFullScreenClick" />
+                <Button Style="{StaticResource ViewerToolbarButtonStyle}" MinWidth="76" Content="폴더 열기" ToolTip="탐색기에서 파일 위치 열기" Click="OnOpenFolderClick" />
             </StackPanel>
             <TextBlock x:Name="TopPathText"
                        VerticalAlignment="Center"

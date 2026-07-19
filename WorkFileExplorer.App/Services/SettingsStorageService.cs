@@ -72,6 +72,8 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.PinnedFolders = lists.TryGetValue("pinned_folders", out var pinnedFolders) ? pinnedFolders : new List<string>();
             settings.PinnedFiles = lists.TryGetValue("pinned_files", out var pinnedFiles) ? pinnedFiles : new List<string>();
             settings.MessengerDownloadFolders = lists.TryGetValue("messenger_download_folders", out var messengerFolders) ? messengerFolders : new List<string>();
+            settings.SearchStartDirectoryHistory = lists.TryGetValue("search_start_directory_history", out var searchStartDirs) ? searchStartDirs : new List<string>();
+            settings.SearchFileMaskHistory = lists.TryGetValue("search_file_mask_history", out var searchFileMasks) ? searchFileMasks : new List<string>();
             settings.ItemMemos = await LoadItemMemosAsync(connection, cancellationToken);
 
             return settings;
@@ -431,7 +433,9 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["theme_color_overrides"] = NormalizeListValues(settings.ThemeColorOverrides, keepDuplicates: false),
             ["pinned_folders"] = NormalizeListValues(settings.PinnedFolders, keepDuplicates: false),
             ["pinned_files"] = NormalizeListValues(settings.PinnedFiles, keepDuplicates: false),
-            ["messenger_download_folders"] = NormalizeListValues(settings.MessengerDownloadFolders, keepDuplicates: false)
+            ["messenger_download_folders"] = NormalizeListValues(settings.MessengerDownloadFolders, keepDuplicates: false),
+            ["search_start_directory_history"] = NormalizeListValues(settings.SearchStartDirectoryHistory, keepDuplicates: true),
+            ["search_file_mask_history"] = NormalizeListValues(settings.SearchFileMaskHistory, keepDuplicates: true)
         };
     }
 

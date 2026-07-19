@@ -1,7 +1,8 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
@@ -516,6 +517,13 @@ public partial class MainWindow : Window
     private Point _tabDragStart;
     private Point _panelItemDragStart;
     private PanelViewModel? _panelDragSourcePanel;
+
+    private ItemsControl? _marqueeOwner;
+    private Point _marqueeStartLocal;
+    private bool _marqueePressed;
+    private bool _marqueeActive;
+    private bool _marqueeAdditive;
+    private MarqueeAdorner? _marqueeAdorner;
     private bool _isPanelItemDragInProgress;
     private TabItem? _draggedTabItem;
     private TabItem? _dragHoverTabItem;
@@ -527,6 +535,9 @@ public partial class MainWindow : Window
     private string? _inlineRenameOriginalName;
     private string? _leftSelectionAnchorPath;
     private string? _rightSelectionAnchorPath;
+    private string? _leftSelectionActivePath;
+    private string? _rightSelectionActivePath;
+    private bool _isDeletingFiles;
     private DateTime _lastTabInteractionUtc = DateTime.MinValue;
     private bool _windowLoaded;
     private readonly Dictionary<FourPanelSlotViewModel, List<DataGrid>> _fourPanelGrids = new();
@@ -574,6 +585,29 @@ public partial class MainWindow : Window
     private void OnMainWindowLoaded(object sender, RoutedEventArgs e)
     {
         AttachVmPropertyEvents();
+        HookTabContextMenuTracing();
+    }
+
+    private void HookTabContextMenuTracing()
+    {
+        foreach (var (tabs, side) in new[] { (LeftTabsControl, "L"), (RightTabsControl, "R") })
+        {
+            if (tabs?.ContextMenu is not { } menu)
+            {
+                continue;
+            }
+
+            menu.Opened += (_, _) =>
+            {
+                LiveTrace.Write($"TabContextMenu[{side}] opened");
+                LiveTrace.WriteProcessSnapshot($"TabContextMenu[{side}] opened");
+            };
+            menu.Closed += (_, _) =>
+            {
+                LiveTrace.Write($"TabContextMenu[{side}] closed");
+                LiveTrace.WriteProcessSnapshot($"TabContextMenu[{side}] closed");
+            };
+        }
     }
 
     private void OnMainWindowDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -624,7 +658,11 @@ public partial class MainWindow : Window
 
         if (string.Equals(e.PropertyName, nameof(MainWindowViewModel.LeftCurrentPath), StringComparison.Ordinal))
         {
-            if (recentTabInteraction)
+            // Only pull focus when this panel is the active one: panel reloads (post-mutation
+            // refresh, watcher refresh) re-raise CurrentPath without an actual navigation, and
+            // focusing the inactive panel makes focus visibly flicker away from the active panel.
+            // In four-panel mode the two-panel grids are hidden, so never focus them from here.
+            if (recentTabInteraction || Vm.IsFourPanelMode || !Vm.IsLeftPanelActive)
             {
                 return;
             }
@@ -636,7 +674,7 @@ public partial class MainWindow : Window
 
         if (string.Equals(e.PropertyName, nameof(MainWindowViewModel.RightCurrentPath), StringComparison.Ordinal))
         {
-            if (recentTabInteraction)
+            if (recentTabInteraction || Vm.IsFourPanelMode || Vm.IsLeftPanelActive)
             {
                 return;
             }
@@ -678,12 +716,22 @@ public partial class MainWindow : Window
 
     private void OnLeftPanelFocus(object sender, RoutedEventArgs e)
     {
+        if (_isDeletingFiles)
+        {
+            return;
+        }
+        LiveTrace.Write($"UI.PanelFocus L sender={sender.GetType().Name} source={e.OriginalSource?.GetType().Name}");
         DismissFavoriteFlyoutsForNavigation();
         Vm?.SetActivePanelCommand.Execute("Left");
     }
 
     private void OnRightPanelFocus(object sender, RoutedEventArgs e)
     {
+        if (_isDeletingFiles)
+        {
+            return;
+        }
+        LiveTrace.Write($"UI.PanelFocus R sender={sender.GetType().Name} source={e.OriginalSource?.GetType().Name}");
         DismissFavoriteFlyoutsForNavigation();
         Vm?.SetActivePanelCommand.Execute("Right");
     }
@@ -728,12 +776,88 @@ public partial class MainWindow : Window
 
     private void OnLeftPathComboBoxGotFocus(object sender, RoutedEventArgs e)
     {
+        if (_isDeletingFiles)
+        {
+            return;
+        }
         Vm?.SetActivePanelCommand.Execute("Left");
     }
 
     private void OnRightPathComboBoxGotFocus(object sender, RoutedEventArgs e)
     {
+        if (_isDeletingFiles)
+        {
+            return;
+        }
         Vm?.SetActivePanelCommand.Execute("Right");
+    }
+
+    private void OnPathComboBoxLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ComboBox combo)
+        {
+            return;
+        }
+
+        // Registered in code with handledEventsToo: the editable ComboBox class handler
+        // marks the first right-click Handled (focus-grab behavior when keyboard focus is
+        // outside), so a plain XAML handler only fires from the second click onward.
+        combo.RemoveHandler(PreviewMouseRightButtonDownEvent, (MouseButtonEventHandler)OnPathComboBoxPreviewMouseRightButtonDown);
+        combo.AddHandler(PreviewMouseRightButtonDownEvent, (MouseButtonEventHandler)OnPathComboBoxPreviewMouseRightButtonDown, handledEventsToo: true);
+    }
+
+    private void OnPathComboBoxPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ComboBox combo ||
+            combo.Template?.FindName("PART_EditableTextBox", combo) is not TextBox textBox)
+        {
+            return;
+        }
+
+        // Like Double Commander: on right-click, swap the active-panel blue for a plain
+        // white edit box and select the whole path, so the selection is visible and
+        // Ctrl+C copies it immediately. The style is restored when focus leaves the box.
+        // Deferred via Dispatcher: when the box gains keyboard focus for the first time,
+        // the focus-change side effects (ComboBox internal focus handling, GotFocus →
+        // SetActivePanel style/binding updates) run after a synchronous SelectAll and
+        // clear it again, which used to require a second right-click.
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            var alreadyOverridden = combo.ReadLocalValue(BackgroundProperty) != DependencyProperty.UnsetValue;
+            combo.Background = Brushes.White;
+            combo.Foreground = Brushes.Black;
+            if (!alreadyOverridden)
+            {
+                combo.IsKeyboardFocusWithinChanged += OnPathComboBoxKeyboardFocusWithinChanged;
+            }
+
+            textBox.Focus();
+            textBox.SelectAll();
+        });
+
+        // Swallow the click so the TextBox context menu does not open and steal focus;
+        // right-click only selects the path (Double Commander behavior), then Ctrl+C copies.
+        e.Handled = true;
+    }
+
+    private void OnPathComboBoxPreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        // The context-menu service opens the TextBox default menu only when the
+        // right-button-up bubbles through unhandled; swallowing it here keeps the
+        // select-all presentation intact (no menu, Double Commander behavior).
+        e.Handled = true;
+    }
+
+    private void OnPathComboBoxKeyboardFocusWithinChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is not ComboBox combo || (bool)e.NewValue)
+        {
+            return;
+        }
+
+        combo.ClearValue(BackgroundProperty);
+        combo.ClearValue(ForegroundProperty);
+        combo.IsKeyboardFocusWithinChanged -= OnPathComboBoxKeyboardFocusWithinChanged;
     }
 
     private void OnDetailsViewClick(object sender, RoutedEventArgs e)
@@ -942,6 +1066,120 @@ public partial class MainWindow : Window
         _adaptiveTileSizes[list] = itemWidth;
     }
 
+    private void OnTileListPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not ListBox list || Keyboard.Modifiers != ModifierKeys.None)
+        {
+            return;
+        }
+
+        if (e.Key is not (Key.Left or Key.Right or Key.Up or Key.Down))
+        {
+            return;
+        }
+
+        // Inline rename textbox needs the arrow keys for caret movement.
+        if (e.OriginalSource is DependencyObject origin && FindAncestor<TextBox>(origin) is not null)
+        {
+            return;
+        }
+
+        HandleTileListArrowKey(list, e.Key);
+        e.Handled = true;
+    }
+
+    private ListBox? GetFocusedTileList()
+    {
+        if (LeftPanelTilesList.IsVisible && LeftPanelTilesList.IsKeyboardFocusWithin)
+        {
+            return LeftPanelTilesList;
+        }
+
+        if (RightPanelTilesList.IsVisible && RightPanelTilesList.IsKeyboardFocusWithin)
+        {
+            return RightPanelTilesList;
+        }
+
+        return null;
+    }
+
+    private ListBox? GetActiveVisibleTileList()
+    {
+        if (Vm is null || Vm.IsFourPanelMode)
+        {
+            return null;
+        }
+
+        var list = Vm.IsLeftPanelActive ? LeftPanelTilesList : RightPanelTilesList;
+        return list.IsVisible ? list : null;
+    }
+
+    private void HandleTileListArrowKey(ListBox list, Key key)
+    {
+        var count = list.Items.Count;
+        if (count == 0)
+        {
+            return;
+        }
+
+        var perRow = GetTileItemsPerRow(list);
+        var index = list.SelectedIndex;
+        int next;
+        if (index < 0)
+        {
+            next = 0;
+        }
+        else
+        {
+            next = key switch
+            {
+                Key.Right => Math.Min(index + 1, count - 1),
+                Key.Left => Math.Max(index - 1, 0),
+                Key.Down => index + perRow,
+                Key.Up => index - perRow,
+                _ => index
+            };
+
+            if (key == Key.Down && next >= count)
+            {
+                // From a non-last row jump to the very last item; on the last row stay put.
+                next = index / perRow < (count - 1) / perRow ? count - 1 : index;
+            }
+
+            if (key == Key.Up && next < 0)
+            {
+                next = index;
+            }
+        }
+
+        if (next == index)
+        {
+            return;
+        }
+
+        list.SelectedIndex = next;
+        var item = list.Items[next];
+        list.ScrollIntoView(item);
+        if (list.ItemContainerGenerator.ContainerFromIndex(next) is ListBoxItem container)
+        {
+            container.Focus();
+        }
+    }
+
+    private int GetTileItemsPerRow(ListBox list)
+    {
+        var wrapPanel = FindDescendant<WrapPanel>(list);
+        if (wrapPanel is null ||
+            double.IsNaN(wrapPanel.ItemWidth) ||
+            wrapPanel.ItemWidth <= 0 ||
+            wrapPanel.ActualWidth <= 0)
+        {
+            return 1;
+        }
+
+        return Math.Max(1, (int)(wrapPanel.ActualWidth / wrapPanel.ItemWidth));
+    }
+
     private static double GetItemsViewportWidth(ListBox list)
     {
         var scrollViewer = FindDescendant<ScrollViewer>(list);
@@ -999,12 +1237,73 @@ public partial class MainWindow : Window
     private void OnFourPanelPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         HideImageHoverPreview();
+
+        // While inline-renaming (TextBox), allow normal text selection drag.
+        if (FindAncestor<TextBox>(e.OriginalSource as DependencyObject) is not null)
+        {
+            _panelDragSourcePanel = null;
+            return;
+        }
+
+        if (IsScrollChromeInteraction(e.OriginalSource as DependencyObject))
+        {
+            _panelDragSourcePanel = null;
+            return;
+        }
+
+        if (sender is ItemsControl clickedControl &&
+            Keyboard.Modifiers == ModifierKeys.None &&
+            TryGetItemUnderPointer(clickedControl, e.GetPosition(clickedControl), out var clickedItem) &&
+            clickedItem is not null &&
+            IsItemSelected(clickedControl, clickedItem) &&
+            GetSelectedItemCount(clickedControl) > 1)
+        {
+            // Keep multi-selection intact when dragging from an already selected row/tile.
+            clickedControl.Focus();
+            e.Handled = true;
+        }
+
+        // Pressing on empty space arms rubber-band selection instead of file drag.
+        if (sender is ItemsControl marqueeOwner &&
+            (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Control) &&
+            FindAncestor<DataGridColumnHeader>(e.OriginalSource as DependencyObject) is null &&
+            !TryGetItemUnderPointer(marqueeOwner, e.GetPosition(marqueeOwner), out _))
+        {
+            _marqueePressed = true;
+            _marqueeOwner = marqueeOwner;
+            _marqueeStartLocal = e.GetPosition(marqueeOwner);
+            _marqueeAdditive = Keyboard.Modifiers == ModifierKeys.Control;
+            _panelDragSourcePanel = null;
+            _panelItemDragStart = e.GetPosition(null);
+
+            marqueeOwner.Focus();
+            if (!_marqueeAdditive)
+            {
+                GetSelectedItemsList(marqueeOwner)?.Clear();
+            }
+
+            if (sender is FrameworkElement element && TryGetFourPanel(element) is FourPanelSlotViewModel slot && Vm is not null)
+            {
+                var index = Vm.FourPanels.IndexOf(slot);
+                if (index >= 0)
+                {
+                    _activeFourPanelIndex = index;
+                    Vm.SetActiveFourPanel(index);
+                }
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        _marqueePressed = false;
+        _marqueeOwner = null;
         _panelItemDragStart = e.GetPosition(null);
         _panelDragSourcePanel = TryResolvePanelFromSource(sender as DependencyObject);
 
-        if (sender is FrameworkElement element && TryGetFourPanel(element) is FourPanelSlotViewModel slot && Vm is not null)
+        if (sender is FrameworkElement element2 && TryGetFourPanel(element2) is FourPanelSlotViewModel slot2 && Vm is not null)
         {
-            var index = Vm.FourPanels.IndexOf(slot);
+            var index = Vm.FourPanels.IndexOf(slot2);
             if (index >= 0)
             {
                 _activeFourPanelIndex = index;
@@ -1030,6 +1329,15 @@ public partial class MainWindow : Window
     private void OnFourPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (Vm is null || sender is not FrameworkElement element || TryGetFourPanel(element) is not FourPanelSlotViewModel slot)
+        {
+            return;
+        }
+
+        // Panel reloads (post-copy refresh, watcher refresh) clear and restore the bound
+        // selection, raising SelectionChanged on arbitrary slots; treating that as user
+        // intent made the active panel jump to whichever slot reloaded last. Only a
+        // control the user is actually in (keyboard focus within) may switch the slot.
+        if (!element.IsKeyboardFocusWithin)
         {
             return;
         }
@@ -1240,6 +1548,10 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Set Handled before the first await (async void handler) so the drop cannot
+        // continue bubbling and trigger another copy while this one is in flight.
+        e.Handled = true;
+
         var move = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
         var targetDirectory = ResolveDropTargetDirectory(e.OriginalSource as DependencyObject, slot.Panel);
         try
@@ -1251,7 +1563,7 @@ public partial class MainWindow : Window
             Vm.StatusText = $"드래그 {(move ? "이동" : "복사")} 실패: {ex.Message}";
         }
 
-        e.Handled = true;
+        RestoreFourPanelFocusAfterDrop(payload.SourcePanel);
     }
 
     private void OnFourPanelSlotPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1470,6 +1782,36 @@ public partial class MainWindow : Window
             var message = $"선택한 {selected.Count}개 항목을 삭제하시겠습니까?";
             if (!requireConfirm || StyledDialogWindow.ShowConfirm(this, "삭제 확인", message))
             {
+                // Synchronously focus the active slot container to prevent focus from drifting.
+                var slot = GetActiveFourPanelSlot();
+                if (slot is not null)
+                {
+                    if (slot.SelectedTab?.IsTileViewEnabled == true)
+                    {
+                        if (_fourPanelTileLists.TryGetValue(slot, out var lists))
+                        {
+                            var list = lists.FirstOrDefault(control => control.IsVisible) ?? lists.FirstOrDefault();
+                            if (list is not null)
+                            {
+                                list.Focus();
+                                Keyboard.Focus(list);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (_fourPanelGrids.TryGetValue(slot, out var grids))
+                        {
+                            var grid = grids.FirstOrDefault(control => control.IsVisible) ?? grids.FirstOrDefault();
+                            if (grid is not null)
+                            {
+                                grid.Focus();
+                                Keyboard.Focus(grid);
+                            }
+                        }
+                    }
+                }
+
                 await Vm.DeleteItemsFromPanelAsync(panel, selected);
                 RestoreKeyboardFocusAfterDelete();
             }
@@ -3710,22 +4052,52 @@ public partial class MainWindow : Window
             !Vm.IsFourPanelMode &&
             !IsTextInputFocused())
         {
-            MoveActivePanelSelectionByArrow(e.Key == Key.Down ? 1 : -1, extendSelection: Keyboard.Modifiers == ModifierKeys.Shift);
+            // Tile/compact view moves by grid rows, not by flat index.
+            if (Keyboard.Modifiers == ModifierKeys.None &&
+                (GetFocusedTileList() ?? GetActiveVisibleTileList()) is ListBox tiles)
+            {
+                HandleTileListArrowKey(tiles, e.Key);
+                e.Handled = true;
+                return;
+            }
+
+            MoveActivePanelSelectionByArrow(e.Key, extendSelection: Keyboard.Modifiers == ModifierKeys.Shift);
             e.Handled = true;
             return;
         }
 
-        // Left/Right arrows should not move focus to the other panel while list/grid is focused.
         if ((e.Key == Key.Left || e.Key == Key.Right) &&
-            Keyboard.Modifiers == ModifierKeys.None &&
-            !IsTextInputFocused() &&
-            IsPanelInteractionFocused())
+            (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Shift) &&
+            !Vm.IsFourPanelMode &&
+            !IsTextInputFocused())
         {
-            e.Handled = true;
-            return;
+            // In tile/compact view Left/Right walk the grid horizontally (wrapping
+            // rows), regardless of where keyboard focus currently sits.
+            if ((GetFocusedTileList() ?? GetActiveVisibleTileList()) is ListBox horizontalTiles)
+            {
+                if (Keyboard.Modifiers == ModifierKeys.None)
+                {
+                    HandleTileListArrowKey(horizontalTiles, e.Key);
+                }
+                else
+                {
+                    MoveActivePanelSelectionByArrow(e.Key, extendSelection: true);
+                }
+                e.Handled = true;
+                return;
+            }
+
+            // Details view: keep Left/Right from moving focus to the other panel.
+            if (IsPanelInteractionFocused())
+            {
+                e.Handled = true;
+                return;
+            }
         }
 
-        if (IsPanelInteractionFocused() && !IsTextInputFocused())
+        // Clipboard shortcuts work whenever focus is not in a text editor, so
+        // e.g. Ctrl+V right after clicking another tab still pastes there.
+        if (!IsTextInputFocused())
         {
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
@@ -3823,16 +4195,33 @@ public partial class MainWindow : Window
             return;
         }
 
-        var nameColumn = grid.Columns.FirstOrDefault(column =>
-            string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
-            ?? grid.Columns.FirstOrDefault();
-        if (nameColumn is null)
+        if (ReferenceEquals(grid.CurrentCell.Item, selectedItem))
         {
             return;
         }
 
         grid.SelectedItem = selectedItem;
-        grid.CurrentCell = new DataGridCellInfo(selectedItem, nameColumn);
+
+        // Forcing CurrentCell synchronously can make the DataGrid generate/realize containers
+        // immediately, which is expensive right after an ItemsSource swap (tab switch). Defer it
+        // so the tab-switch itself stays instant; the cell highlight catches up a frame later.
+        grid.Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(grid.SelectedItem, selectedItem))
+            {
+                return;
+            }
+
+            var nameColumn = grid.Columns.FirstOrDefault(column =>
+                string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
+                ?? grid.Columns.FirstOrDefault();
+            if (nameColumn is null)
+            {
+                return;
+            }
+
+            grid.CurrentCell = new DataGridCellInfo(selectedItem, nameColumn);
+        }, DispatcherPriority.Background);
     }
 
     private void OnWindowPreviewTextInput(object sender, TextCompositionEventArgs e)
@@ -3993,6 +4382,82 @@ public partial class MainWindow : Window
         box.Focus();
         Keyboard.Focus(box);
         box.SelectAll();
+    }
+
+    private async void OnQuickFilterPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Vm is null || e.Key is not (Key.Up or Key.Down or Key.Enter))
+        {
+            return;
+        }
+
+        bool left;
+        if (ReferenceEquals(sender, LeftQuickFilterTextBox))
+        {
+            left = true;
+        }
+        else if (ReferenceEquals(sender, RightQuickFilterTextBox))
+        {
+            left = false;
+        }
+        else
+        {
+            return;
+        }
+
+        if (e.Key is Key.Up or Key.Down)
+        {
+            MovePanelSelection(left, e.Key == Key.Up ? -1 : 1);
+            e.Handled = true;
+            return;
+        }
+
+        // Enter: open the selected item (enter directory / launch file).
+        var panel = left ? Vm.LeftPanel : Vm.RightPanel;
+        var selected = panel.SelectedItem;
+        if (selected is null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        Vm.SetActivePanelCommand.Execute(left ? "Left" : "Right");
+        var isDirectory = selected.IsDirectory || selected.IsParentDirectory;
+        await Vm.OpenSelectedItemAsync();
+        if (isDirectory)
+        {
+            panel.ResetQuickFilter();
+            FocusPanelAfterPathNavigation(left);
+        }
+    }
+
+    private void MovePanelSelection(bool left, int delta)
+    {
+        var grid = left ? LeftPanelGrid : RightPanelGrid;
+        var tiles = left ? LeftPanelTilesList : RightPanelTilesList;
+        Selector selector = grid.Visibility == Visibility.Visible ? grid : tiles;
+
+        var count = selector.Items.Count;
+        if (count == 0)
+        {
+            return;
+        }
+
+        var index = selector.SelectedIndex;
+        index = index < 0
+            ? (delta > 0 ? 0 : count - 1)
+            : Math.Clamp(index + delta, 0, count - 1);
+        selector.SelectedIndex = index;
+
+        var item = selector.Items[index];
+        if (selector is DataGrid dataGrid)
+        {
+            dataGrid.ScrollIntoView(item);
+        }
+        else if (selector is ListBox listBox)
+        {
+            listBox.ScrollIntoView(item);
+        }
     }
 
     private static bool IsTextInputFocused()
@@ -4683,6 +5148,20 @@ public partial class MainWindow : Window
         _tabDragStart = e.GetPosition(null);
         _draggedTabItem = FindAncestor<TabItem>(e.OriginalSource as DependencyObject);
         ClearTabDragHighlight();
+
+        // Clicking a tab makes its panel the active one so following shortcuts
+        // (Ctrl+V, F5, ...) target the tab the user just switched to.
+        if (Vm is not null)
+        {
+            if (ReferenceEquals(sender, LeftTabsControl))
+            {
+                Vm.SetActivePanelCommand.Execute("Left");
+            }
+            else if (ReferenceEquals(sender, RightTabsControl))
+            {
+                Vm.SetActivePanelCommand.Execute("Right");
+            }
+        }
     }
 
     private void OnTabPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -4758,8 +5237,194 @@ public partial class MainWindow : Window
             e.Handled = true;
         }
 
+        // Pressing on empty space arms rubber-band selection instead of file drag.
+        if (sender is ItemsControl marqueeOwner &&
+            (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Control) &&
+            FindAncestor<DataGridColumnHeader>(e.OriginalSource as DependencyObject) is null &&
+            !TryGetItemUnderPointer(marqueeOwner, e.GetPosition(marqueeOwner), out _))
+        {
+            _marqueePressed = true;
+            _marqueeOwner = marqueeOwner;
+            _marqueeStartLocal = e.GetPosition(marqueeOwner);
+            _marqueeAdditive = Keyboard.Modifiers == ModifierKeys.Control;
+            _panelDragSourcePanel = null;
+            _panelItemDragStart = e.GetPosition(null);
+
+            LiveTrace.Write($"[Marquee] Down: owner={marqueeOwner.GetType().Name}, start={_marqueeStartLocal}");
+
+            marqueeOwner.Focus();
+            if (!_marqueeAdditive)
+            {
+                GetSelectedItemsList(marqueeOwner)?.Clear();
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        _marqueePressed = false;
+        _marqueeOwner = null;
         _panelItemDragStart = e.GetPosition(null);
         _panelDragSourcePanel = TryResolvePanelFromSource(sender as DependencyObject);
+    }
+
+    private void OnPanelItemsPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        LiveTrace.Write($"[Marquee] Up: pressed={_marqueePressed}, active={_marqueeActive}");
+        if (_marqueePressed || _marqueeActive)
+        {
+            EndMarquee();
+            e.Handled = true;
+        }
+        else
+        {
+            EndMarquee();
+        }
+    }
+
+    private void UpdateMarquee(ItemsControl owner, Point current)
+    {
+        if (!_marqueeActive)
+        {
+            if (Math.Abs(current.X - _marqueeStartLocal.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(current.Y - _marqueeStartLocal.Y) < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            _marqueeActive = true;
+            owner.Focus();
+            owner.CaptureMouse();
+
+            LiveTrace.Write($"[Marquee] Activate: captured={owner.IsMouseCaptured}");
+
+            var layer = AdornerLayer.GetAdornerLayer(owner);
+            LiveTrace.Write($"[Marquee] AdornerLayer found={layer != null}");
+            if (layer is not null)
+            {
+                _marqueeAdorner = new MarqueeAdorner(owner);
+                layer.Add(_marqueeAdorner);
+            }
+
+            if (!_marqueeAdditive)
+            {
+                GetSelectedItemsList(owner)?.Clear();
+            }
+        }
+
+        var rect = new Rect(
+            new Point(Math.Min(_marqueeStartLocal.X, current.X), Math.Min(_marqueeStartLocal.Y, current.Y)),
+            new Point(Math.Max(_marqueeStartLocal.X, current.X), Math.Max(_marqueeStartLocal.Y, current.Y)));
+        
+        LiveTrace.Write($"[Marquee] Draw rect: {rect}");
+        _marqueeAdorner?.Update(rect);
+        ApplyMarqueeSelection(owner, rect);
+    }
+
+    private static IList? GetSelectedItemsList(ItemsControl owner) => owner switch
+    {
+        DataGrid grid => grid.SelectedItems,
+        ListBox list => list.SelectedItems,
+        _ => null
+    };
+
+    private void ApplyMarqueeSelection(ItemsControl owner, Rect rect)
+    {
+        var selected = GetSelectedItemsList(owner);
+        if (selected is null)
+        {
+            LiveTrace.Write("[Marquee] Selected list is null");
+            return;
+        }
+
+        LiveTrace.Write($"[Marquee] Apply: items={owner.Items.Count}");
+        for (var index = 0; index < owner.Items.Count; index++)
+        {
+            if (owner.Items[index] is not FileSystemItem item || item.IsParentDirectory)
+            {
+                continue;
+            }
+
+            if (owner.ItemContainerGenerator.ContainerFromIndex(index) is not FrameworkElement container ||
+                !container.IsVisible)
+            {
+                continue;
+            }
+
+            var bounds = new Rect(container.TranslatePoint(new Point(0, 0), owner), container.RenderSize);
+            var hit = rect.IntersectsWith(bounds);
+            LiveTrace.Write($"[Marquee] Check item={item.Name}, hit={hit}");
+            var isSelected = selected.Contains(item);
+            if (hit && !isSelected)
+            {
+                selected.Add(item);
+            }
+            else if (!hit && isSelected && !_marqueeAdditive)
+            {
+                selected.Remove(item);
+            }
+        }
+    }
+
+    private void EndMarquee()
+    {
+        if (_marqueeOwner is ItemsControl owner)
+        {
+            if (_marqueeAdorner is not null)
+            {
+                AdornerLayer.GetAdornerLayer(owner)?.Remove(_marqueeAdorner);
+                _marqueeAdorner = null;
+            }
+
+            if (owner.IsMouseCaptured)
+            {
+                owner.ReleaseMouseCapture();
+            }
+        }
+
+        _marqueePressed = false;
+        _marqueeActive = false;
+        _marqueeOwner = null;
+    }
+
+    private sealed class MarqueeAdorner : Adorner
+    {
+        private static readonly Brush FillBrush = CreateFrozenBrush(Color.FromArgb(48, 47, 111, 237));
+        private static readonly Pen OutlinePen = CreateFrozenPen(Color.FromArgb(190, 47, 111, 237));
+        private Rect _rect;
+
+        public MarqueeAdorner(UIElement adornedElement) : base(adornedElement)
+        {
+            IsHitTestVisible = false;
+        }
+
+        public void Update(Rect rect)
+        {
+            _rect = rect;
+            InvalidateVisual();
+        }
+
+        protected override void OnRender(DrawingContext drawingContext)
+        {
+            if (_rect.Width > 0 && _rect.Height > 0)
+            {
+                drawingContext.DrawRectangle(FillBrush, OutlinePen, _rect);
+            }
+        }
+
+        private static Brush CreateFrozenBrush(Color color)
+        {
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return brush;
+        }
+
+        private static Pen CreateFrozenPen(Color color)
+        {
+            var pen = new Pen(new SolidColorBrush(color), 1.0);
+            pen.Freeze();
+            return pen;
+        }
     }
 
     private void OnPanelItemsPreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -4858,6 +5523,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Rubber-band selection started from empty space.
+        if (_marqueePressed &&
+            sender is ItemsControl marqueeOwner &&
+            ReferenceEquals(marqueeOwner, _marqueeOwner) &&
+            e.LeftButton == MouseButtonState.Pressed)
+        {
+            LiveTrace.Write($"[Marquee] Move: pos={e.GetPosition(marqueeOwner)}");
+            UpdateMarquee(marqueeOwner, e.GetPosition(marqueeOwner));
+            e.Handled = true;
+            return;
+        }
+
         if (_isPanelItemDragInProgress || e.LeftButton != MouseButtonState.Pressed || Vm is null)
         {
             return;
@@ -4871,6 +5548,7 @@ public partial class MainWindow : Window
 
         if (sourcePanel is null)
         {
+            LiveTrace.Write($"[Drag] start-abort no-source sender={sender.GetType().Name}");
             return;
         }
 
@@ -4891,6 +5569,7 @@ public partial class MainWindow : Window
 
         if (items.Length == 0)
         {
+            LiveTrace.Write($"[Drag] start-abort no-items panel='{sourcePanel.CurrentPath}'");
             return;
         }
 
@@ -4902,7 +5581,9 @@ public partial class MainWindow : Window
             var externalPaths = GetExternalDragPaths(items);
             var data = BuildPanelItemDragDataObject(payload, externalPaths);
 
-            DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
+            LiveTrace.Write($"[Drag] start items={items.Length} source='{sourcePanel.CurrentPath}' sender={sender.GetType().Name}");
+            var result = DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy | DragDropEffects.Move);
+            LiveTrace.Write($"[Drag] end result={result}");
         }
         finally
         {
@@ -4915,6 +5596,7 @@ public partial class MainWindow : Window
     {
         if (TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
         {
+            LiveTrace.Write($"[Drag] over-reject no-payload sender={sender.GetType().Name}");
             e.Effects = DragDropEffects.None;
             e.Handled = true;
             return;
@@ -4923,6 +5605,7 @@ public partial class MainWindow : Window
         var targetPanel = TryResolvePanelFromSource(sender as DependencyObject);
         if (targetPanel is null || ReferenceEquals(targetPanel, payload.SourcePanel))
         {
+            LiveTrace.Write($"[Drag] over-reject target={(targetPanel is null ? "(null)" : "same-as-source")} sender={sender.GetType().Name}");
             e.Effects = DragDropEffects.None;
             e.Handled = true;
             return;
@@ -4938,18 +5621,26 @@ public partial class MainWindow : Window
     {
         if (Vm is null || TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
         {
+            LiveTrace.Write($"[Drag] drop-reject no-payload sender={sender.GetType().Name}");
             return;
         }
 
         var targetPanel = TryResolvePanelFromSource(sender as DependencyObject);
         if (targetPanel is null || ReferenceEquals(targetPanel, payload.SourcePanel) || payload.Items.Count == 0)
         {
+            LiveTrace.Write($"[Drag] drop-reject target={(targetPanel is null ? "(null)" : "same-or-empty")} sender={sender.GetType().Name}");
             e.Handled = true;
             return;
         }
 
+        // Handled must be set BEFORE the first await: this is an async void handler, and
+        // once it yields, event routing resumes — an unset Handled lets the drop bubble to
+        // the four-panel slot Border handler, which would copy the same items again.
+        e.Handled = true;
+
         var move = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
         var targetDirectory = ResolveDropTargetDirectory(e.OriginalSource as DependencyObject, targetPanel);
+        LiveTrace.Write($"[Drag] drop items={payload.Items.Count} source='{payload.SourcePanel.CurrentPath}' target='{targetDirectory}' move={move}");
         try
         {
             await Vm.CopyOrMoveBetweenPanelsAsync(payload.SourcePanel, targetPanel, payload.Items, move, targetDirectory, promptOnConflict: true);
@@ -4958,7 +5649,34 @@ public partial class MainWindow : Window
         {
             Vm.StatusText = $"드래그 {(move ? "이동" : "복사")} 실패: {ex.Message}";
         }
-        e.Handled = true;
+
+        RestoreFourPanelFocusAfterDrop(payload.SourcePanel);
+    }
+
+    private void RestoreFourPanelFocusAfterDrop(PanelViewModel sourcePanel)
+    {
+        // The transfer progress window steals keyboard focus while it is open; when it
+        // closes, WPF hands focus to an arbitrary control whose GotFocus then activates
+        // a random slot. Deterministically return to the drag's source slot instead.
+        if (Vm is null || !Vm.IsFourPanelMode)
+        {
+            return;
+        }
+
+        var slot = Vm.FourPanels.FirstOrDefault(candidate => ReferenceEquals(candidate.Panel, sourcePanel));
+        if (slot is null)
+        {
+            return;
+        }
+
+        var index = Vm.FourPanels.IndexOf(slot);
+        if (index >= 0)
+        {
+            _activeFourPanelIndex = index;
+            Vm.SetActiveFourPanel(index);
+        }
+
+        FocusFourPanelAfterPathNavigation(slot);
     }
 
     private PanelItemDragPayload? TryGetPanelItemDragPayload(IDataObject data)
@@ -5537,12 +6255,16 @@ public partial class MainWindow : Window
     private static bool IsScrollChromeInteraction(DependencyObject? source)
     {
         return FindAncestor<ScrollBar>(source) is not null ||
-               FindAncestor<Thumb>(source) is not null ||
-               FindAncestor<ScrollViewer>(source) is not null && FindAncestor<DataGridRow>(source) is null && FindAncestor<ListBoxItem>(source) is null;
+               FindAncestor<Thumb>(source) is not null;
     }
 
     private bool? ResolveKeyboardTargetPanelSide()
     {
+        if (_isDeletingFiles)
+        {
+            return Vm?.IsLeftPanelActive;
+        }
+
         if (Keyboard.FocusedElement is DependencyObject focused)
         {
             var side = TryResolvePanelSide(focused);
@@ -5562,17 +6284,7 @@ public partial class MainWindow : Window
             return false;
         }
 
-        if (LeftPanelTilesList.SelectedItems.Count > 0 || LeftPanelGrid.SelectedItems.Count > 0)
-        {
-            return true;
-        }
-
-        if (RightPanelTilesList.SelectedItems.Count > 0 || RightPanelGrid.SelectedItems.Count > 0)
-        {
-            return false;
-        }
-
-        return null;
+        return Vm?.IsLeftPanelActive;
     }
 
     private PanelViewModel? TryResolvePanelFromSource(DependencyObject? source)
@@ -5736,9 +6448,78 @@ public partial class MainWindow : Window
 
         var targetPanel = activeLeft ? Vm.LeftPanel : Vm.RightPanel;
         var deletionAnchor = CaptureDeletionAnchor(activeLeft, selected);
-        await Vm.DeleteItemsFromPanelAsync(targetPanel, selected);
+        _isDeletingFiles = true;
+
+        var passiveGrid = activeLeft ? RightPanelGrid : LeftPanelGrid;
+        var passiveList = activeLeft ? RightPanelTilesList : LeftPanelTilesList;
+        var passiveFilter = activeLeft ? RightQuickFilterTextBox : LeftQuickFilterTextBox;
+        var passiveTabsControl = activeLeft ? RightTabsControl : LeftTabsControl;
+        var passiveComboBox = activeLeft ? RightPathComboBox : LeftPathComboBox;
+
+        var origGrid = passiveGrid.Focusable;
+        var origList = passiveList.Focusable;
+        var origFilter = passiveFilter.Focusable;
+        var origTabs = passiveTabsControl.Focusable;
+        var origCombo = passiveComboBox.Focusable;
+
+        passiveGrid.Focusable = false;
+        passiveList.Focusable = false;
+        passiveFilter.Focusable = false;
+        passiveTabsControl.Focusable = false;
+        passiveComboBox.Focusable = false;
+
+        try
+        {
+            await Vm.DeleteItemsFromPanelAsync(targetPanel, selected);
+        }
+        catch (Exception ex)
+        {
+            LiveTrace.Write($"DeleteSelection error: {ex}");
+        }
+        finally
+        {
+            // Restore Focusable properties at ContextIdle to ensure they cannot steal focus
+            // during the transient WPF virtualization layout pass when the focused item disappears.
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                passiveGrid.Focusable = origGrid;
+                passiveList.Focusable = origList;
+                passiveFilter.Focusable = origFilter;
+                passiveTabsControl.Focusable = origTabs;
+                passiveComboBox.Focusable = origCombo;
+            }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        }
         RestoreSelectionFromDeletionAnchor(activeLeft, deletionAnchor);
         LiveTrace.Write("DeleteSelection completed");
+
+        // Synchronously focus the active panel container to prevent focus from drifting to the other panel.
+        if (activeLeft)
+        {
+            if (Vm.IsTileViewEnabledForPanel(true))
+            {
+                LeftPanelTilesList.Focus();
+                Keyboard.Focus(LeftPanelTilesList);
+            }
+            else
+            {
+                LeftPanelGrid.Focus();
+                Keyboard.Focus(LeftPanelGrid);
+            }
+        }
+        else
+        {
+            if (Vm.IsTileViewEnabledForPanel(false))
+            {
+                RightPanelTilesList.Focus();
+                Keyboard.Focus(RightPanelTilesList);
+            }
+            else
+            {
+                RightPanelGrid.Focus();
+                Keyboard.Focus(RightPanelGrid);
+            }
+        }
+
         RestoreKeyboardFocusAfterDelete(activeLeft);
     }
 
@@ -5930,18 +6711,35 @@ public partial class MainWindow : Window
         return selectedItem is null ? Array.Empty<FileSystemItem>() : [selectedItem];
     }
 
-    private void MoveActivePanelSelectionByArrow(int delta, bool extendSelection = false)
+    private void MoveActivePanelSelectionByArrow(Key key, bool extendSelection = false)
     {
-        if (Vm is null || delta == 0 || Vm.IsFourPanelMode)
+        if (Vm is null || Vm.IsFourPanelMode)
         {
             return;
         }
 
-        var left = Vm.IsLeftPanelActive;
+        // Arrow keys follow the panel that actually holds keyboard focus; if the
+        // active-panel flag drifted out of sync (e.g. after launching an external
+        // app), re-sync it instead of moving the other panel.
+        var left = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
+        if (left != Vm.IsLeftPanelActive)
+        {
+            LiveTrace.Write($"UI.ArrowMove resync active {(Vm.IsLeftPanelActive ? "L" : "R")} -> {(left ? "L" : "R")}");
+            Vm.SetActivePanelCommand.Execute(left ? "Left" : "Right");
+        }
         var panel = left ? Vm.LeftPanel : Vm.RightPanel;
         if (panel.Items.Count == 0)
         {
             return;
+        }
+
+        ref var activePath = ref left ? ref _leftSelectionActivePath : ref _rightSelectionActivePath;
+        ref var anchorPath = ref left ? ref _leftSelectionAnchorPath : ref _rightSelectionAnchorPath;
+
+        if (!extendSelection)
+        {
+            activePath = null;
+            anchorPath = null;
         }
 
         if (Vm.IsTileViewEnabledForPanel(left))
@@ -5953,16 +6751,57 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var currentIndex = panel.SelectedItem is null
-                ? -1
-                : visibleOrder.IndexOf(panel.SelectedItem);
-            var nextIndex = currentIndex < 0
-                ? (delta > 0 ? 0 : visibleOrder.Count - 1)
-                : Math.Clamp(currentIndex + delta, 0, visibleOrder.Count - 1);
-            var nextListItem = visibleOrder[nextIndex];
+            var currentIndex = -1;
+            var currentActivePath = activePath;
+            if (extendSelection && !string.IsNullOrWhiteSpace(currentActivePath))
+            {
+                currentIndex = visibleOrder.FindIndex(item => string.Equals(item.FullPath, currentActivePath, StringComparison.OrdinalIgnoreCase));
+            }
+            if (currentIndex < 0)
+            {
+                currentIndex = panel.SelectedItem is null ? -1 : visibleOrder.IndexOf(panel.SelectedItem);
+            }
 
+            var perRow = GetTileItemsPerRow(list);
+            var count = visibleOrder.Count;
+            int nextIndex;
+            if (currentIndex < 0)
+            {
+                nextIndex = 0;
+            }
+            else
+            {
+                nextIndex = key switch
+                {
+                    Key.Right => Math.Min(currentIndex + 1, count - 1),
+                    Key.Left => Math.Max(currentIndex - 1, 0),
+                    Key.Down => currentIndex + perRow,
+                    Key.Up => currentIndex - perRow,
+                    _ => currentIndex
+                };
+
+                if (key == Key.Down && nextIndex >= count)
+                {
+                    nextIndex = currentIndex / perRow < (count - 1) / perRow ? count - 1 : currentIndex;
+                }
+
+                if (key == Key.Up && nextIndex < 0)
+                {
+                    nextIndex = currentIndex;
+                }
+            }
+
+            var nextListItem = visibleOrder[nextIndex];
             var anchorIndex = ResolveAnchorIndex(left, visibleOrder, currentIndex, extendSelection);
-            panel.SelectedItem = nextListItem;
+            
+            if (extendSelection)
+            {
+                activePath = nextListItem.FullPath;
+            }
+            else
+            {
+                panel.SelectedItem = nextListItem;
+            }
 
             list.Focus();
             Keyboard.Focus(list);
@@ -5976,8 +6815,18 @@ public partial class MainWindow : Window
                 list.SelectedItem = nextListItem;
             }
             list.ScrollIntoView(nextListItem);
+            if (list.ItemContainerGenerator.ContainerFromIndex(nextIndex) is ListBoxItem container)
+            {
+                container.Focus();
+            }
             return;
         }
+
+        if (key is not (Key.Up or Key.Down))
+        {
+            return;
+        }
+        var delta = key == Key.Down ? 1 : -1;
 
         var grid = left ? LeftPanelGrid : RightPanelGrid;
         var visibleGridOrder = grid.Items.Cast<object>().OfType<FileSystemItem>().ToList();
@@ -5986,16 +6835,32 @@ public partial class MainWindow : Window
             return;
         }
 
-        var currentGridIndex = panel.SelectedItem is null
-            ? -1
-            : visibleGridOrder.IndexOf(panel.SelectedItem);
+        var currentGridIndex = -1;
+        var currentActiveGridPath = activePath;
+        if (extendSelection && !string.IsNullOrWhiteSpace(currentActiveGridPath))
+        {
+            currentGridIndex = visibleGridOrder.FindIndex(item => string.Equals(item.FullPath, currentActiveGridPath, StringComparison.OrdinalIgnoreCase));
+        }
+        if (currentGridIndex < 0)
+        {
+            currentGridIndex = panel.SelectedItem is null ? -1 : visibleGridOrder.IndexOf(panel.SelectedItem);
+        }
+
         var nextGridIndex = currentGridIndex < 0
             ? (delta > 0 ? 0 : visibleGridOrder.Count - 1)
             : Math.Clamp(currentGridIndex + delta, 0, visibleGridOrder.Count - 1);
         var nextItem = visibleGridOrder[nextGridIndex];
 
         var anchorGridIndex = ResolveAnchorIndex(left, visibleGridOrder, currentGridIndex, extendSelection);
-        panel.SelectedItem = nextItem;
+        
+        if (extendSelection)
+        {
+            activePath = nextItem.FullPath;
+        }
+        else
+        {
+            panel.SelectedItem = nextItem;
+        }
 
         var nameColumn = grid.Columns.FirstOrDefault(column =>
             string.Equals(column.SortMemberPath, nameof(FileSystemItem.Name), StringComparison.Ordinal))
@@ -6066,8 +6931,6 @@ public partial class MainWindow : Window
                 list.SelectedItems.Add(item);
             }
         }
-
-        list.SelectedItem = visibleOrder[toIndex];
     }
 
     private static void ApplyRangeSelectionToGrid(DataGrid grid, IReadOnlyList<FileSystemItem> visibleOrder, int fromIndex, int toIndex)
@@ -6083,8 +6946,6 @@ public partial class MainWindow : Window
                 grid.SelectedItems.Add(item);
             }
         }
-
-        grid.SelectedItem = visibleOrder[toIndex];
     }
 
     private void OnPanelItemsPreviewMouseLeave(object sender, MouseEventArgs e)
@@ -7163,27 +8024,44 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<FileSystemItem> GetFourPanelSelectedItems(PanelViewModel panel)
     {
+        // Each slot owns hidden duplicate controls (grid/horizontal layout, tile/details
+        // view). The hidden ones mirror only the single bound SelectedItem, so reading
+        // them would mask the real multi-selection; only the visible control of the
+        // slot's active view kind is trustworthy.
         var slot = Vm?.FourPanels.FirstOrDefault(s => ReferenceEquals(s.Panel, panel));
-        if (slot is not null && _fourPanelTileLists.TryGetValue(slot, out var tileLists))
+        if (slot is not null)
         {
-            foreach (var tileList in OrderControlsForSelection(tileLists))
+            var tileViewEnabled = slot.SelectedTab?.IsTileViewEnabled == true;
+            if (tileViewEnabled && _fourPanelTileLists.TryGetValue(slot, out var tileLists))
             {
-                var selectedTiles = tileList.SelectedItems.Cast<FileSystemItem>().ToArray();
-                if (selectedTiles.Length > 0)
+                foreach (var tileList in OrderControlsForSelection(tileLists))
                 {
-                    return selectedTiles;
+                    if (!tileList.IsVisible)
+                    {
+                        continue;
+                    }
+
+                    var selectedTiles = tileList.SelectedItems.Cast<FileSystemItem>().ToArray();
+                    if (selectedTiles.Length > 0)
+                    {
+                        return selectedTiles;
+                    }
                 }
             }
-        }
-
-        if (slot is not null && _fourPanelGrids.TryGetValue(slot, out var grids))
-        {
-            foreach (var grid in OrderControlsForSelection(grids))
+            else if (!tileViewEnabled && _fourPanelGrids.TryGetValue(slot, out var grids))
             {
-                var selected = grid.SelectedItems.Cast<FileSystemItem>().ToArray();
-                if (selected.Length > 0)
+                foreach (var grid in OrderControlsForSelection(grids))
                 {
-                    return selected;
+                    if (!grid.IsVisible)
+                    {
+                        continue;
+                    }
+
+                    var selected = grid.SelectedItems.Cast<FileSystemItem>().ToArray();
+                    if (selected.Length > 0)
+                    {
+                        return selected;
+                    }
                 }
             }
         }
@@ -7722,11 +8600,13 @@ public partial class MainWindow : Window
         {
             if (Vm is null)
             {
+                _isDeletingFiles = false;
                 return;
             }
 
             if (Vm.IsFourPanelMode)
             {
+                _isDeletingFiles = false;
                 var slot = GetActiveFourPanelSlot();
                 if (slot is null)
                 {
@@ -7800,12 +8680,18 @@ public partial class MainWindow : Window
                 {
                     list.SelectedItem = focusItem;
                     list.ScrollIntoView(focusItem);
+                    list.UpdateLayout(); // Ensure container is generated before focus
+                    ClearDeletingFilesFlagSafely();
                 }
                 else if (retryCount > 0)
                 {
                     _ = Dispatcher.BeginInvoke(
                         () => RestoreKeyboardFocusAfterDelete(targetLeftPanel, retryCount - 1),
                         DispatcherPriority.Background);
+                }
+                else
+                {
+                    ClearDeletingFilesFlagSafely();
                 }
 
                 return;
@@ -7824,13 +8710,16 @@ public partial class MainWindow : Window
                 if (nameColumn is not null)
                 {
                     panelGrid.SelectedItem = focusItemForGrid;
-                    panelGrid.CurrentCell = new DataGridCellInfo(focusItemForGrid, nameColumn);
                     panelGrid.ScrollIntoView(focusItemForGrid, nameColumn);
+                    panelGrid.UpdateLayout(); // Structurally forces container generation and layout before cell focus
+                    panelGrid.CurrentCell = new DataGridCellInfo(focusItemForGrid, nameColumn);
                 }
                 else
                 {
                     panelGrid.ScrollIntoView(focusItemForGrid);
+                    panelGrid.UpdateLayout();
                 }
+                ClearDeletingFilesFlagSafely();
             }
             else if (retryCount > 0)
             {
@@ -7838,7 +8727,23 @@ public partial class MainWindow : Window
                     () => RestoreKeyboardFocusAfterDelete(targetLeftPanel, retryCount - 1),
                     DispatcherPriority.Background);
             }
+            else
+            {
+                ClearDeletingFilesFlagSafely();
+            }
         }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void ClearDeletingFilesFlagSafely()
+    {
+        // Structurally wait for WPF's layout, rendering, and background virtualization to fully settle.
+        // DispatcherPriority.ContextIdle (3) runs strictly AFTER DispatcherPriority.Background (4)
+        // which WPF uses internally to generate virtualized containers.
+        // This ensures no transient layout-based focus fallbacks occur after we lift the flag.
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            _isDeletingFiles = false;
+        }, DispatcherPriority.ContextIdle);
     }
 
     private static FileSystemItem? GetFirstNavigableItem(ItemsControl itemsControl)

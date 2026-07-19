@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -9,6 +10,8 @@ public static class LiveTrace
     private static readonly string LogFile = Path.Combine(AppContext.BaseDirectory, "live_trace.log");
     private static readonly Dictionary<string, DateTime> LastSnapshotByTag = new(StringComparer.Ordinal);
     private static readonly TimeSpan SnapshotMinInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly ConcurrentQueue<string> PendingLines = new();
+    private static readonly AutoResetEvent WriteSignal = new(false);
 #if DEBUG
     private static readonly bool Enabled = true;
 #else
@@ -17,16 +20,11 @@ public static class LiveTrace
 #endif
     private static bool _initialized;
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AllocConsole();
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetGuiResources(IntPtr hProcess, uint uiFlags);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AttachConsole(int dwProcessId);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool SetConsoleOutputCP(uint wCodePageID);
-
-    private const int AttachParentProcess = -1;
+    private const uint GR_GDIOBJECTS = 0;
+    private const uint GR_USEROBJECTS = 1;
 
     public static void Init()
     {
@@ -43,15 +41,6 @@ public static class LiveTrace
                 return;
             }
 
-#if DEBUG
-            // Only attach/create console in Debug so Release users do not see a log window.
-            if (!AttachConsole(AttachParentProcess))
-            {
-                AllocConsole();
-            }
-
-            SetConsoleOutputCP(65001);
-#endif
             _initialized = true;
             try
             {
@@ -60,6 +49,17 @@ public static class LiveTrace
             catch
             {
             }
+
+            // Writing synchronously (file append + console) on the UI thread makes
+            // hot paths (typing, selection changes) visibly lag; a background
+            // writer drains the queue instead.
+            var writerThread = new Thread(WriterLoop)
+            {
+                IsBackground = true,
+                Name = "LiveTraceWriter"
+            };
+            writerThread.Start();
+
             Write("LiveTrace initialized");
         }
     }
@@ -71,25 +71,46 @@ public static class LiveTrace
             return;
         }
 
-        lock (Gate)
-        {
-            var line = $"[{DateTime.Now:HH:mm:ss.fff}] [T{Environment.CurrentManagedThreadId}] {message}";
-#if DEBUG
-            try
-            {
-                Console.WriteLine(line);
-            }
-            catch
-            {
-            }
-#endif
+        PendingLines.Enqueue($"[{DateTime.Now:HH:mm:ss.fff}] [T{Environment.CurrentManagedThreadId}] {message}");
+        WriteSignal.Set();
+    }
 
-            try
+    private static void WriterLoop()
+    {
+        StreamWriter? writer = null;
+        try
+        {
+            writer = new StreamWriter(new FileStream(LogFile, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
+        }
+        catch
+        {
+        }
+
+        while (true)
+        {
+            WriteSignal.WaitOne(500);
+            var wroteAny = false;
+            while (PendingLines.TryDequeue(out var line))
             {
-                File.AppendAllText(LogFile, line + Environment.NewLine);
+                wroteAny = true;
+                try
+                {
+                    writer?.WriteLine(line);
+                }
+                catch
+                {
+                }
             }
-            catch
+
+            if (wroteAny)
             {
+                try
+                {
+                    writer?.Flush();
+                }
+                catch
+                {
+                }
             }
         }
     }
@@ -120,7 +141,29 @@ public static class LiveTrace
             var privateMb = process.PrivateMemorySize64 / (1024d * 1024d);
             var gcMb = GC.GetTotalMemory(forceFullCollection: false) / (1024d * 1024d);
             var cpuMs = process.TotalProcessorTime.TotalMilliseconds;
-            Write($"{tag} perf cpuMs={cpuMs:N0} wsMb={workingSetMb:N1} privateMb={privateMb:N1} handles={process.HandleCount} threads={process.Threads.Count} gcMb={gcMb:N1}");
+            uint gdi = 0, user = 0;
+            try
+            {
+                var h = process.Handle;
+                gdi = GetGuiResources(h, GR_GDIOBJECTS);
+                user = GetGuiResources(h, GR_USEROBJECTS);
+            }
+            catch
+            {
+            }
+            var uiaFlags = "n/a";
+            try
+            {
+                uiaFlags =
+                    $"struct={System.Windows.Automation.Peers.AutomationPeer.ListenerExists(System.Windows.Automation.Peers.AutomationEvents.StructureChanged)}" +
+                    $",prop={System.Windows.Automation.Peers.AutomationPeer.ListenerExists(System.Windows.Automation.Peers.AutomationEvents.PropertyChanged)}" +
+                    $",focus={System.Windows.Automation.Peers.AutomationPeer.ListenerExists(System.Windows.Automation.Peers.AutomationEvents.AutomationFocusChanged)}" +
+                    $",selAdd={System.Windows.Automation.Peers.AutomationPeer.ListenerExists(System.Windows.Automation.Peers.AutomationEvents.SelectionItemPatternOnElementSelected)}";
+            }
+            catch
+            {
+            }
+            Write($"{tag} perf cpuMs={cpuMs:N0} wsMb={workingSetMb:N1} privateMb={privateMb:N1} handles={process.HandleCount} gdi={gdi} user={user} threads={process.Threads.Count} gcMb={gcMb:N1} uia[{uiaFlags}]");
         }
         catch (Exception ex)
         {

@@ -14,6 +14,7 @@ public partial class App : Application
         base.OnStartup(e);
         LiveTrace.Init();
         LiveTrace.Write("App startup");
+        DispatcherDiag.Init(Dispatcher);
 
         DispatcherUnhandledException += (_, args) =>
         {

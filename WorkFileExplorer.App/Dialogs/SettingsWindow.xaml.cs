@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using WorkFileExplorer.App.Models;
 using WorkFileExplorer.App.ViewModels;
@@ -382,6 +383,24 @@ public partial class SettingsWindow : Window
             TextExtensionRuleHint.Text = $"선택 색상: {hex}";
         });
     }
+    private void OnExtensionRuleTextKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            OnAddOrUpdateExtensionColorRuleClick(sender, new RoutedEventArgs());
+            e.Handled = true;
+        }
+    }
+
+    private void OnExtensionRulesGridPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Delete)
+        {
+            OnRemoveExtensionColorRuleClick(sender, new RoutedEventArgs());
+            e.Handled = true;
+        }
+    }
+
     private void OnRemoveExtensionColorRuleClick(object sender, RoutedEventArgs e)
     {
         if (ExtensionColorRulesGrid.SelectedItem is not ExtensionColorRule selected)

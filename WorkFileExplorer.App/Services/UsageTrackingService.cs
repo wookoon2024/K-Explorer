@@ -14,6 +14,10 @@ public sealed class UsageTrackingService : IUsageTrackingService
     private readonly Dictionary<string, TrackedFileRecord> _fileRecordMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _dirtyFolderPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _dirtyFilePaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _deletedFolderPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _deletedFilePaths = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxTrackedFolderRecords = 300;
+    private const int MaxTrackedFileRecords = 500;
     private UsageData _data;
 
     public UsageTrackingService()
@@ -26,6 +30,17 @@ public sealed class UsageTrackingService : IUsageTrackingService
         EnsureSchema();
         _data = LoadUsageFromDb();
         RebuildLookupMaps();
+
+        lock (_syncRoot)
+        {
+            TrimFolderRecordsIfNeeded();
+            TrimFileRecordsIfNeeded();
+        }
+
+        if (_deletedFolderPaths.Count > 0 || _deletedFilePaths.Count > 0)
+        {
+            _ = PersistAsync();
+        }
     }
 
     public void RecordFolderAccess(string path, bool pinned)
@@ -51,6 +66,7 @@ public sealed class UsageTrackingService : IUsageTrackingService
                 _data.FolderRecords.Add(record);
                 _folderRecordMap[normalized] = record;
                 _dirtyFolderPaths.Add(normalized);
+                TrimFolderRecordsIfNeeded();
                 return;
             }
 
@@ -89,6 +105,7 @@ public sealed class UsageTrackingService : IUsageTrackingService
                 _data.FileRecords.Add(record);
                 _fileRecordMap[normalized] = record;
                 _dirtyFilePaths.Add(normalized);
+                TrimFileRecordsIfNeeded();
                 return;
             }
 
@@ -101,6 +118,52 @@ public sealed class UsageTrackingService : IUsageTrackingService
             }
 
             _dirtyFilePaths.Add(normalized);
+        }
+    }
+
+    // Caller must hold _syncRoot.
+    private void TrimFolderRecordsIfNeeded()
+    {
+        if (_data.FolderRecords.Count <= MaxTrackedFolderRecords)
+        {
+            return;
+        }
+
+        var removable = _data.FolderRecords
+            .Where(r => !r.IsPinned)
+            .OrderBy(ScoreFolder)
+            .Take(_data.FolderRecords.Count - MaxTrackedFolderRecords)
+            .ToArray();
+
+        foreach (var record in removable)
+        {
+            _data.FolderRecords.Remove(record);
+            _folderRecordMap.Remove(record.Path);
+            _dirtyFolderPaths.Remove(record.Path);
+            _deletedFolderPaths.Add(record.Path);
+        }
+    }
+
+    // Caller must hold _syncRoot.
+    private void TrimFileRecordsIfNeeded()
+    {
+        if (_data.FileRecords.Count <= MaxTrackedFileRecords)
+        {
+            return;
+        }
+
+        var removable = _data.FileRecords
+            .Where(r => !r.IsPinned)
+            .OrderBy(ScoreFile)
+            .Take(_data.FileRecords.Count - MaxTrackedFileRecords)
+            .ToArray();
+
+        foreach (var record in removable)
+        {
+            _data.FileRecords.Remove(record);
+            _fileRecordMap.Remove(record.Path);
+            _dirtyFilePaths.Remove(record.Path);
+            _deletedFilePaths.Add(record.Path);
         }
     }
 
@@ -149,19 +212,24 @@ public sealed class UsageTrackingService : IUsageTrackingService
         await _persistGate.WaitAsync(cancellationToken);
         var dirtyFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var dirtyFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deletedFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deletedFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             TrackedFolderRecord[] dirtyFolders;
             TrackedFileRecord[] dirtyFiles;
             lock (_syncRoot)
             {
-                if (_dirtyFolderPaths.Count == 0 && _dirtyFilePaths.Count == 0)
+                if (_dirtyFolderPaths.Count == 0 && _dirtyFilePaths.Count == 0 &&
+                    _deletedFolderPaths.Count == 0 && _deletedFilePaths.Count == 0)
                 {
                     return;
                 }
 
                 dirtyFolderPaths = new HashSet<string>(_dirtyFolderPaths, StringComparer.OrdinalIgnoreCase);
                 dirtyFilePaths = new HashSet<string>(_dirtyFilePaths, StringComparer.OrdinalIgnoreCase);
+                deletedFolderPaths = new HashSet<string>(_deletedFolderPaths, StringComparer.OrdinalIgnoreCase);
+                deletedFilePaths = new HashSet<string>(_deletedFilePaths, StringComparer.OrdinalIgnoreCase);
 
                 dirtyFolders = dirtyFolderPaths
                     .Where(path => _folderRecordMap.ContainsKey(path))
@@ -175,6 +243,8 @@ public sealed class UsageTrackingService : IUsageTrackingService
 
                 _dirtyFolderPaths.Clear();
                 _dirtyFilePaths.Clear();
+                _deletedFolderPaths.Clear();
+                _deletedFilePaths.Clear();
             }
 
             await using var connection = new SqliteConnection(_connectionString);
@@ -191,6 +261,16 @@ public sealed class UsageTrackingService : IUsageTrackingService
                 await UpsertFileRecordAsync(connection, tx, record, cancellationToken);
             }
 
+            foreach (var path in deletedFolderPaths)
+            {
+                await DeleteFolderRecordAsync(connection, tx, path, cancellationToken);
+            }
+
+            foreach (var path in deletedFilePaths)
+            {
+                await DeleteFileRecordAsync(connection, tx, path, cancellationToken);
+            }
+
             await tx.CommitAsync(cancellationToken);
         }
         catch
@@ -205,6 +285,16 @@ public sealed class UsageTrackingService : IUsageTrackingService
                 foreach (var path in dirtyFilePaths)
                 {
                     _dirtyFilePaths.Add(path);
+                }
+
+                foreach (var path in deletedFolderPaths)
+                {
+                    _deletedFolderPaths.Add(path);
+                }
+
+                foreach (var path in deletedFilePaths)
+                {
+                    _deletedFilePaths.Add(path);
                 }
             }
         }
@@ -341,6 +431,32 @@ public sealed class UsageTrackingService : IUsageTrackingService
         command.Parameters.AddWithValue("$last_access_utc", record.LastAccessUtc.ToString("O"));
         command.Parameters.AddWithValue("$access_count", record.AccessCount);
         command.Parameters.AddWithValue("$is_pinned", record.IsPinned ? 1 : 0);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteFolderRecordAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "DELETE FROM usage_folder_records WHERE path = $path;";
+        command.Parameters.AddWithValue("$path", path);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteFileRecordAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "DELETE FROM usage_file_records WHERE path = $path;";
+        command.Parameters.AddWithValue("$path", path);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

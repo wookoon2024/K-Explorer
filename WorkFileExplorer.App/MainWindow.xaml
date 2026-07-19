@@ -1,10 +1,11 @@
-﻿<Window x:Class="WorkFileExplorer.App.MainWindow"
+<Window x:Class="WorkFileExplorer.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:WorkFileExplorer.App.Controls"
         xmlns:converters="clr-namespace:WorkFileExplorer.App.Converters"
+        xmlns:helpers="clr-namespace:WorkFileExplorer.App.Helpers"
         mc:Ignorable="d"
         Title="K탐색기"
         Icon="/Assets/Icons/pro_icon.png"
@@ -48,128 +49,320 @@
         <DrawingImage x:Key="TbIconDetails">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#2F80ED" Geometry="F1 M1,2 H4 V5 H1 Z" />
-                    <GeometryDrawing Brush="#2F80ED" Geometry="F1 M1,6 H4 V9 H1 Z" />
-                    <GeometryDrawing Brush="#2F80ED" Geometry="F1 M1,10 H4 V13 H1 Z" />
-                    <GeometryDrawing Brush="#4A5568" Geometry="F1 M6,2 H15 V3.6 H6 Z" />
-                    <GeometryDrawing Brush="#4A5568" Geometry="F1 M6,6 H15 V7.6 H6 Z" />
-                    <GeometryDrawing Brush="#4A5568" Geometry="F1 M6,10 H15 V11.6 H6 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#3B82F6">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="1.5,2.5,3,3" RadiusX="0.8" RadiusY="0.8" />
+                                <RectangleGeometry Rect="1.5,6.5,3,3" RadiusX="0.8" RadiusY="0.8" />
+                                <RectangleGeometry Rect="1.5,10.5,3,3" RadiusX="0.8" RadiusY="0.8" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#64748B">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="6,3,8.5,2" RadiusX="1" RadiusY="1" />
+                                <RectangleGeometry Rect="6,7,8.5,2" RadiusX="1" RadiusY="1" />
+                                <RectangleGeometry Rect="6,11,8.5,2" RadiusX="1" RadiusY="1" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconTiles">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#0EA5E9" Geometry="F1 M1,2 H7 V8 H1 Z" />
-                    <GeometryDrawing Brush="#38BDF8" Geometry="F1 M9,2 H15 V8 H9 Z" />
-                    <GeometryDrawing Brush="#38BDF8" Geometry="F1 M1,10 H7 V16 H1 Z" />
-                    <GeometryDrawing Brush="#0EA5E9" Geometry="F1 M9,10 H15 V16 H9 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#3B82F6">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="1.5,1.5,6,6" RadiusX="1.2" RadiusY="1.2" />
+                                <RectangleGeometry Rect="8.5,8.5,6,6" RadiusX="1.2" RadiusY="1.2" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#60A5FA">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="8.5,1.5,6,6" RadiusX="1.2" RadiusY="1.2" />
+                                <RectangleGeometry Rect="1.5,8.5,6,6" RadiusX="1.2" RadiusY="1.2" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconCompact">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#334155" Geometry="F1 M2,3 H14 V4.7 H2 Z" />
-                    <GeometryDrawing Brush="#334155" Geometry="F1 M2,6 H12 V7.7 H2 Z" />
-                    <GeometryDrawing Brush="#334155" Geometry="F1 M2,9 H14 V10.7 H2 Z" />
-                    <GeometryDrawing Brush="#334155" Geometry="F1 M2,12 H10 V13.7 H2 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#475569">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="2,2.5,12,2" RadiusX="1" RadiusY="1" />
+                                <RectangleGeometry Rect="2,6,9.5,2" RadiusX="1" RadiusY="1" />
+                                <RectangleGeometry Rect="2,9.5,12,2" RadiusX="1" RadiusY="1" />
+                                <RectangleGeometry Rect="2,13,7.5,2" RadiusX="1" RadiusY="1" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconTwoPanel">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#DDEBFC" Geometry="F1 M1,2 H15 V14 H1 Z" />
-                    <GeometryDrawing Brush="#67B0E8" Geometry="F1 M2,3 H7.2 V13 H2 Z" />
-                    <GeometryDrawing Brush="#2D7DD2" Geometry="F1 M8.8,3 H14 V13 H8.8 Z" />
-                    <GeometryDrawing Brush="#1F4C7A" Geometry="F1 M7.6,2 H8.4 V14 H7.6 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#CBD5E1">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="1,2,14,12" RadiusX="1.5" RadiusY="1.5" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#3B82F6">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="2,3,5.9,10" RadiusX="0.8" RadiusY="0.8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#93C5FD">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="8.1,3,5.9,10" RadiusX="0.8" RadiusY="0.8" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconFourPanel">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#D8ECFF" Geometry="F1 M1,2 H15 V14 H1 Z" />
-                    <GeometryDrawing Brush="#4DA3E6" Geometry="F1 M2,3 H7 V8 H2 Z" />
-                    <GeometryDrawing Brush="#8AD0F8" Geometry="F1 M9,3 H14 V8 H9 Z" />
-                    <GeometryDrawing Brush="#8AD0F8" Geometry="F1 M2,10 H7 V13 H2 Z" />
-                    <GeometryDrawing Brush="#4DA3E6" Geometry="F1 M9,10 H14 V13 H9 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#CBD5E1">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="1,2,14,12" RadiusX="1.5" RadiusY="1.5" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#3B82F6">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="2,3,5.9,4.4" RadiusX="0.8" RadiusY="0.8" />
+                                <RectangleGeometry Rect="8.1,8.6,5.9,4.4" RadiusX="0.8" RadiusY="0.8" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#93C5FD">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="8.1,3,5.9,4.4" RadiusX="0.8" RadiusY="0.8" />
+                                <RectangleGeometry Rect="2,8.6,5.9,4.4" RadiusX="0.8" RadiusY="0.8" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconLayoutToggle">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#4F46E5" Geometry="F1 M1,2 H6 V4 H1 Z M1,5 H6 V7 H1 Z M1,8 H6 V10 H1 Z M1,11 H6 V13 H1 Z" />
-                    <GeometryDrawing Brush="#22D3EE" Geometry="F1 M10,2 H15 V7 H10 Z M10,8 H15 V13 H10 Z" />
-                    <GeometryDrawing Brush="#EC4899" Geometry="F1 M7.2,6.2 L9.3,6.2 L9.3,4.9 L11.5,7.1 L9.3,9.3 L9.3,8 L7.2,8 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#6366F1">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="1,2.5,5,2.2" RadiusX="0.7" RadiusY="0.7" />
+                                <RectangleGeometry Rect="1,5.3,5,2.2" RadiusX="0.7" RadiusY="0.7" />
+                                <RectangleGeometry Rect="1,8.1,5,2.2" RadiusX="0.7" RadiusY="0.7" />
+                                <RectangleGeometry Rect="1,10.9,5,2.2" RadiusX="0.7" RadiusY="0.7" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#475569" Geometry="F1 M6.9,7.4 h1.6 v-1.4 l2.4,2.4 -2.4,2.4 v-1.4 h-1.6 z" />
+                    <GeometryDrawing Brush="#0EA5E9">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="10,4,2.55,2.55" RadiusX="0.6" RadiusY="0.6" />
+                                <RectangleGeometry Rect="12.95,4,2.55,2.55" RadiusX="0.6" RadiusY="0.6" />
+                                <RectangleGeometry Rect="10,6.95,2.55,2.55" RadiusX="0.6" RadiusY="0.6" />
+                                <RectangleGeometry Rect="12.95,6.95,2.55,2.55" RadiusX="0.6" RadiusY="0.6" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconMemoEdit">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#EEF4FF" Geometry="F1 M2,1.5 H11 V14.5 H2 Z" />
-                    <GeometryDrawing Brush="#CADBFA" Geometry="F1 M8,1.5 H11 V4.5 H8 Z" />
-                    <GeometryDrawing Brush="#90A9D8" Geometry="F1 M3.2,5.5 H9.8 V6.4 H3.2 Z M3.2,7.5 H8.6 V8.4 H3.2 Z" />
-                    <GeometryDrawing Brush="#FB923C" Geometry="F1 M8.3,10.5 L13.5,5.3 L14.7,6.5 L9.5,11.7 Z" />
-                    <GeometryDrawing Brush="#92400E" Geometry="F1 M13.5,5.3 L14.3,4.5 L15.5,5.7 L14.7,6.5 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#CBD5E1" Thickness="0.8" />
+                        </GeometryDrawing.Pen>
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="2,1.5,9.5,13" RadiusX="1" RadiusY="1" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#94A3B8">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="3.6,4,6.3,1.2" RadiusX="0.6" RadiusY="0.6" />
+                                <RectangleGeometry Rect="3.6,6.5,4.8,1.2" RadiusX="0.6" RadiusY="0.6" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#F59E0B" Geometry="F1 M8.5,11.8 L13.3,7 L15,8.7 L10.2,13.5 Z" />
+                    <GeometryDrawing Brush="#78350F" Geometry="F1 M8.5,11.8 L10.2,13.5 L7.9,14.1 Z" />
+                    <GeometryDrawing Brush="#F472B6" Geometry="F1 M13.3,7 L14.2,6.1 L15.9,7.8 L15,8.7 Z" />
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconMemoList">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#EEF4FF" Geometry="F1 M2,1.5 H12 V14.5 H2 Z" />
-                    <GeometryDrawing Brush="#CADBFA" Geometry="F1 M9,1.5 H12 V4.5 H9 Z" />
-                    <GeometryDrawing Brush="#10B981" Geometry="F1 M3.2,5.8 H4.6 V7.2 H3.2 Z M3.2,8.3 H4.6 V9.7 H3.2 Z M3.2,10.8 H4.6 V12.2 H3.2 Z" />
-                    <GeometryDrawing Brush="#4B5563" Geometry="F1 M5.4,5.9 H10.4 V7 H5.4 Z M5.4,8.4 H10.4 V9.5 H5.4 Z M5.4,10.9 H10.4 V12 H5.4 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#CBD5E1" Thickness="0.8" />
+                        </GeometryDrawing.Pen>
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="2,1.5,12,13" RadiusX="1" RadiusY="1" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#22C55E">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="3.5,4,2,2" RadiusX="0.5" RadiusY="0.5" />
+                                <RectangleGeometry Rect="3.5,7.2,2,2" RadiusX="0.5" RadiusY="0.5" />
+                                <RectangleGeometry Rect="3.5,10.4,2,2" RadiusX="0.5" RadiusY="0.5" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#94A3B8">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="6.3,4.4,6,1.2" RadiusX="0.6" RadiusY="0.6" />
+                                <RectangleGeometry Rect="6.3,7.6,6,1.2" RadiusX="0.6" RadiusY="0.6" />
+                                <RectangleGeometry Rect="6.3,10.8,6,1.2" RadiusX="0.6" RadiusY="0.6" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconPin">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#F87171" Geometry="F1 M5,2 H11 V6 H5 Z" />
-                    <GeometryDrawing Brush="#EF4444" Geometry="F1 M8,6 L11,10.8 H5 Z" />
-                    <GeometryDrawing Brush="#6B7280" Geometry="F1 M7.6,10.8 H8.4 V15 H7.6 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#EF4444">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="5,1.5,6,4.5" RadiusX="1.5" RadiusY="1.5" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#DC2626">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="4,6,8,1.8" RadiusX="0.9" RadiusY="0.9" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#B91C1C" Geometry="F1 M5.5,7.8 H10.5 L8.6,10.4 H7.4 Z" />
+                    <GeometryDrawing Brush="#64748B">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="7.6,10.4,0.8,4" RadiusX="0.4" RadiusY="0.4" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconFavorite">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#FACC15" Geometry="F1 M8,1.3 L9.8,5.2 L14,5.7 L10.9,8.6 L11.7,12.9 L8,10.8 L4.3,12.9 L5.1,8.6 L2,5.7 L6.2,5.2 Z" />
-                    <GeometryDrawing Brush="#B45309" Geometry="F1 M8,3.1 L9.1,5.4 L11.6,5.7 L9.8,7.4 L10.2,9.9 L8,8.8 L5.8,9.9 L6.2,7.4 L4.4,5.7 L6.9,5.4 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#FBBF24" Geometry="F1 M8,1.2 L10.1,5.4 L14.8,6.1 L11.4,9.4 L12.2,14 L8,11.8 L3.8,14 L4.6,9.4 L1.2,6.1 L5.9,5.4 Z">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#F59E0B" Thickness="0.8" LineJoin="Round" />
+                        </GeometryDrawing.Pen>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconFrequentFolders">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#EAB308" Geometry="F1 M1,5.2 H5.6 L6.8,4 H12 C12.55,4 13,4.45 13,5 V12.8 C13,13.35 12.55,13.8 12,13.8 H1 C0.45,13.8 0,13.35 0,12.8 V6.2 C0,5.65 0.45,5.2 1,5.2 Z" />
-                    <GeometryDrawing Brush="#FACC15" Geometry="F1 M4,3.4 H8.6 L9.8,2.2 H15 C15.55,2.2 16,2.65 16,3.2 V11 C16,11.55 15.55,12 15,12 H4 C3.45,12 3,11.55 3,11 V4.4 C3,3.85 3.45,3.4 4,3.4 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#F59E0B" Geometry="F1 M1.5,3.2 H5.8 L7.3,4.7 H13.5 Q14.5,4.7 14.5,5.7 V12 Q14.5,13 13.5,13 H2.5 Q1.5,13 1.5,12 Z" />
+                    <GeometryDrawing Brush="#FBBF24">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="1.5,6.2,13,6.8" RadiusX="1" RadiusY="1" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#3B82F6">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#FFFFFF" Thickness="0.8" />
+                        </GeometryDrawing.Pen>
+                        <GeometryDrawing.Geometry>
+                            <EllipseGeometry Center="12,11.5" RadiusX="3.4" RadiusY="3.4" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Geometry="F1 M12,9.9 L12,11.6 L13.3,12.5">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#FFFFFF" Thickness="0.9" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                        </GeometryDrawing.Pen>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconFrequentFiles">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#D1FAE5" Geometry="F1 M2,2 H10 V14 H2 Z" />
-                    <GeometryDrawing Brush="#99F6E4" Geometry="F1 M6,1 H14 V13 H6 Z" />
-                    <GeometryDrawing Brush="#0F766E" Geometry="F1 M7.2,4 H12.8 V4.9 H7.2 Z M7.2,6 H12.8 V6.9 H7.2 Z M7.2,8 H11.5 V8.9 H7.2 Z" />
-                    <GeometryDrawing Brush="#0EA5E9" Geometry="F1 M12.2,10.5 A2.2,2.2 0 1 1 12.19,10.5 Z" />
-                    <GeometryDrawing Brush="#FFFFFF" Geometry="F1 M12.1,9.4 H12.7 V11.1 H13.7 V11.7 H12.1 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#FFFFFF">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#CBD5E1" Thickness="0.8" />
+                        </GeometryDrawing.Pen>
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="3,1.5,10,13" RadiusX="1" RadiusY="1" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#94A3B8">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="4.5,4.2,7,1.1" RadiusX="0.55" RadiusY="0.55" />
+                                <RectangleGeometry Rect="4.5,6.6,7,1.1" RadiusX="0.55" RadiusY="0.55" />
+                                <RectangleGeometry Rect="4.5,9,5,1.1" RadiusX="0.55" RadiusY="0.55" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#0EA5E9">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#FFFFFF" Thickness="0.8" />
+                        </GeometryDrawing.Pen>
+                        <GeometryDrawing.Geometry>
+                            <EllipseGeometry Center="11.5,11.5" RadiusX="3.4" RadiusY="3.4" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Geometry="F1 M11.5,9.9 L11.5,11.6 L12.8,12.5">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#FFFFFF" Thickness="0.9" StartLineCap="Round" EndLineCap="Round" LineJoin="Round" />
+                        </GeometryDrawing.Pen>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
         <DrawingImage x:Key="TbIconSearch">
             <DrawingImage.Drawing>
                 <DrawingGroup>
-                    <GeometryDrawing Brush="#38BDF8" Geometry="F1 M6.5,2 A4.5,4.5 0 1 1 6.49,2 Z" />
-                    <GeometryDrawing Brush="#FFFFFF" Geometry="F1 M6.5,3.7 A2.8,2.8 0 1 1 6.49,3.7 Z" />
-                    <GeometryDrawing Brush="#0F172A" Geometry="F1 M9.8,9.8 L14.8,14.8 L13.7,15.9 L8.7,10.9 Z" />
+                    <GeometryDrawing Brush="Transparent" Geometry="F1 M0,0 H16 V16 H0 Z" />
+                    <GeometryDrawing Brush="#EFF6FF">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#3B82F6" Thickness="1.8" />
+                        </GeometryDrawing.Pen>
+                        <GeometryDrawing.Geometry>
+                            <EllipseGeometry Center="6.8,6.8" RadiusX="4.3" RadiusY="4.3" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Geometry="F1 M10.4,10.4 L14.4,14.4">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#475569" Thickness="2" StartLineCap="Round" EndLineCap="Round" />
+                        </GeometryDrawing.Pen>
+                    </GeometryDrawing>
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
@@ -425,6 +618,14 @@
                     <Setter Property="Background" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
                     <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(helpers:PanelUi.IsActivePanel), RelativeSource={RelativeSource Self}}" Value="False" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeInactiveSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                </MultiDataTrigger>
                 <DataTrigger Binding="{Binding HasMemo}" Value="False">
                     <Setter Property="ToolTip" Value="{x:Null}" />
                 </DataTrigger>
@@ -441,6 +642,14 @@
                     <Setter Property="Background" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
                     <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(helpers:PanelUi.IsActivePanel), RelativeSource={RelativeSource Self}}" Value="False" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeInactiveSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                </MultiDataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -450,6 +659,7 @@
             <Setter Property="Height" Value="16" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="RenderOptions.BitmapScalingMode" Value="HighQuality" />
         </Style>
 
         <Style x:Key="ItemNameStyle" TargetType="TextBlock">
@@ -510,6 +720,15 @@
                     <Setter Property="BorderBrush" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
                     <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(helpers:PanelUi.IsActivePanel), RelativeSource={RelativeSource Self}}" Value="False" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeInactiveSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="BorderBrush" Value="{Binding DataContext.ThemeInactiveSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                </MultiDataTrigger>
                 <DataTrigger Binding="{Binding HasMemo}" Value="False">
                     <Setter Property="ToolTip" Value="{x:Null}" />
                 </DataTrigger>
@@ -548,6 +767,14 @@
                     <Setter Property="Background" Value="{Binding DataContext.ThemeSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
                     <Setter Property="Foreground" Value="{Binding DataContext.ThemeSelectionForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
                 </Trigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(helpers:PanelUi.IsActivePanel), RelativeSource={RelativeSource Self}}" Value="False" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{Binding DataContext.ThemeInactiveSelectionBackground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                    <Setter Property="Foreground" Value="{Binding DataContext.ThemePanelForeground, RelativeSource={RelativeSource AncestorType=Window}}" />
+                </MultiDataTrigger>
                 <DataTrigger Binding="{Binding HasMemo}" Value="False">
                     <Setter Property="ToolTip" Value="{x:Null}" />
                 </DataTrigger>
@@ -611,10 +838,10 @@
                 </Border>
             </Grid>
             <DataTemplate.Triggers>
-                <DataTrigger Binding="{Binding IsImageFile}" Value="True">
+                <DataTrigger Binding="{Binding HasTileThumbnail}" Value="True">
                     <Setter TargetName="TileIconFallback" Property="Visibility" Value="Collapsed" />
                 </DataTrigger>
-                <DataTrigger Binding="{Binding IsImageFile}" Value="False">
+                <DataTrigger Binding="{Binding HasTileThumbnail}" Value="False">
                     <Setter TargetName="TileThumbnail" Property="Visibility" Value="Collapsed" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsPinned}" Value="True">
@@ -864,9 +1091,9 @@
                     <DockPanel Grid.Row="2" Margin="2,0,2,1">
                         <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="\" ToolTip="홈 폴더" Click="OnFourPanelHomeClick" />
                         <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="." ToolTip="상위 폴더" Click="OnFourPanelParentClick" />
-                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnFourPanelBackClick" />
-                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnFourPanelForwardClick" />
-                        <Button DockPanel.Dock="Right" Width="44" Height="22" Margin="2,0,0,0" Content="즐겨찾기" Click="OnFourPanelFavoriteClick" />
+                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnFourPanelBackClick" IsEnabled="{Binding SelectedTab.CanGoBack}" />
+                        <Button DockPanel.Dock="Left" Width="24" Height="22" Margin="0,0,2,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnFourPanelForwardClick" IsEnabled="{Binding SelectedTab.CanGoForward}" />
+                        <Button DockPanel.Dock="Right" Width="44" Height="22" Margin="2,0,0,0" Content="{Binding FavoriteButtonText}" Click="OnFourPanelFavoriteClick" />
                         <Border Margin="0">
                             <Border.Style>
                                 <Style TargetType="Border">
@@ -886,19 +1113,24 @@
                                       Text="{Binding Panel.CurrentPath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                       ItemsSource="{Binding SelectedTab.HistoryCandidates}"
                                       SelectionChanged="OnFourPanelPathHistorySelectionChanged"
-                                      KeyDown="OnFourPanelPathHistoryKeyDown" />
+                                      KeyDown="OnFourPanelPathHistoryKeyDown"
+                                      Loaded="OnPathComboBoxLoaded"
+                                      PreviewMouseRightButtonUp="OnPathComboBoxPreviewMouseRightButtonUp" />
                         </Border>
                     </DockPanel>
 
                     <Grid Grid.Row="3" Margin="2,0,2,0">
-                        <DataGrid Tag="{Binding}"
+                        <controls:AutomationQuietDataGrid Tag="{Binding}"
+                                  helpers:PanelUi.IsActivePanel="{Binding IsActive}"
                                   ItemsSource="{Binding Panel.Items}"
                                   SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
+                                  IsSynchronizedWithCurrentItem="False"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
                                   SelectionMode="Extended"
                                   Loaded="OnFourPanelGridLoaded"
                                   PreviewMouseLeftButtonDown="OnFourPanelPreviewMouseLeftButtonDown"
+                                  PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
                                   PreviewMouseMove="OnPanelItemsPreviewMouseMove"
                                   MouseLeave="OnPanelItemsPreviewMouseLeave"
                                   DragOver="OnPanelItemsDragOver"
@@ -941,7 +1173,6 @@
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="크기" Width="82" Binding="{Binding SizeDisplay}" />
-                                <DataGridTextColumn Header="날짜" Width="140" Binding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm:ss}" />
                                 <DataGridTemplateColumn Header="속성" Width="88" IsReadOnly="True">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
@@ -1002,15 +1233,18 @@
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                             </DataGrid.Columns>
-                        </DataGrid>
+                        </controls:AutomationQuietDataGrid>
 
                         <ListBox Tag="{Binding}"
+                                 helpers:PanelUi.IsActivePanel="{Binding IsActive}"
                                  ItemsSource="{Binding Panel.Items}"
                                  SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
                                  SelectionMode="Extended"
                                  Loaded="OnFourPanelTileListLoaded"
+                                 PreviewKeyDown="OnTileListPreviewKeyDown"
                                  SizeChanged="OnAdaptiveTileListSizeChanged"
                                  PreviewMouseLeftButtonDown="OnFourPanelPreviewMouseLeftButtonDown"
+                                 PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
                                  PreviewMouseMove="OnPanelItemsPreviewMouseMove"
                                  MouseLeave="OnPanelItemsPreviewMouseLeave"
                                  DragOver="OnPanelItemsDragOver"
@@ -1167,6 +1401,7 @@
     </Window.Resources>
 
     <Grid x:Name="RootGrid">
+        <Button x:Name="FocusTrap" Width="0" Height="0" Opacity="0" Focusable="True" IsTabStop="False" />
     <DockPanel LastChildFill="True">
         <Menu DockPanel.Dock="Top" Background="{Binding ThemeMenuBackground}" Foreground="{Binding ThemeMenuForeground}" FontSize="12">
             <MenuItem Header="파일(F)">
@@ -1529,18 +1764,20 @@
                                 <ColumnDefinition Width="60" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center" FontWeight="SemiBold" Text="L" />
-                            <Button Grid.Column="1" Width="22" Height="22" Margin="1,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnLeftBackClick" />
-                            <Button Grid.Column="2" Width="22" Height="22" Margin="1,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnLeftForwardClick" />
+                            <Button Grid.Column="1" Width="22" Height="22" Margin="1,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnLeftBackClick" IsEnabled="{Binding LeftCanGoBack}" />
+                            <Button Grid.Column="2" Width="22" Height="22" Margin="1,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnLeftForwardClick" IsEnabled="{Binding LeftCanGoForward}" />
                             <Border Grid.Column="3" Margin="2,0" Style="{StaticResource LeftPathHostStyle}">
-                                <ComboBox Style="{StaticResource LeftPathComboInnerStyle}"
+                                <ComboBox x:Name="LeftPathComboBox" Style="{StaticResource LeftPathComboInnerStyle}"
                                           IsEditable="True"
                                           Text="{Binding LeftCurrentPath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                           ItemsSource="{Binding LeftPathHistory}"
                                           GotFocus="OnLeftPathComboBoxGotFocus"
                                           SelectionChanged="OnLeftPathHistorySelectionChanged"
-                                          KeyDown="OnLeftPathHistoryKeyDown" />
+                                          KeyDown="OnLeftPathHistoryKeyDown"
+                                          Loaded="OnPathComboBoxLoaded"
+                                          PreviewMouseRightButtonUp="OnPathComboBoxPreviewMouseRightButtonUp" />
                             </Border>
-                            <Button Grid.Column="4" Margin="2,0,0,0" Content="즐겨찾기" Click="OnAddLeftFavoriteClick" />
+                            <Button Grid.Column="4" Margin="2,0,0,0" Content="{Binding LeftFavoriteButtonText}" Click="OnAddLeftFavoriteClick" />
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -1649,18 +1886,20 @@
                                 <ColumnDefinition Width="60" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Center" FontWeight="SemiBold" Text="R" />
-                            <Button Grid.Column="1" Width="22" Height="22" Margin="1,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnRightBackClick" />
-                            <Button Grid.Column="2" Width="22" Height="22" Margin="1,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnRightForwardClick" />
+                            <Button Grid.Column="1" Width="22" Height="22" Margin="1,0" Content="←" ToolTip="뒤로 (이전 경로)" Click="OnRightBackClick" IsEnabled="{Binding RightCanGoBack}" />
+                            <Button Grid.Column="2" Width="22" Height="22" Margin="1,0" Content="→" ToolTip="앞으로 (다음 경로)" Click="OnRightForwardClick" IsEnabled="{Binding RightCanGoForward}" />
                             <Border Grid.Column="3" Margin="2,0" Style="{StaticResource RightPathHostStyle}">
-                                <ComboBox Style="{StaticResource RightPathComboInnerStyle}"
+                                <ComboBox x:Name="RightPathComboBox" Style="{StaticResource RightPathComboInnerStyle}"
                                           IsEditable="True"
                                           Text="{Binding RightCurrentPath, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                           ItemsSource="{Binding RightPathHistory}"
                                           GotFocus="OnRightPathComboBoxGotFocus"
                                           SelectionChanged="OnRightPathHistorySelectionChanged"
-                                          KeyDown="OnRightPathHistoryKeyDown" />
+                                          KeyDown="OnRightPathHistoryKeyDown"
+                                          Loaded="OnPathComboBoxLoaded"
+                                          PreviewMouseRightButtonUp="OnPathComboBoxPreviewMouseRightButtonUp" />
                             </Border>
-                            <Button Grid.Column="4" Margin="2,0,0,0" Content="즐겨찾기" Click="OnAddRightFavoriteClick" />
+                            <Button Grid.Column="4" Margin="2,0,0,0" Content="{Binding RightFavoriteButtonText}" Click="OnAddRightFavoriteClick" />
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -1698,8 +1937,9 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <DataGrid x:Name="LeftPanelGrid"
+                    <controls:AutomationQuietDataGrid x:Name="LeftPanelGrid"
                               Grid.Row="0"
+                              helpers:PanelUi.IsActivePanel="{Binding IsLeftPanelActive}"
                               ItemsSource="{Binding LeftPanel.Items}"
                               SelectedItem="{Binding LeftPanel.SelectedItem, Mode=TwoWay}"
                               IsSynchronizedWithCurrentItem="False"
@@ -1710,6 +1950,7 @@
                               BeginningEdit="OnPanelGridBeginningEdit"
                               CellEditEnding="OnPanelGridCellEditEnding"
                               PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                              PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
                               PreviewMouseMove="OnPanelItemsPreviewMouseMove"
                               MouseLeave="OnPanelItemsPreviewMouseLeave"
                               DragOver="OnPanelItemsDragOver"
@@ -1798,9 +2039,14 @@
                                 </DataGridTemplateColumn.CellEditingTemplate>
                             </DataGridTemplateColumn>
                             <DataGridTemplateColumn Header="확장자" Width="70" SortMemberPath="Extension" IsReadOnly="True">
+                                <DataGridTemplateColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                    </Style>
+                                </DataGridTemplateColumn.HeaderStyle>
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding Extension}" Foreground="{Binding HighlightColor}" />
+                                        <TextBlock Text="{Binding ExtensionDisplay}" Foreground="{Binding HighlightColor}" HorizontalAlignment="Center" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
@@ -1876,13 +2122,16 @@
                                 </Style.Triggers>
                             </Style>
                         </DataGrid.Style>
-                    </DataGrid>
+                    </controls:AutomationQuietDataGrid>
                     <ListBox x:Name="LeftPanelTilesList"
                              Grid.Row="0"
+                             helpers:PanelUi.IsActivePanel="{Binding IsLeftPanelActive}"
                              ItemsSource="{Binding LeftPanel.Items}"
                              SelectedItem="{Binding LeftPanel.SelectedItem, Mode=TwoWay}"
                              SelectionMode="Extended"
+                             PreviewKeyDown="OnTileListPreviewKeyDown"
                              PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                              PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
                              PreviewMouseMove="OnPanelItemsPreviewMouseMove"
                              MouseLeave="OnPanelItemsPreviewMouseLeave"
                              DragOver="OnPanelItemsDragOver"
@@ -1978,7 +2227,8 @@
                                          HorizontalAlignment="Stretch"
                                          Text="{Binding LeftPanel.QuickFilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          TextChanged="OnLeftQuickFilterTextChanged"
-                                         ToolTip="파일/디렉토리 이름 필터" />
+                                         PreviewKeyDown="OnQuickFilterPreviewKeyDown"
+                                         ToolTip="파일/디렉토리 이름 필터 (↑/↓: 파일 선택 이동)" />
                             </Grid>
                         </DockPanel>
                     </Border>
@@ -2054,8 +2304,9 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <DataGrid x:Name="RightPanelGrid"
+                    <controls:AutomationQuietDataGrid x:Name="RightPanelGrid"
                               Grid.Row="0"
+                              helpers:PanelUi.IsActivePanel="{Binding IsRightPanelActive}"
                               ItemsSource="{Binding RightPanel.Items}"
                               SelectedItem="{Binding RightPanel.SelectedItem, Mode=TwoWay}"
                               IsSynchronizedWithCurrentItem="False"
@@ -2066,6 +2317,7 @@
                               BeginningEdit="OnPanelGridBeginningEdit"
                               CellEditEnding="OnPanelGridCellEditEnding"
                               PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                              PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
                               PreviewMouseMove="OnPanelItemsPreviewMouseMove"
                               MouseLeave="OnPanelItemsPreviewMouseLeave"
                               DragOver="OnPanelItemsDragOver"
@@ -2154,9 +2406,14 @@
                                 </DataGridTemplateColumn.CellEditingTemplate>
                             </DataGridTemplateColumn>
                             <DataGridTemplateColumn Header="확장자" Width="70" SortMemberPath="Extension" IsReadOnly="True">
+                                <DataGridTemplateColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                    </Style>
+                                </DataGridTemplateColumn.HeaderStyle>
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding Extension}" Foreground="{Binding HighlightColor}" />
+                                        <TextBlock Text="{Binding ExtensionDisplay}" Foreground="{Binding HighlightColor}" HorizontalAlignment="Center" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
@@ -2232,13 +2489,16 @@
                                 </Style.Triggers>
                             </Style>
                         </DataGrid.Style>
-                    </DataGrid>
+                    </controls:AutomationQuietDataGrid>
                     <ListBox x:Name="RightPanelTilesList"
                              Grid.Row="0"
+                             helpers:PanelUi.IsActivePanel="{Binding IsRightPanelActive}"
                              ItemsSource="{Binding RightPanel.Items}"
                              SelectedItem="{Binding RightPanel.SelectedItem, Mode=TwoWay}"
                              SelectionMode="Extended"
+                             PreviewKeyDown="OnTileListPreviewKeyDown"
                              PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                              PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
                              PreviewMouseMove="OnPanelItemsPreviewMouseMove"
                              MouseLeave="OnPanelItemsPreviewMouseLeave"
                              DragOver="OnPanelItemsDragOver"
@@ -2334,6 +2594,7 @@
                                          HorizontalAlignment="Stretch"
                                          Text="{Binding RightPanel.QuickFilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          TextChanged="OnRightQuickFilterTextChanged"
+                                         PreviewKeyDown="OnQuickFilterPreviewKeyDown"
                                          ToolTip="파일/디렉토리 이름 필터" />
                             </Grid>
                         </DockPanel>

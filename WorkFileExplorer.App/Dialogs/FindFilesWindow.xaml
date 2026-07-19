@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="파일 찾기"
-        Width="1120"
-        Height="720"
-        MinWidth="960"
-        MinHeight="620"
+        Width="960"
+        Height="560"
+        MinWidth="820"
+        MinHeight="500"
         WindowStartupLocation="CenterOwner"
         Background="#ECECEC"
         FontFamily="Malgun Gothic">
@@ -43,18 +43,22 @@
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="디렉터리에서 시작(D)" />
-                                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,2,0,2" Text="{Binding SearchStartDirectory, UpdateSourceTrigger=PropertyChanged}" />
+                                <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,2,0,2"
+                                          IsEditable="True"
+                                          Text="{Binding SearchStartDirectory, UpdateSourceTrigger=PropertyChanged}"
+                                          ItemsSource="{Binding SearchStartDirectoryHistory}"
+                                          ToolTip="이전 검색에서 사용한 시작 디렉터리를 다시 선택할 수 있습니다." />
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="하위 디렉터리 제외(X)" />
                                 <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2,0,2" Text="{Binding SearchExcludedDirectories, UpdateSourceTrigger=PropertyChanged}" />
 
-                                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
-                                    <TextBlock VerticalAlignment="Center" Text="하위 디렉터리에서 검색(B):" />
-                                    <ComboBox Width="220"
-                                              Margin="8,0,0,0"
-                                              ItemsSource="{Binding SearchDepthOptions}"
-                                              SelectedItem="{Binding SearchDepthOption}" />
-                                </StackPanel>
+                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="하위 디렉터리에서 검색(B)" />
+                                <ComboBox Grid.Row="2" Grid.Column="1"
+                                          Width="220"
+                                          Margin="0,2,0,2"
+                                          HorizontalAlignment="Left"
+                                          ItemsSource="{Binding SearchDepthOptions}"
+                                          SelectedItem="{Binding SearchDepthOption}" />
                             </Grid>
                         </GroupBox>
 
@@ -68,10 +72,15 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="파일 마스크(F)" />
-                                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,2,0,2" Text="{Binding SearchFileMasks, UpdateSourceTrigger=PropertyChanged}" />
+                                <ComboBox Grid.Row="0" Grid.Column="1" Margin="0,2,0,2"
+                                          IsEditable="True"
+                                          Text="{Binding SearchFileMasks, UpdateSourceTrigger=PropertyChanged}"
+                                          ItemsSource="{Binding SearchFileMaskHistory}"
+                                          ToolTip="이전 검색에서 사용한 파일 마스크를 다시 선택할 수 있습니다." />
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="파일 제외(E)" />
                                 <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2,0,2" Text="{Binding SearchExcludedFiles, UpdateSourceTrigger=PropertyChanged}" />
@@ -84,6 +93,11 @@
                                     <Button Margin="0,0,6,6" Padding="10,2" Content="이미지" Tag="*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp;*.tif;*.tiff;*.svg;*.heic;*.avif" Click="OnMaskPresetClick" />
                                     <Button Margin="0,0,6,6" Padding="10,2" Content="동영상" Tag="*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.flv;*.webm;*.m4v;*.ts;*.3gp" Click="OnMaskPresetClick" />
                                 </WrapPanel>
+
+                                <CheckBox Grid.Row="3" Grid.Column="1" Margin="0,2,0,2"
+                                          Content="폴더(디렉터리) 이름도 검색(O)"
+                                          ToolTip="체크하면 파일뿐 아니라 이름이 일치하는 폴더도 결과에 표시합니다. 기본은 파일만 검색합니다."
+                                          IsChecked="{Binding SearchIncludeDirectories}" />
                             </Grid>
                         </GroupBox>
 
@@ -102,15 +116,18 @@
                                 <CheckBox Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Content="파일에서 텍스트 찾기(T)" IsChecked="{Binding SearchUseTextQuery}" />
                                 <TextBox Grid.Row="0" Grid.Column="1" Margin="0,2,0,2" Text="{Binding SearchTextQuery, UpdateSourceTrigger=PropertyChanged}" />
 
-                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
-                                    <CheckBox Margin="0,0,8,0" VerticalAlignment="Center" Content="대소문자 구분(U)" IsChecked="{Binding SearchCaseSensitive}" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,4,0,2">
+                                    <CheckBox Margin="0,0,12,0" VerticalAlignment="Center" Content="대소문자 구분(U)" IsChecked="{Binding SearchCaseSensitive}" />
                                     <CheckBox VerticalAlignment="Center" Content="정규식(R)" IsChecked="{Binding SearchUseRegex}" />
                                 </StackPanel>
 
-                                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
-                                    <TextBlock VerticalAlignment="Center" Margin="0,0,8,0" Text="인코딩(G)" />
-                                    <ComboBox Width="160" ItemsSource="{Binding SearchEncodings}" SelectedItem="{Binding SearchEncoding}" />
-                                </StackPanel>
+                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="인코딩(G)" />
+                                <ComboBox Grid.Row="2" Grid.Column="1"
+                                          Width="160"
+                                          Margin="0,2,0,2"
+                                          HorizontalAlignment="Left"
+                                          ItemsSource="{Binding SearchEncodings}"
+                                          SelectedItem="{Binding SearchEncoding}" />
                             </Grid>
                         </GroupBox>
                     </StackPanel>
@@ -118,23 +135,64 @@
             </TabItem>
 
             <TabItem Header="고급">
-                <StackPanel Margin="12">
-                    <WrapPanel Margin="0,0,0,10">
-                        <CheckBox VerticalAlignment="Center" Content="다음 크기 이상(I)" IsChecked="{Binding SearchUseMinSize}" />
-                        <TextBox Width="90" Margin="8,0,0,0" Text="{Binding SearchMinSizeKb, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="KB" />
-                        <CheckBox Margin="16,0,0,0" VerticalAlignment="Center" Content="다음 크기 이하(Z)" IsChecked="{Binding SearchUseMaxSize}" />
-                        <TextBox Width="90" Margin="8,0,0,0" Text="{Binding SearchMaxSizeKb, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="KB" />
-                    </WrapPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <GroupBox Header="파일 크기" Margin="0,0,0,8">
+                            <Grid Margin="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
 
-                    <WrapPanel>
-                        <CheckBox VerticalAlignment="Center" Content="다음 날짜 이후(D)" IsChecked="{Binding SearchUseDateFrom}" />
-                        <DatePicker Margin="8,0,0,0" SelectedDate="{Binding SearchDateFrom}" />
-                        <CheckBox Margin="16,0,0,0" VerticalAlignment="Center" Content="다음 날짜 이전(C)" IsChecked="{Binding SearchUseDateTo}" />
-                        <DatePicker Margin="8,0,0,0" SelectedDate="{Binding SearchDateTo}" />
-                    </WrapPanel>
-                </StackPanel>
+                                <CheckBox Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Content="다음 크기 이상(I)" IsChecked="{Binding SearchUseMinSize}" />
+                                <TextBox Grid.Row="0" Grid.Column="1" Margin="0,2,0,2" VerticalContentAlignment="Center" Text="{Binding SearchMinSizeKb, UpdateSourceTrigger=PropertyChanged}" />
+                                <ComboBox Grid.Row="0" Grid.Column="2" Width="66" Margin="6,2,0,2" ItemsSource="{Binding SearchSizeUnits}" SelectedItem="{Binding SearchMinSizeUnit}" />
+
+                                <CheckBox Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Content="다음 크기 이하(Z)" IsChecked="{Binding SearchUseMaxSize}" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2,0,2" VerticalContentAlignment="Center" Text="{Binding SearchMaxSizeKb, UpdateSourceTrigger=PropertyChanged}" />
+                                <ComboBox Grid.Row="1" Grid.Column="2" Width="66" Margin="6,2,0,2" ItemsSource="{Binding SearchSizeUnits}" SelectedItem="{Binding SearchMaxSizeUnit}" />
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="날짜" Margin="0,0,0,8">
+                            <Grid Margin="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <CheckBox Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Content="다음 날짜 이후(D)" IsChecked="{Binding SearchUseDateFrom}" />
+                                <DatePicker Grid.Row="0" Grid.Column="1" Width="140" Margin="0,2,0,2" HorizontalAlignment="Left" SelectedDate="{Binding SearchDateFrom}" />
+
+                                <CheckBox Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Content="다음 날짜 이전(C)" IsChecked="{Binding SearchUseDateTo}" />
+                                <DatePicker Grid.Row="1" Grid.Column="1" Width="140" Margin="0,2,0,2" HorizontalAlignment="Left" SelectedDate="{Binding SearchDateTo}" />
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="추가 옵션">
+                            <StackPanel Margin="8">
+                                <CheckBox Content="숨김 파일 제외(H)" ToolTip="숨김 속성이 있는 파일과 폴더를 검색에서 제외합니다." IsChecked="{Binding SearchExcludeHidden}" />
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <CheckBox VerticalAlignment="Center"
+                                              Content="최대 결과 개수(M)"
+                                              ToolTip="체크하면 지정한 개수만큼 찾은 뒤 검색을 멈춥니다. 체크하지 않으면 제한 없이 모두 찾습니다."
+                                              IsChecked="{Binding SearchUseMaxResults}" />
+                                    <TextBox Width="90" Margin="8,0,0,0" VerticalContentAlignment="Center" Text="{Binding SearchMaxResultsText, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock VerticalAlignment="Center" Margin="6,0,0,0" Text="개" />
+                                </StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <TabItem Header="플러그인">
@@ -154,17 +212,45 @@
                     <DockPanel Grid.Row="0" Margin="8,8,8,4">
                         <TextBlock Text="{Binding FindResultSummary}" />
                         <TextBlock Margin="8,0,0,0" Text="{Binding FindElapsedText}" />
+                        <ProgressBar x:Name="SearchProgressBar"
+                                     Width="140"
+                                     Height="12"
+                                     Margin="12,0,0,0"
+                                     HorizontalAlignment="Left"
+                                     IsIndeterminate="True"
+                                     Visibility="Collapsed" />
                     </DockPanel>
-                    <ListView Grid.Row="1"
+                    <ListView x:Name="ResultsListView"
+                              Grid.Row="1"
                               Margin="8,0,8,8"
                               ItemsSource="{Binding SearchResults}"
                               SelectionMode="Extended"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              SizeChanged="OnResultsListViewSizeChanged"
+                              GridViewColumnHeader.Click="OnResultsHeaderClick"
                               MouseDoubleClick="OnResultDoubleClick">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.View>
                             <GridView>
-                                <GridViewColumn Header="경로" Width="760" DisplayMemberBinding="{Binding FullPath}" />
-                                <GridViewColumn Header="크기" Width="120" DisplayMemberBinding="{Binding SizeDisplay}" />
-                                <GridViewColumn Header="날짜" Width="180" DisplayMemberBinding="{Binding LastModified}" />
+                                <GridViewColumn Header="경로" Width="620">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="크기" Width="90">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding SizeDisplay}" HorizontalAlignment="Right" />
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="날짜" Width="140" DisplayMemberBinding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm}" />
                             </GridView>
                         </ListView.View>
                     </ListView>
@@ -172,12 +258,11 @@
             </TabItem>
         </TabControl>
 
-        <StackPanel Grid.Column="1" Grid.RowSpan="2" Orientation="Vertical" Margin="0,28,0,0">
-            <Button Height="32" Margin="0,0,0,8" Content="시작(S)" Click="OnStartClick" />
-            <Button Height="32" Margin="0,0,0,8" Content="취소(A)" Click="OnCancelClick" />
-            <Button Height="32" Margin="0,0,0,8" Content="닫기(C)" Click="OnCloseClick" />
-            <Button Height="32" Margin="0,16,0,8" Content="새 검색(N)" Click="OnNewSearchClick" />
-            <Button Height="32" Content="마지막 검색(L)" Click="OnLastSearchClick" />
+        <StackPanel Grid.Column="1" Grid.RowSpan="2" Orientation="Vertical" Margin="0,34,0,0">
+            <Button x:Name="StartSearchButton" Height="30" Margin="0,0,0,6" Content="시작(S)" IsDefault="True" Click="OnStartClick" />
+            <Button Height="30" Margin="0,0,0,6" Content="닫기(C)" IsCancel="True" Click="OnCloseClick" />
+            <Button Height="30" Margin="0,14,0,6" Content="새 검색(N)" Click="OnNewSearchClick" />
+            <Button Height="30" Content="마지막 검색(L)" Click="OnLastSearchClick" />
         </StackPanel>
     </Grid>
 </Window>

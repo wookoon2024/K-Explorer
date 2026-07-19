@@ -41,6 +41,12 @@ public partial class ImageViewerWindow : Window
     private ResizeMode _prevResizeMode = ResizeMode.CanResize;
     private bool _isFullScreen;
 
+    private double? _savedLeft;
+    private double? _savedTop;
+    private double? _savedWidth;
+    private double? _savedHeight;
+    private bool _savedMaximized;
+
     public ImageViewerWindow(string imagePath)
     {
         InitializeComponent();
@@ -52,8 +58,21 @@ public partial class ImageViewerWindow : Window
         InitializeImageList(imagePath);
         BuildThumbnailItems();
         LoadViewerScalePreference();
+        ApplyStoredWindowPlacement();
         _fitMode = true; // Always start in Fit mode on initial open.
         ShowCurrentImage();
+
+        Closing += (_, _) => SaveWindowPlacement();
+
+        // At construction time the window has no layout yet, so FitToViewport()
+        // sees a zero-sized viewport and bails. Re-apply fit after first layout.
+        Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_fitMode)
+            {
+                FitToViewport();
+            }
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     public void ShowImage(string imagePath)
@@ -120,7 +139,7 @@ public partial class ImageViewerWindow : Window
         _flipHorizontal = false;
         ApplyTransform();
 
-        Title = $"Image Viewer - {Path.GetFileName(path)}";
+        Title = $"이미지 뷰어 - {Path.GetFileName(path)}";
         TopPathText.Text = path;
         if (_fitMode)
         {
@@ -239,7 +258,8 @@ public partial class ImageViewerWindow : Window
         var scaleX = ImageScrollViewer.ViewportWidth / Math.Max(1, width);
         var scaleY = ImageScrollViewer.ViewportHeight / Math.Max(1, height);
         _fitMode = true;
-        SetZoom(Math.Min(scaleX, scaleY), keepMode: true);
+        // Shrink large images to fit, but never scale small images past 100%.
+        SetZoom(Math.Min(1.0, Math.Min(scaleX, scaleY)), keepMode: true);
 
         // When entering fit mode, reset stale scroll offsets from previous zoom/pan.
         ImageScrollViewer.ScrollToHorizontalOffset(0);
@@ -297,8 +317,106 @@ public partial class ImageViewerWindow : Window
                     double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedZoom))
                 {
                     _zoom = Math.Clamp(parsedZoom, MinZoom, MaxZoom);
+                    continue;
+                }
+
+                if (string.Equals(key, "win_left", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var left))
+                {
+                    _savedLeft = left;
+                    continue;
+                }
+
+                if (string.Equals(key, "win_top", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var top))
+                {
+                    _savedTop = top;
+                    continue;
+                }
+
+                if (string.Equals(key, "win_width", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var width))
+                {
+                    _savedWidth = width;
+                    continue;
+                }
+
+                if (string.Equals(key, "win_height", StringComparison.OrdinalIgnoreCase) &&
+                    double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var height))
+                {
+                    _savedHeight = height;
+                    continue;
+                }
+
+                if (string.Equals(key, "win_max", StringComparison.OrdinalIgnoreCase))
+                {
+                    _savedMaximized = value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase);
                 }
             }
+        }
+        catch
+        {
+        }
+    }
+
+    private void ApplyStoredWindowPlacement()
+    {
+        if (_savedLeft is not double left || _savedTop is not double top ||
+            _savedWidth is not double width || _savedHeight is not double height ||
+            double.IsNaN(left) || double.IsNaN(top) || double.IsNaN(width) || double.IsNaN(height) ||
+            width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var virtualLeft = SystemParameters.VirtualScreenLeft;
+        var virtualTop = SystemParameters.VirtualScreenTop;
+        var virtualWidth = SystemParameters.VirtualScreenWidth;
+        var virtualHeight = SystemParameters.VirtualScreenHeight;
+
+        width = Math.Max(MinWidth, Math.Min(width, virtualWidth));
+        height = Math.Max(MinHeight, Math.Min(height, virtualHeight));
+        left = Math.Clamp(left, virtualLeft, virtualLeft + virtualWidth - width);
+        top = Math.Clamp(top, virtualTop, virtualTop + virtualHeight - height);
+
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = left;
+        Top = top;
+        Width = width;
+        Height = height;
+        if (_savedMaximized)
+        {
+            WindowState = WindowState.Maximized;
+        }
+    }
+
+    private void SaveWindowPlacement()
+    {
+        try
+        {
+            var maximized = _isFullScreen
+                ? _prevWindowState == WindowState.Maximized
+                : WindowState == WindowState.Maximized;
+            var bounds = _isFullScreen || WindowState != WindowState.Normal
+                ? RestoreBounds
+                : new Rect(Left, Top, Width, Height);
+            if (double.IsNaN(bounds.X) || double.IsNaN(bounds.Y) ||
+                double.IsNaN(bounds.Width) || double.IsNaN(bounds.Height) ||
+                bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                return;
+            }
+
+            AppPaths.EnsureCreated();
+            using var connection = CreateViewerSettingsConnection();
+            connection.Open();
+            EnsureViewerSettingsTable(connection);
+
+            UpsertViewerSetting(connection, "win_left", bounds.X.ToString(CultureInfo.InvariantCulture));
+            UpsertViewerSetting(connection, "win_top", bounds.Y.ToString(CultureInfo.InvariantCulture));
+            UpsertViewerSetting(connection, "win_width", bounds.Width.ToString(CultureInfo.InvariantCulture));
+            UpsertViewerSetting(connection, "win_height", bounds.Height.ToString(CultureInfo.InvariantCulture));
+            UpsertViewerSetting(connection, "win_max", maximized ? "1" : "0");
         }
         catch
         {
@@ -360,7 +478,7 @@ public partial class ImageViewerWindow : Window
         var sizeText = ViewerImage.Source is BitmapSource source
             ? $"{source.PixelWidth}x{source.PixelHeight}"
             : "-";
-        var modeText = _fitMode ? " Fit" : string.Empty;
+        var modeText = _fitMode ? " 맞춤" : string.Empty;
         ImageInfoText.Text = $"{_currentIndex + 1}/{Math.Max(_imageFiles.Count, 1)} | {sizeText} | {_zoom * 100:0}%{modeText}";
     }
 
@@ -474,13 +592,16 @@ public partial class ImageViewerWindow : Window
 
     private void OnImagePreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0)
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
+            SetZoom(_zoom + (e.Delta > 0 ? ZoomStep : -ZoomStep));
+            SaveViewerScalePreference();
+            e.Handled = true;
             return;
         }
 
-        SetZoom(_zoom + (e.Delta > 0 ? ZoomStep : -ZoomStep));
-        SaveViewerScalePreference();
+        // Plain wheel navigates between images: up = previous, down = next.
+        NavigateRelative(e.Delta > 0 ? -1 : 1);
         e.Handled = true;
     }
 

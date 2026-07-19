@@ -29,7 +29,7 @@ public sealed class FileSystemItem : INotifyPropertyChanged
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".txt", ".log", ".rtf", ".doc", ".docx", ".pdf", ".csv", ".hwp", ".hwpx", ".xls", ".xlsx"
+        ".txt", ".log", ".rtf", ".doc", ".docx", ".pdf", ".csv", ".hwp", ".hwpx", ".xls", ".xlsx", ".ppt", ".pptx"
     };
 
     private static readonly HashSet<string> TerminalExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -72,6 +72,9 @@ public sealed class FileSystemItem : INotifyPropertyChanged
     public string TypeDisplay { get; init; } = string.Empty;
     public string ExtensionLower => (Extension ?? string.Empty).ToLowerInvariant();
 
+    // Column display: the name already contains ".zip", so show just "zip".
+    public string ExtensionDisplay => ExtensionLower.TrimStart('.');
+
     public string DisplayName => IsParentDirectory
         ? "[..]"
         : IsDirectory
@@ -84,64 +87,71 @@ public sealed class FileSystemItem : INotifyPropertyChanged
         {
             if (IsParentDirectory)
             {
-                return $"{IconBasePath}3.png";
+                return $"{IconBasePath}icon_folder_up.png";
             }
 
             if (IsDirectory)
             {
-                return $"{IconBasePath}1.png";
+                return $"{IconBasePath}icon_folder.png";
             }
 
             var extension = ExtensionLower;
             if (ImageExtensions.Contains(extension))
             {
-                return $"{IconBasePath}5.png";
+                return $"{IconBasePath}icon_image.png";
             }
 
             if (VideoExtensions.Contains(extension))
             {
-                return $"{IconBasePath}7.png";
+                return $"{IconBasePath}icon_video.png";
             }
 
             if (AudioExtensions.Contains(extension))
             {
-                return $"{IconBasePath}8.png";
+                return $"{IconBasePath}icon_audio.png";
             }
 
             if (ArchiveExtensions.Contains(extension))
             {
-                return $"{IconBasePath}17.png";
+                return $"{IconBasePath}icon_archive.png";
             }
 
             if (BinaryExtensions.Contains(extension))
             {
-                return $"{IconBasePath}20.png";
+                return $"{IconBasePath}icon_exe.png";
             }
 
             if (TerminalExtensions.Contains(extension))
             {
-                return $"{IconBasePath}10.png";
+                return $"{IconBasePath}icon_terminal.png";
             }
 
             if (TextExtensions.Contains(extension))
             {
                 return string.Equals(extension, ".txt", StringComparison.OrdinalIgnoreCase)
-                    ? $"{IconBasePath}4.png"
-                    : $"{IconBasePath}11.png";
+                    ? $"{IconBasePath}icon_file.png"
+                    : $"{IconBasePath}icon_doc.png";
             }
 
             if (CodeExtensions.Contains(extension))
             {
-                return $"{IconBasePath}11.png";
+                return $"{IconBasePath}icon_code.png";
             }
 
-            return $"{IconBasePath}4.png";
+            return $"{IconBasePath}icon_file.png";
         }
     }
 
     public bool IsImageFile => !IsDirectory && !IsParentDirectory && ImageExtensions.Contains(ExtensionLower);
 
-    public string TileImageSource => IsImageFile ? FullPath : IconPath;
+    public bool IsVideoFile => !IsDirectory && !IsParentDirectory && VideoExtensions.Contains(ExtensionLower);
+
+    public bool HasTileThumbnail => IsImageFile || IsVideoFile;
+
+    public string TileImageSource => HasTileThumbnail ? FullPath : IconPath;
+
+    public static bool IsVideoExtension(string? extension) =>
+        !string.IsNullOrEmpty(extension) && VideoExtensions.Contains(extension);
 
     public string NameColor
     {
@@ -175,42 +185,47 @@ public sealed class FileSystemItem : INotifyPropertyChanged
 
             if (ImageExtensions.Contains(extension))
             {
-                return UseLightTheme ? "#3E5E86" : "#A0A0A0";
+                return UseLightTheme ? "#7C3AED" : "#C89BF5";
             }
 
             if (VideoExtensions.Contains(extension))
             {
-                return UseLightTheme ? "#B86A00" : "#FFD54A";
+                return UseLightTheme ? "#C25E00" : "#FF9E5E";
             }
 
             if (AudioExtensions.Contains(extension))
             {
-                return UseLightTheme ? "#B86A00" : "#FFD54A";
+                return UseLightTheme ? "#C2255C" : "#F783AC";
             }
 
             if (ArchiveExtensions.Contains(extension))
             {
-                return UseLightTheme ? "#1E9A3A" : "#8FD66B";
+                return UseLightTheme ? "#B07D10" : "#E8B04B";
             }
 
             if (BinaryExtensions.Contains(extension))
             {
-                return UseLightTheme ? "#C82222" : "#FF4D4D";
+                return UseLightTheme ? "#C82222" : "#FF6B6B";
             }
 
             if (TerminalExtensions.Contains(extension))
             {
-                return UseLightTheme ? "#C06A13" : "#FFA347";
+                return UseLightTheme ? "#2B8A3E" : "#69DB7C";
             }
 
             if (string.Equals(extension, ".txt", StringComparison.OrdinalIgnoreCase))
             {
-                return UseLightTheme ? "#3E5E86" : "#A0A0A0";
+                return UseLightTheme ? "#5A6B7D" : "#C3CCD5";
             }
 
             if (TextExtensions.Contains(extension))
             {
-                return UseLightTheme ? "#1267CC" : "#66B3FF";
+                return UseLightTheme ? "#1267CC" : "#6CB6FF";
+            }
+
+            if (CodeExtensions.Contains(extension))
+            {
+                return UseLightTheme ? "#0E7490" : "#4DD4E8";
             }
 
             return UseLightTheme ? "#17212F" : "#E8E8E8";
@@ -259,14 +274,15 @@ public sealed class FileSystemItem : INotifyPropertyChanged
             }
         }
 
-        AddRange(map, ImageExtensions, lightTheme ? "#3E5E86" : "#A0A0A0");
-        AddRange(map, VideoExtensions, lightTheme ? "#B86A00" : "#FFD54A");
-        AddRange(map, AudioExtensions, lightTheme ? "#B86A00" : "#FFD54A");
-        AddRange(map, ArchiveExtensions, lightTheme ? "#1E9A3A" : "#8FD66B");
-        AddRange(map, BinaryExtensions, lightTheme ? "#C82222" : "#FF4D4D");
-        AddRange(map, TerminalExtensions, lightTheme ? "#C06A13" : "#FFA347");
-        AddRange(map, TextExtensions, lightTheme ? "#1267CC" : "#66B3FF");
-        map[".txt"] = lightTheme ? "#3E5E86" : "#A0A0A0";
+        AddRange(map, ImageExtensions, lightTheme ? "#7C3AED" : "#C89BF5");
+        AddRange(map, VideoExtensions, lightTheme ? "#C25E00" : "#FF9E5E");
+        AddRange(map, AudioExtensions, lightTheme ? "#C2255C" : "#F783AC");
+        AddRange(map, ArchiveExtensions, lightTheme ? "#B07D10" : "#E8B04B");
+        AddRange(map, BinaryExtensions, lightTheme ? "#C82222" : "#FF6B6B");
+        AddRange(map, TerminalExtensions, lightTheme ? "#2B8A3E" : "#69DB7C");
+        AddRange(map, CodeExtensions, lightTheme ? "#0E7490" : "#4DD4E8");
+        AddRange(map, TextExtensions, lightTheme ? "#1267CC" : "#6CB6FF");
+        map[".txt"] = lightTheme ? "#5A6B7D" : "#C3CCD5";
         AddRange(map, NeutralExtensions, lightTheme ? "#0F172A" : "#E8E8E8");
 
         return map;

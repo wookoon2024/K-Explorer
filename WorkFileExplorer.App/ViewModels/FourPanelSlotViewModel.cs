@@ -24,6 +24,11 @@ public sealed class FourPanelSlotViewModel : ObservableObject
 
     public string SlotKey { get; }
 
+    public MainWindowViewModel? ParentViewModel { get; set; }
+
+    public string FavoriteButtonText =>
+        ParentViewModel?.IsFolderFavorite(Panel.CurrentPath) == true ? "즐찾해제" : "즐겨찾기";
+
     public ObservableCollection<PanelTabViewModel> Tabs { get; } = new();
 
     public PanelTabViewModel? SelectedTab
@@ -37,6 +42,7 @@ public sealed class FourPanelSlotViewModel : ObservableObject
             }
 
             OnPropertyChanged(nameof(Panel));
+            OnPropertyChanged(nameof(FavoriteButtonText));
         }
     }
 
@@ -89,5 +95,10 @@ public sealed class FourPanelSlotViewModel : ObservableObject
         var next = Math.Clamp(index - 1, 0, Tabs.Count - 1);
         SelectedTab = Tabs[next];
         return true;
+    }
+
+    public void NotifyPropertyChanged(string propertyName)
+    {
+        OnPropertyChanged(propertyName);
     }
 }

@@ -16,5 +16,8 @@ public sealed class FindFilesOptions
     public long? MaxSizeKb { get; init; }
     public DateTime? DateFrom { get; init; }
     public DateTime? DateTo { get; init; }
+    public bool ExcludeHidden { get; init; }
+    public bool IncludeDirectories { get; init; } = true;
+    public int? MaxResults { get; init; }
 }
 
