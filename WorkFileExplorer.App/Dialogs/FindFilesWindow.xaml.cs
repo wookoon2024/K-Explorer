@@ -84,6 +84,7 @@ public partial class FindFilesWindow : Window
             }
 
             var options = BuildOptionsFromVm(Vm);
+            Vm.FindSearchConditionText = DescribeSearchConditions(options);
             await Vm.RecordFindFilesSearchHistoryAsync();
             var progress = new Progress<IReadOnlyList<FileSystemItem>>(batch =>
             {
@@ -265,6 +266,7 @@ public partial class FindFilesWindow : Window
         Vm.SearchResults.Clear();
         Vm.FindResultSummary = "검색 준비";
         Vm.FindElapsedText = string.Empty;
+        Vm.FindSearchConditionText = string.Empty;
     }
 
     private async void OnLastSearchClick(object sender, RoutedEventArgs e)
@@ -301,6 +303,35 @@ public partial class FindFilesWindow : Window
         }
 
         await Dispatcher.InvokeAsync(() => OnStartClick(this, new RoutedEventArgs()));
+    }
+
+    private static string DescribeSearchConditions(FindFilesOptions options)
+    {
+        var startDirectory = string.IsNullOrWhiteSpace(options.StartDirectory)
+            ? "(활성 패널 경로)"
+            : options.StartDirectory;
+        var condition = $"검색 조건: {startDirectory} | 마스크: {options.FileMasks}";
+        if (options.ExactMatch)
+        {
+            condition += " (정확히 일치)";
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.TextQuery))
+        {
+            condition += $" | 내용: {options.TextQuery}";
+        }
+
+        if (options.IncludeDirectories)
+        {
+            condition += " | 폴더 포함";
+        }
+
+        if (options.MaxResults is { } maxResults)
+        {
+            condition += $" | 최대 {maxResults}개";
+        }
+
+        return condition;
     }
 
     private static FindFilesOptions BuildOptionsFromVm(MainWindowViewModel vm)

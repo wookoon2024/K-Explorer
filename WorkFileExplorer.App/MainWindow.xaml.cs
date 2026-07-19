@@ -538,6 +538,7 @@ public partial class MainWindow : Window
     private string? _leftSelectionActivePath;
     private string? _rightSelectionActivePath;
     private bool _isDeletingFiles;
+    private FindFilesWindow? _findFilesWindow;
     private DateTime _lastTabInteractionUtc = DateTime.MinValue;
     private bool _windowLoaded;
     private readonly Dictionary<FourPanelSlotViewModel, List<DataGrid>> _fourPanelGrids = new();
@@ -4793,14 +4794,31 @@ public partial class MainWindow : Window
         }
 
         Vm.SearchStartDirectory = Vm.IsLeftPanelActive ? Vm.LeftCurrentPath : Vm.RightCurrentPath;
-        var dialog = new FindFilesWindow
+
+        // Modeless: the main explorer stays usable while the find window is open.
+        if (_findFilesWindow is { IsLoaded: true })
+        {
+            if (_findFilesWindow.WindowState == WindowState.Minimized)
+            {
+                _findFilesWindow.WindowState = WindowState.Normal;
+            }
+
+            _findFilesWindow.Activate();
+            return;
+        }
+
+        var findWindow = new FindFilesWindow
         {
             Owner = this,
             DataContext = Vm
         };
-
-        dialog.ShowDialog();
-        BottomInfoTabs.SelectedIndex = 0;
+        findWindow.Closed += (_, _) =>
+        {
+            _findFilesWindow = null;
+            BottomInfoTabs.SelectedIndex = 0;
+        };
+        _findFilesWindow = findWindow;
+        findWindow.Show();
     }
 
     private void OnSearchClearClick(object sender, RoutedEventArgs e)

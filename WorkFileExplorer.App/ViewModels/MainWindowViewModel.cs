@@ -111,6 +111,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private DateTime _searchDateTo = DateTime.Today;
     private string _findResultSummary = "검색 준비";
     private string _findElapsedText = string.Empty;
+    private string _findSearchConditionText = string.Empty;
     private string _searchScope = "Active panel";
     private string _selectedConflictPolicyDisplay = "Rename new";
     private bool _searchRecursive = true;
@@ -824,6 +825,12 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         get => _findElapsedText;
         set => SetProperty(ref _findElapsedText, value);
+    }
+
+    public string FindSearchConditionText
+    {
+        get => _findSearchConditionText;
+        set => SetProperty(ref _findSearchConditionText, value);
     }
 
     public string SelectedConflictPolicyDisplay

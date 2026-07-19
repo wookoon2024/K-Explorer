@@ -11,6 +11,7 @@ public sealed class FindFilesOptions
     public string TextQuery { get; init; } = string.Empty;
     public string EncodingName { get; init; } = "Default";
     public bool CaseSensitive { get; init; }
+    public bool ExactMatch { get; init; }
     public bool UseRegex { get; init; }
     public long? MinSizeKb { get; init; }
     public long? MaxSizeKb { get; init; }
