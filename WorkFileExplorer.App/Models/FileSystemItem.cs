@@ -8,7 +8,7 @@ public sealed class FileSystemItem : INotifyPropertyChanged
     private string? _renameCandidate;
     private bool _isInlineRenaming;
     private const string IconBasePath = "/Assets/Icons/";
-    public static bool UseExtensionColors { get; set; } = true;
+    public static bool UseExtensionColors { get; set; }
     public static bool UsePinnedHighlightColor { get; set; } = true;
     public static bool UseLightTheme { get; set; }
     private static readonly Dictionary<string, string> ExtensionColorOverrides = new(StringComparer.OrdinalIgnoreCase);

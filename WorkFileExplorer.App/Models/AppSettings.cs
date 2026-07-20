@@ -8,7 +8,7 @@ public sealed class AppSettings
     public string PanelLayout { get; set; } = "Horizontal";
     public bool RememberSessionTabs { get; set; } = true;
     public bool DefaultTileViewEnabled { get; set; }
-    public bool UseExtensionColors { get; set; } = true;
+    public bool UseExtensionColors { get; set; }
     public bool UsePinnedHighlightColor { get; set; } = true;
     public string ThemeMode { get; set; } = "Black";
     public bool ConfirmBeforeDelete { get; set; } = true;

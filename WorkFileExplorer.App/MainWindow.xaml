@@ -1471,7 +1471,6 @@
             </MenuItem>
             <MenuItem Header="구성(O)">
                 <MenuItem Header="환경설정" Click="OnOpenSettingsClick" />
-                <MenuItem Header="AI 터미널" Click="OnOpenAiTerminalClick" />
             </MenuItem>
         </Menu>
 

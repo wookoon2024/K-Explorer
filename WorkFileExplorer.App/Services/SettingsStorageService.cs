@@ -40,7 +40,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.PanelLayout = GetOrDefault(values, "panel_layout", "Horizontal");
             settings.RememberSessionTabs = ParseBool(GetOrDefault(values, "remember_session_tabs", "1"), defaultValue: true);
             settings.DefaultTileViewEnabled = ParseBool(GetOrDefault(values, "default_tile_view_enabled", "0"), defaultValue: false);
-            settings.UseExtensionColors = ParseBool(GetOrDefault(values, "use_extension_colors", "1"), defaultValue: true);
+            settings.UseExtensionColors = ParseBool(GetOrDefault(values, "use_extension_colors", "0"), defaultValue: false);
             settings.UsePinnedHighlightColor = ParseBool(GetOrDefault(values, "use_pinned_highlight_color", "1"), defaultValue: true);
             settings.ThemeMode = GetOrDefault(values, "theme_mode", settings.ThemeMode);
             settings.ConfirmBeforeDelete = ParseBool(GetOrDefault(values, "confirm_before_delete", "1"), defaultValue: true);
