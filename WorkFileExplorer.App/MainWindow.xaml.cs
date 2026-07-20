@@ -3560,15 +3560,6 @@ public partial class MainWindow : Window
         dialog.ShowDialog();
     }
 
-    private void OnOpenAiTerminalClick(object sender, RoutedEventArgs e)
-    {
-        var dialog = new AiTerminalWindow(GetActiveWorkingDirectory())
-        {
-            Owner = this
-        };
-        dialog.Show();
-    }
-
     private void OnSelectActiveMenuPanelClick(object sender, RoutedEventArgs e)
     {
         _selectedMenuPanelTarget = TerminalPanelTarget.Active;

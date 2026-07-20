@@ -14,6 +14,13 @@
     <ApplicationIcon>Assets\Icons\pro_icon.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- 배포본에는 PDB를 넣지 않는다. PDB에 빌드 PC의 절대 소스 경로가 그대로 박히기 때문.
+       Debug 빌드는 영향받지 않으므로 개발 중 디버깅은 그대로 가능하다. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
   </ItemGroup>
