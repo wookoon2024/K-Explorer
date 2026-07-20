@@ -10,6 +10,7 @@ using WorkFileExplorer.App.Commands;
 using WorkFileExplorer.App.Dialogs;
 using WorkFileExplorer.App.Helpers;
 using WorkFileExplorer.App.Models;
+using WorkFileExplorer.App.Services;
 using WorkFileExplorer.App.Services.Interfaces;
 
 namespace WorkFileExplorer.App.ViewModels;
@@ -24,6 +25,8 @@ public sealed class MainWindowViewModel : ObservableObject
         public bool DefaultTileViewEnabled { get; init; }
         public bool UseExtensionColors { get; init; }
         public bool UsePinnedHighlightColor { get; init; }
+        public bool ShowHiddenItems { get; init; } = true;
+        public bool ShowSystemItems { get; init; } = true;
         public string ThemeMode { get; init; } = "Black";
         public bool ConfirmBeforeDelete { get; init; }
         public string ConflictPolicyDisplay { get; init; } = "Rename new";
@@ -896,6 +899,8 @@ public sealed class MainWindowViewModel : ObservableObject
             : "Rename new";
         FileSystemItem.UseExtensionColors = _settings.UseExtensionColors;
         FileSystemItem.UsePinnedHighlightColor = _settings.UsePinnedHighlightColor;
+        FileSystemService.ShowHiddenItems = _settings.ShowHiddenItems;
+        FileSystemService.ShowSystemItems = _settings.ShowSystemItems;
         _settings.ThemeMode = NormalizeThemeMode(_settings.ThemeMode);
         _settings.ThemeColorOverrides = NormalizeThemeColorOverrides(_settings.ThemeColorOverrides);
         _themeColorOverridesMap = BuildThemeColorOverridesMap(_settings.ThemeColorOverrides);
@@ -2631,6 +2636,8 @@ public sealed class MainWindowViewModel : ObservableObject
             DefaultTileViewEnabled = _settings.DefaultTileViewEnabled,
             UseExtensionColors = _settings.UseExtensionColors,
             UsePinnedHighlightColor = _settings.UsePinnedHighlightColor,
+            ShowHiddenItems = _settings.ShowHiddenItems,
+            ShowSystemItems = _settings.ShowSystemItems,
             ThemeMode = ThemeMode,
             ConfirmBeforeDelete = _settings.ConfirmBeforeDelete,
             ConflictPolicyDisplay = SelectedConflictPolicyDisplay,
@@ -2648,6 +2655,8 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var previousUseExtensionColors = _settings.UseExtensionColors;
         var previousUsePinnedHighlight = _settings.UsePinnedHighlightColor;
+        var previousShowHiddenItems = _settings.ShowHiddenItems;
+        var previousShowSystemItems = _settings.ShowSystemItems;
         var previousDefaultTile = _settings.DefaultTileViewEnabled;
         var previousThemeMode = NormalizeThemeMode(_settings.ThemeMode);
         var previousExtensionColorOverrides = NormalizeExtensionColorOverrides(_settings.ExtensionColorOverrides);
@@ -2660,6 +2669,8 @@ public sealed class MainWindowViewModel : ObservableObject
         _settings.DefaultTileViewEnabled = snapshot.DefaultTileViewEnabled;
         _settings.UseExtensionColors = snapshot.UseExtensionColors;
         _settings.UsePinnedHighlightColor = snapshot.UsePinnedHighlightColor;
+        _settings.ShowHiddenItems = snapshot.ShowHiddenItems;
+        _settings.ShowSystemItems = snapshot.ShowSystemItems;
         _settings.ThemeMode = NormalizeThemeMode(snapshot.ThemeMode);
         _settings.ConfirmBeforeDelete = snapshot.ConfirmBeforeDelete;
         _settings.ConflictPolicyDisplay = ConflictPolicyOptions.Contains(snapshot.ConflictPolicyDisplay, StringComparer.OrdinalIgnoreCase)
@@ -2685,6 +2696,8 @@ public sealed class MainWindowViewModel : ObservableObject
         NotifyThemeBrushesChanged();
         FileSystemItem.UseExtensionColors = _settings.UseExtensionColors;
         FileSystemItem.UsePinnedHighlightColor = _settings.UsePinnedHighlightColor;
+        FileSystemService.ShowHiddenItems = _settings.ShowHiddenItems;
+        FileSystemService.ShowSystemItems = _settings.ShowSystemItems;
         FileSystemItem.SetThemeMode(_settings.ThemeMode);
         FileSystemItem.SetExtensionColorOverrides(BuildExtensionColorMap(_settings.ExtensionColorOverrides));
         var extensionColorsChanged = !previousExtensionColorOverrides.SequenceEqual(_settings.ExtensionColorOverrides, StringComparer.OrdinalIgnoreCase);
@@ -2697,6 +2710,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         if (previousUseExtensionColors != _settings.UseExtensionColors ||
             previousUsePinnedHighlight != _settings.UsePinnedHighlightColor ||
+            previousShowHiddenItems != _settings.ShowHiddenItems ||
+            previousShowSystemItems != _settings.ShowSystemItems ||
             previousDefaultTile != _settings.DefaultTileViewEnabled ||
             extensionColorsChanged ||
             themeChanged)

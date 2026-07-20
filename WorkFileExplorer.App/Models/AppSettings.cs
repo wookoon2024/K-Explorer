@@ -10,6 +10,8 @@ public sealed class AppSettings
     public bool DefaultTileViewEnabled { get; set; }
     public bool UseExtensionColors { get; set; }
     public bool UsePinnedHighlightColor { get; set; } = true;
+    public bool ShowHiddenItems { get; set; } = true;
+    public bool ShowSystemItems { get; set; } = true;
     public string ThemeMode { get; set; } = "Black";
     public bool ConfirmBeforeDelete { get; set; } = true;
     public string ConflictPolicyDisplay { get; set; } = "Rename new";

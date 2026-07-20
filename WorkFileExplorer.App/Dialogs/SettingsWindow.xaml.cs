@@ -89,6 +89,8 @@ public partial class SettingsWindow : Window
         LoadThemeColorEditors(_editingThemeMode);
         CheckUseExtensionColors.IsChecked = snapshot.UseExtensionColors;
         CheckUsePinnedHighlight.IsChecked = snapshot.UsePinnedHighlightColor;
+        CheckShowHiddenItems.IsChecked = snapshot.ShowHiddenItems;
+        CheckShowSystemItems.IsChecked = snapshot.ShowSystemItems;
         CheckConfirmDeleteFileSection.IsChecked = snapshot.ConfirmBeforeDelete;
         CheckSearchRecursive.IsChecked = snapshot.SearchRecursive;
         ExtensionColorRulesGrid.ItemsSource = _extensionColorRules;
@@ -148,6 +150,8 @@ public partial class SettingsWindow : Window
             DefaultTileViewEnabled = RadioTileView.IsChecked == true,
             UseExtensionColors = CheckUseExtensionColors.IsChecked == true,
             UsePinnedHighlightColor = CheckUsePinnedHighlight.IsChecked == true,
+            ShowHiddenItems = CheckShowHiddenItems.IsChecked == true,
+            ShowSystemItems = CheckShowSystemItems.IsChecked == true,
             ThemeMode = ComboThemeMode.SelectedIndex == 1 ? "White" : "Black",
             ConfirmBeforeDelete = CheckConfirmDeleteFileSection.IsChecked == true,
             ConflictPolicyDisplay = (ComboConflictPolicy.SelectedItem as string) ?? vm.SelectedConflictPolicyDisplay,

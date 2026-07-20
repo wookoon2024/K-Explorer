@@ -5,6 +5,10 @@ namespace WorkFileExplorer.App.Services;
 
 public sealed class FileSystemService : IFileSystemService
 {
+    // Visibility toggles come from 환경설정 and apply to every panel listing.
+    public static bool ShowHiddenItems { get; set; } = true;
+    public static bool ShowSystemItems { get; set; } = true;
+
     private static readonly IComparer<FileSystemItem> FileSystemItemComparer = Comparer<FileSystemItem>.Create(static (x, y) =>
     {
         if (ReferenceEquals(x, y))
@@ -38,6 +42,16 @@ public sealed class FileSystemService : IFileSystemService
 
         return StringComparer.CurrentCultureIgnoreCase.Compare(x.Name, y.Name);
     });
+
+    private static bool IsFilteredOut(FileAttributes attributes)
+    {
+        if (!ShowHiddenItems && (attributes & FileAttributes.Hidden) == FileAttributes.Hidden)
+        {
+            return true;
+        }
+
+        return !ShowSystemItems && (attributes & FileAttributes.System) == FileAttributes.System;
+    }
 
     public bool DirectoryExists(string path) => Directory.Exists(path);
 
@@ -91,6 +105,11 @@ public sealed class FileSystemService : IFileSystemService
 
                     try
                     {
+                        if (IsFilteredOut(entry.Attributes))
+                        {
+                            continue;
+                        }
+
                         if ((entry.Attributes & FileAttributes.Directory) == FileAttributes.Directory)
                         {
                             items.Add(new FileSystemItem

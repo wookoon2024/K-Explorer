@@ -42,6 +42,8 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.DefaultTileViewEnabled = ParseBool(GetOrDefault(values, "default_tile_view_enabled", "0"), defaultValue: false);
             settings.UseExtensionColors = ParseBool(GetOrDefault(values, "use_extension_colors", "0"), defaultValue: false);
             settings.UsePinnedHighlightColor = ParseBool(GetOrDefault(values, "use_pinned_highlight_color", "1"), defaultValue: true);
+            settings.ShowHiddenItems = ParseBool(GetOrDefault(values, "show_hidden_items", "1"), defaultValue: true);
+            settings.ShowSystemItems = ParseBool(GetOrDefault(values, "show_system_items", "1"), defaultValue: true);
             settings.ThemeMode = GetOrDefault(values, "theme_mode", settings.ThemeMode);
             settings.ConfirmBeforeDelete = ParseBool(GetOrDefault(values, "confirm_before_delete", "1"), defaultValue: true);
             settings.ConflictPolicyDisplay = GetOrDefault(values, "conflict_policy_display", settings.ConflictPolicyDisplay);
@@ -399,6 +401,8 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["default_tile_view_enabled"] = settings.DefaultTileViewEnabled ? "1" : "0",
             ["use_extension_colors"] = settings.UseExtensionColors ? "1" : "0",
             ["use_pinned_highlight_color"] = settings.UsePinnedHighlightColor ? "1" : "0",
+            ["show_hidden_items"] = settings.ShowHiddenItems ? "1" : "0",
+            ["show_system_items"] = settings.ShowSystemItems ? "1" : "0",
             ["theme_mode"] = settings.ThemeMode ?? string.Empty,
             ["confirm_before_delete"] = settings.ConfirmBeforeDelete ? "1" : "0",
             ["conflict_policy_display"] = settings.ConflictPolicyDisplay ?? string.Empty,

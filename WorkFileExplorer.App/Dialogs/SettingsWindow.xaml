@@ -173,6 +173,7 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="기본 보기 모드" />
@@ -218,6 +219,17 @@
                                         <Button Style="{StaticResource SpinnerButtonStyle}" Content="▴" Click="OnRowHeightIncreaseClick" />
                                         <Button Style="{StaticResource SpinnerButtonStyle}" Content="▾" Click="OnRowHeightDecreaseClick" />
                                     </StackPanel>
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,10,0,0" VerticalAlignment="Center" Text="숨김/시스템 항목" />
+                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,10,0,0">
+                                    <CheckBox x:Name="CheckShowHiddenItems"
+                                              Content="숨김 파일/폴더 표시"
+                                              IsChecked="True" />
+                                    <CheckBox x:Name="CheckShowSystemItems"
+                                              Margin="0,6,0,0"
+                                              Content="시스템 파일/폴더 표시"
+                                              IsChecked="True" />
                                 </StackPanel>
                             </Grid>
                         </GroupBox>

@@ -11,7 +11,8 @@ Windows용 업무형 파일 탐색기입니다. 빠른 키보드 중심 탐색 �
 - 복사/이동/삭제/이름변경/F키 단축키 중심 작업
 - Shift + 방향키 다중 범위 선택 지원
 - 파일 복사/이동/삭제 시 "모두 취소" 기능 지원
-- 구조적인 패널 간 키보드 포커스 간섭(Drift) 완벽 차단
+- 숨김/시스템 파일·폴더 표시 여부 설정
+- 패널 간 키보드 포커스 간섭(Drift) 차단
 
 ## 스크린샷
 > 아래 이미지는 최신 UI로 계속 갱신됩니다.
@@ -24,31 +25,24 @@ Windows용 업무형 파일 탐색기입니다. 빠른 키보드 중심 탐색 �
 
 ## 다운로드
 - 최신 릴리즈: `https://github.com/wookoon2024/K-Explorer/releases/latest`
-- 최신 버전: `v1.3.8`
-- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.8`
-- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.8.zip`
-- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.8.zip)
-- 배포 파일: `K-Explorer-win-x64-v1.3.8.zip`
+- 최신 버전: `v1.3.9`
+- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.9`
+- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.9.zip`
+- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.9.zip)
+- 배포 파일: `K-Explorer-win-x64-v1.3.9.zip`
 - 최종 배포일: `2026-07-20`
 
 ## 버전 히스토리
-- [v1.3.8 릴리즈 노트](RELEASE_NOTES_v1.3.8.md)
-- [v1.3.7 릴리즈 노트](RELEASE_NOTES_v1.3.7.md)
-- [v1.3.6 릴리즈 노트](RELEASE_NOTES_v1.3.6.md)
-- [v1.3.5 릴리즈 노트](RELEASE_NOTES_v1.3.5.md)
-- [v1.3.4 릴리즈 노트](RELEASE_NOTES_v1.3.4.md)
-- [v1.3.3 릴리즈 노트](RELEASE_NOTES_v1.3.3.md)
-- [v1.3.2 릴리즈 노트](RELEASE_NOTES_v1.3.2.md)
-- [v1.3.1 릴리즈 노트](RELEASE_NOTES_v1.3.1.md)
-- [v1.3.0 릴리즈 노트](RELEASE_NOTES_v1.3.0.md)
-- [v1.2.0 릴리즈 노트](RELEASE_NOTES_v1.2.0.md)
-- [v1.1.0 릴리즈 노트](RELEASE_NOTES_v1.1.0.md)
-- [v1.0.0 릴리즈 노트](RELEASE_NOTES_v1.0.0.md)
+- [v1.3.9 릴리즈 노트](RELEASE_NOTES_v1.3.9.md)
+
+이전 버전의 릴리즈 노트는 저장소 커밋 기록에서 확인할 수 있습니다.
 
 ## 실행 방법
-1. 릴리즈에서 `K-Explorer-win-x64.zip` 다운로드
+1. 위 [빠른다운로드](#다운로드)에서 `K-Explorer-win-x64-v1.3.9.zip` 다운로드
 2. 압축 해제
 3. `K-Explorer.exe` 실행
+
+> .NET 8 데스크톱 런타임이 설치돼 있어야 합니다.
 
 ## 개발 환경
 - .NET 8
@@ -62,8 +56,8 @@ dotnet build WorkFileExplorer.sln -c Release
 
 ## 퍼블리시
 ```powershell
-dotnet publish WorkFileExplorer.App\WorkFileExplorer.App.csproj -c Release -r win-x64 --self-contained false -o artifacts\deploy_20260423\WorkFileExplorer
+dotnet publish WorkFileExplorer.App\WorkFileExplorer.App.csproj -c Release -r win-x64 --self-contained false -o artifacts\publish\WorkFileExplorer
 ```
 
 ## 라이선스
-사내/개인 프로젝트 정책에 맞는 라이선스를 선택해 추가하세요.
+개인 프로젝트로, 별도의 라이선스를 정하지 않았습니다. 모든 권리는 저작자에게 있습니다.
