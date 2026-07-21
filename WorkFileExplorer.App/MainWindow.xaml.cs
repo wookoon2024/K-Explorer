@@ -1780,13 +1780,14 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Delete)
         {
-            if (selected.Count == 0)
+            var targetSelected = selected.Where(item => !item.IsParentDirectory).ToList();
+            if (targetSelected.Count == 0)
             {
                 return true;
             }
 
             var requireConfirm = Vm.ConfirmBeforeDelete;
-            var message = $"선택한 {selected.Count}개 항목을 삭제하시겠습니까?";
+            var message = $"선택한 {targetSelected.Count}개 항목을 삭제하시겠습니까?";
             if (!requireConfirm || StyledDialogWindow.ShowConfirm(this, "삭제 확인", message))
             {
                 // Synchronously focus the active slot container to prevent focus from drifting.
@@ -1819,7 +1820,7 @@ public partial class MainWindow : Window
                     }
                 }
 
-                await Vm.DeleteItemsFromPanelAsync(panel, selected);
+                await Vm.DeleteItemsFromPanelAsync(panel, targetSelected);
                 RestoreKeyboardFocusAfterDelete();
             }
 
@@ -3150,7 +3151,7 @@ public partial class MainWindow : Window
     {
         if (Vm?.IsFourPanelMode == true && GetActiveFourPanel() is PanelViewModel panel)
         {
-            var selected = GetFourPanelSelectedItems(panel);
+            var selected = GetFourPanelSelectedItems(panel).Where(item => !item.IsParentDirectory).ToList();
             if (selected.Count == 0)
             {
                 return;
@@ -6559,11 +6560,11 @@ public partial class MainWindow : Window
 
         var activeLeft = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
         Vm.SetActivePanelCommand.Execute(activeLeft ? "Left" : "Right");
-        var selected = GetPanelSelectedItems(activeLeft);
+        var selected = GetPanelSelectedItems(activeLeft).Where(item => !item.IsParentDirectory).ToList();
         if (selected.Count == 0)
         {
             var opposite = !activeLeft;
-            var oppositeSelected = GetPanelSelectedItems(opposite);
+            var oppositeSelected = GetPanelSelectedItems(opposite).Where(item => !item.IsParentDirectory).ToList();
             if (oppositeSelected.Count > 0)
             {
                 activeLeft = opposite;
