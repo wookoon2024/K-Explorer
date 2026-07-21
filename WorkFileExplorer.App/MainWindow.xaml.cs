@@ -6560,23 +6560,31 @@ public partial class MainWindow : Window
 
         var activeLeft = ResolveKeyboardTargetPanelSide() ?? Vm.IsLeftPanelActive;
         Vm.SetActivePanelCommand.Execute(activeLeft ? "Left" : "Right");
-        var selected = GetPanelSelectedItems(activeLeft).Where(item => !item.IsParentDirectory).ToList();
-        if (selected.Count == 0)
+
+        var rawSelected = GetPanelSelectedItems(activeLeft);
+        List<FileSystemItem> selected;
+        if (rawSelected.Count > 0)
+        {
+            selected = rawSelected.Where(item => !item.IsParentDirectory).ToList();
+            if (selected.Count == 0)
+            {
+                return; // Active panel has selection (e.g. only [..]), so do nothing and do not fallback.
+            }
+        }
+        else
         {
             var opposite = !activeLeft;
-            var oppositeSelected = GetPanelSelectedItems(opposite).Where(item => !item.IsParentDirectory).ToList();
-            if (oppositeSelected.Count > 0)
+            var oppositeRawSelected = GetPanelSelectedItems(opposite);
+            selected = oppositeRawSelected.Where(item => !item.IsParentDirectory).ToList();
+            if (selected.Count > 0)
             {
                 activeLeft = opposite;
                 Vm.SetActivePanelCommand.Execute(activeLeft ? "Left" : "Right");
-                selected = oppositeSelected;
             }
-        }
-
-        if (selected.Count == 0)
-        {
-            LiveTrace.Write($"DeleteSelection abort: no selection active={(activeLeft ? "L" : "R")} leftSel={LeftPanelTilesList.SelectedItems.Count}/{LeftPanelGrid.SelectedItems.Count} rightSel={RightPanelTilesList.SelectedItems.Count}/{RightPanelGrid.SelectedItems.Count}");
-            return;
+            else
+            {
+                return;
+            }
         }
 
         var preview = string.Join(", ", selected.Take(3).Select(item =>
