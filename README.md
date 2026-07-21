@@ -25,20 +25,20 @@ Windows용 업무형 파일 탐색기입니다. 빠른 키보드 중심 탐색 �
 
 ## 다운로드
 - 최신 릴리즈: `https://github.com/wookoon2024/K-Explorer/releases/latest`
-- 최신 버전: `v1.3.10`
-- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.10`
-- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.10.zip`
-- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.10.zip)
-- 배포 파일: `K-Explorer-win-x64-v1.3.10.zip`
+- 최신 버전: `v1.3.11`
+- 최신 버전 링크: `https://github.com/wookoon2024/K-Explorer/releases/tag/v1.3.11`
+- 최신 파일 다운로드 (zip): `https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.11.zip`
+- [빠른다운로드 (zip)](https://raw.githubusercontent.com/wookoon2024/K-Explorer/main/K-Explorer-win-x64-v1.3.11.zip)
+- 배포 파일: `K-Explorer-win-x64-v1.3.11.zip`
 - 최종 배포일: `2026-07-21`
 
 ## 버전 히스토리
-- [v1.3.10 릴리즈 노트](RELEASE_NOTES_v1.3.10.md)
+- [v1.3.11 릴리즈 노트](RELEASE_NOTES_v1.3.11.md)
 
 이전 버전의 릴리즈 노트는 저장소 커밋 기록에서 확인할 수 있습니다.
 
 ## 실행 방법
-1. 위 [빠른다운로드](#다운로드)에서 `K-Explorer-win-x64-v1.3.10.zip` 다운로드
+1. 위 [빠른다운로드](#다운로드)에서 `K-Explorer-win-x64-v1.3.11.zip` 다운로드
 2. 압축 해제
 3. `K-Explorer.exe` 실행
 

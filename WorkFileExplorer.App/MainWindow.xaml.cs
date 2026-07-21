@@ -21,6 +21,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Win32.SafeHandles;
 using Microsoft.VisualBasic;
+using WorkFileExplorer.App.Controls;
 using WorkFileExplorer.App.Dialogs;
 using WorkFileExplorer.App.Helpers;
 using WorkFileExplorer.App.Models;
@@ -544,6 +545,9 @@ public partial class MainWindow : Window
     private readonly Dictionary<FourPanelSlotViewModel, List<DataGrid>> _fourPanelGrids = new();
     private readonly Dictionary<FourPanelSlotViewModel, List<ListBox>> _fourPanelTileLists = new();
     private readonly Dictionary<ListBox, double> _adaptiveTileSizes = new();
+
+    // Fixed compact-list row height, mirroring CompactListItemStyle's Height=22.
+    private const double CompactListRowHeight = 22;
     private Point _favoriteToolbarDragStart;
     private QuickAccessItem? _favoriteToolbarDragItem;
     private readonly ObservableCollection<FavoriteFolderTreeNode> _favoriteFlyoutNodes = [];
@@ -1030,7 +1034,7 @@ public partial class MainWindow : Window
     {
         _adaptiveTileSizes.Remove(list);
 
-        var wrapPanel = FindDescendant<WrapPanel>(list);
+        var wrapPanel = FindDescendant<VirtualizingWrapPanel>(list);
         if (wrapPanel is null)
         {
             return;
@@ -1063,7 +1067,9 @@ public partial class MainWindow : Window
 
         itemWidth = Math.Clamp(itemWidth, minItemWidth, maxItemWidth);
         wrapPanel.ItemWidth = itemWidth;
-        wrapPanel.ClearValue(WrapPanel.ItemHeightProperty);
+        // Compact rows are a fixed 22px tall (see CompactListItemStyle). The
+        // virtualizing panel needs an explicit uniform cell height to lay out.
+        wrapPanel.ItemHeight = CompactListRowHeight;
         _adaptiveTileSizes[list] = itemWidth;
     }
 
@@ -1169,7 +1175,7 @@ public partial class MainWindow : Window
 
     private int GetTileItemsPerRow(ListBox list)
     {
-        var wrapPanel = FindDescendant<WrapPanel>(list);
+        var wrapPanel = FindDescendant<VirtualizingWrapPanel>(list);
         if (wrapPanel is null ||
             double.IsNaN(wrapPanel.ItemWidth) ||
             wrapPanel.ItemWidth <= 0 ||
