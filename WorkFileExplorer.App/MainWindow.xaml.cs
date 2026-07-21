@@ -1844,17 +1844,12 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (e.Key == Key.F5 && GetFourPanelTransferTarget(panel) is PanelViewModel copyTarget)
+        if (e.Key == Key.F4)
         {
-            await Vm.CopyOrMoveBetweenPanelsAsync(panel, copyTarget, selected, move: false);
-            Vm.StatusText = $"복사: 패널 {_activeFourPanelIndex + 1} -> 패널 {GetFourPanelIndex(copyTarget) + 1}";
-            return true;
-        }
-
-        if (e.Key == Key.F6 && GetFourPanelTransferTarget(panel) is PanelViewModel moveTarget)
-        {
-            await Vm.CopyOrMoveBetweenPanelsAsync(panel, moveTarget, selected, move: true);
-            Vm.StatusText = $"이동: 패널 {_activeFourPanelIndex + 1} -> 패널 {GetFourPanelIndex(moveTarget) + 1}";
+            if (selected.Count == 1 && !selected[0].IsParentDirectory && !selected[0].IsDirectory)
+            {
+                LaunchExternalEditor(selected[0].FullPath);
+            }
             return true;
         }
 
@@ -2243,6 +2238,56 @@ public partial class MainWindow : Window
         finally
         {
             _ignoreDriveSelectionChanged = false;
+        }
+    }
+
+    private async void OnLeftDriveListBoxPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox || Vm is null)
+        {
+            return;
+        }
+
+        var element = e.OriginalSource as DependencyObject;
+        while (element is not null && element != listBox)
+        {
+            if (element is ListBoxItem item)
+            {
+                if (item.Content is string drive)
+                {
+                    if (item.IsSelected)
+                    {
+                        await Vm.NavigateToDriveAsync(leftPanel: true, drive);
+                    }
+                }
+                break;
+            }
+            element = VisualTreeHelper.GetParent(element);
+        }
+    }
+
+    private async void OnRightDriveListBoxPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not ListBox listBox || Vm is null)
+        {
+            return;
+        }
+
+        var element = e.OriginalSource as DependencyObject;
+        while (element is not null && element != listBox)
+        {
+            if (element is ListBoxItem item)
+            {
+                if (item.Content is string drive)
+                {
+                    if (item.IsSelected)
+                    {
+                        await Vm.NavigateToDriveAsync(leftPanel: false, drive);
+                    }
+                }
+                break;
+            }
+            element = VisualTreeHelper.GetParent(element);
         }
     }
 
@@ -3176,6 +3221,81 @@ public partial class MainWindow : Window
         }
 
         await Vm.CreateNewFolderAsync(folderName);
+    }
+
+    private async void OnNewFileClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var fileName = NewFolderDialog.ShowDialog(
+            this,
+            initialName: "New File.txt",
+            titleText: "새 파일 만들기",
+            labelText: "새 파일 이름을 입력하세요.");
+
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return;
+        }
+
+        if (Vm.IsFourPanelMode && GetActiveFourPanel() is PanelViewModel fourPanel)
+        {
+            await Vm.CreateNewFileInPanelAsync(fourPanel, fileName);
+            return;
+        }
+
+        await Vm.CreateNewFileAsync(fileName);
+    }
+
+    private void OnEditWithExternalEditorClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var selected = GetActiveSelectedItems();
+        if (selected.Count != 1)
+        {
+            StyledDialogWindow.ShowInfo(this, "알림", "편집할 파일을 하나 선택해 주세요.");
+            return;
+        }
+
+        var item = selected[0];
+        if (item.IsParentDirectory || item.IsDirectory)
+        {
+            StyledDialogWindow.ShowInfo(this, "알림", "폴더는 편집할 수 없습니다.");
+            return;
+        }
+
+        LaunchExternalEditor(item.FullPath);
+    }
+
+    private void LaunchExternalEditor(string filePath)
+    {
+        if (Vm is null) return;
+        var editor = Vm.ExternalEditorPath;
+        if (string.IsNullOrWhiteSpace(editor))
+        {
+            editor = "notepad.exe";
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editor,
+                Arguments = $"\"{filePath}\"",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            StyledDialogWindow.ShowInfo(this, "오류", $"편집기를 실행할 수 없습니다.\n경로: {editor}\n사유: {ex.Message}");
+        }
     }
 
     private async void OnTogglePinClick(object sender, RoutedEventArgs e)
@@ -4164,17 +4284,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.Key == Key.F5)
+        if (e.Key == Key.F4)
         {
+            var selected = GetActiveSelectedItems();
+            if (selected.Count == 1 && !selected[0].IsParentDirectory && !selected[0].IsDirectory)
+            {
+                LaunchExternalEditor(selected[0].FullPath);
+            }
             e.Handled = true;
-            await Vm.CopySelectedToOtherPanelAsync(GetActiveSelectedItems());
-            return;
-        }
-
-        if (e.Key == Key.F6)
-        {
-            e.Handled = true;
-            await Vm.MoveSelectedToOtherPanelAsync(GetActiveSelectedItems());
             return;
         }
 
@@ -5500,6 +5617,13 @@ public partial class MainWindow : Window
         };
         newFolderMenu.Click += OnNewFolderClick;
         menu.Items.Add(newFolderMenu);
+
+        var newFileMenu = new MenuItem
+        {
+            Header = "새 파일"
+        };
+        newFileMenu.Click += OnNewFileClick;
+        menu.Items.Add(newFileMenu);
 
         var pasteMenu = new MenuItem
         {
@@ -6974,6 +7098,12 @@ public partial class MainWindow : Window
 
     private void UpdateImageHoverPreview(ItemsControl control, MouseEventArgs e)
     {
+        if (Vm is null || !Vm.EnableImageHoverPreview)
+        {
+            HideImageHoverPreview();
+            return;
+        }
+
         if (control is null || !IsVisible)
         {
             HideImageHoverPreview();

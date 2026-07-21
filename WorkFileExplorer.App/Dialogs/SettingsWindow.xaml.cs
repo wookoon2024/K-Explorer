@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -92,6 +92,8 @@ public partial class SettingsWindow : Window
         CheckShowHiddenItems.IsChecked = snapshot.ShowHiddenItems;
         CheckShowSystemItems.IsChecked = snapshot.ShowSystemItems;
         CheckConfirmDeleteFileSection.IsChecked = snapshot.ConfirmBeforeDelete;
+        TextExternalEditorPath.Text = snapshot.ExternalEditorPath;
+        CheckEnableImageHoverPreview.IsChecked = snapshot.EnableImageHoverPreview;
         CheckSearchRecursive.IsChecked = snapshot.SearchRecursive;
         ExtensionColorRulesGrid.ItemsSource = _extensionColorRules;
         LoadExtensionColorRulesForTheme(_editingThemeMode);
@@ -161,7 +163,9 @@ public partial class SettingsWindow : Window
             ThemeColorOverrides = BuildThemeColorOverrides(),
             FileListFontFamily = string.IsNullOrWhiteSpace(ComboFileListFontFamily.Text) ? vm.FileListFontFamily : ComboFileListFontFamily.Text.Trim(),
             FileListFontSize = ParseDoubleInRange(TextFileListFontSize.Text, vm.FileListFontSize, 9, 28),
-            FileListRowHeight = ParseDoubleInRange(TextFileListRowHeight.Text, vm.FileListRowHeight, 16, 52)
+            FileListRowHeight = ParseDoubleInRange(TextFileListRowHeight.Text, vm.FileListRowHeight, 16, 52),
+            ExternalEditorPath = string.IsNullOrWhiteSpace(TextExternalEditorPath.Text) ? "notepad.exe" : TextExternalEditorPath.Text.Trim(),
+            EnableImageHoverPreview = CheckEnableImageHoverPreview.IsChecked == true
         };
     }
 
@@ -714,6 +718,19 @@ public partial class SettingsWindow : Window
         }
 
         return Math.Clamp(value, min, max);
+    }
+
+    private void OnBrowseExternalEditorClick(object sender, RoutedEventArgs e)
+    {
+        var openFileDialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "실행 파일 (*.exe)|*.exe|모든 파일 (*.*)|*.*",
+            Title = "외부 편집 프로그램 선택"
+        };
+        if (openFileDialog.ShowDialog(this) == true)
+        {
+            TextExternalEditorPath.Text = openFileDialog.FileName;
+        }
     }
 
     private static void AdjustNumericTextBox(TextBox textBox, int step, double min, double max)

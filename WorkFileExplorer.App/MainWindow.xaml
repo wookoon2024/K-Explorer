@@ -1408,12 +1408,14 @@
         <Menu DockPanel.Dock="Top" Background="{Binding ThemeMenuBackground}" Foreground="{Binding ThemeMenuForeground}" FontSize="12">
             <MenuItem Header="파일(F)">
                 <MenuItem Header="열기" InputGestureText="Enter" Click="OnFileMenuOpenClick" />
+                <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
                 <Separator />
-                <MenuItem Header="복사" InputGestureText="F5" Click="OnCopyClick" />
-                <MenuItem Header="이동" InputGestureText="F6" Click="OnMoveClick" />
+                <MenuItem Header="복사" Click="OnCopyClick" />
+                <MenuItem Header="이동" Click="OnMoveClick" />
                 <MenuItem Header="삭제" InputGestureText="Del" Click="OnDeleteClick" />
                 <MenuItem Header="이름 바꾸기" InputGestureText="F2" Click="OnRenameClick" />
                 <MenuItem Header="새 폴더" InputGestureText="F7" Click="OnNewFolderClick" />
+                <MenuItem Header="새 파일" Click="OnNewFileClick" />
                 <Separator />
                 <MenuItem Header="핀 고정/해제" Click="OnTogglePinClick" />
                 <MenuItem Header="파일 즐겨찾기/해제" Click="OnToggleFavoriteClick" />
@@ -1431,12 +1433,14 @@
             </MenuItem>
             <MenuItem Header="명령(C)">
                 <MenuItem Header="열기" InputGestureText="Enter" Click="OnFileMenuOpenClick" />
+                <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
                 <Separator />
-                <MenuItem Header="복사" InputGestureText="F5" Click="OnCopyClick" />
-                <MenuItem Header="이동" InputGestureText="F6" Click="OnMoveClick" />
+                <MenuItem Header="복사" Click="OnCopyClick" />
+                <MenuItem Header="이동" Click="OnMoveClick" />
                 <MenuItem Header="삭제" InputGestureText="Del" Click="OnDeleteClick" />
                 <MenuItem Header="이름 바꾸기" InputGestureText="F2" Click="OnRenameClick" />
                 <MenuItem Header="새 폴더" InputGestureText="F7" Click="OnNewFolderClick" />
+                <MenuItem Header="새 파일" Click="OnNewFileClick" />
                 <Separator />
                 <MenuItem Header="속성" InputGestureText="Alt+Enter" Click="OnFileMenuPropertiesClick" />
                 <MenuItem Header="검색" InputGestureText="Ctrl+F" Click="OnSearchClick" />
@@ -1683,7 +1687,7 @@
                                      BorderThickness="0"
                                      ItemsSource="{Binding AvailableDrives}"
                                      SelectedItem="{Binding SelectedLeftDrive}"
-                                     SelectionChanged="OnLeftDriveSelectionChanged"
+                                     SelectionChanged="OnLeftDriveSelectionChanged" PreviewMouseLeftButtonDown="OnLeftDriveListBoxPreviewMouseLeftButtonDown"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListBox.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -1805,7 +1809,7 @@
                                      BorderThickness="0"
                                      ItemsSource="{Binding AvailableDrives}"
                                      SelectedItem="{Binding SelectedRightDrive}"
-                                     SelectionChanged="OnRightDriveSelectionChanged"
+                                     SelectionChanged="OnRightDriveSelectionChanged" PreviewMouseLeftButtonDown="OnRightDriveListBoxPreviewMouseLeftButtonDown"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListBox.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -1964,6 +1968,7 @@
                         <DataGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
                                 <Separator />
                                 <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
                                 <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
@@ -2147,6 +2152,7 @@
                         <ListBox.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
                                 <Separator />
                                 <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
                                 <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
@@ -2331,6 +2337,7 @@
                         <DataGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
                                 <Separator />
                                 <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
                                 <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
@@ -2514,6 +2521,7 @@
                         <ListBox.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="열기" Click="OnContextOpenClick" />
+                                <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
                                 <Separator />
                                 <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
                                 <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />

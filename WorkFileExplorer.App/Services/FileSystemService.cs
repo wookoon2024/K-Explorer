@@ -1,4 +1,4 @@
-﻿using WorkFileExplorer.App.Models;
+using WorkFileExplorer.App.Models;
 using WorkFileExplorer.App.Services.Interfaces;
 
 namespace WorkFileExplorer.App.Services;
@@ -64,7 +64,12 @@ public sealed class FileSystemService : IFileSystemService
 
         try
         {
-            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(path.Trim()));
+            var trimmed = path.Trim();
+            if (trimmed.Length == 2 && char.IsLetter(trimmed[0]) && trimmed[1] == ':')
+            {
+                trimmed += "\\";
+            }
+            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(trimmed));
         }
         catch
         {

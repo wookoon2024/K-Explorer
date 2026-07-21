@@ -8,10 +8,12 @@ public partial class NewFolderDialog : Window, INotifyPropertyChanged
 {
     private string _folderName = "New Folder";
 
-    public NewFolderDialog(string initialName)
+    public NewFolderDialog(string initialName, string titleText = "새 폴더 만들기", string labelText = "새 폴더 이름을 입력하세요.")
     {
         InitializeComponent();
         DataContext = this;
+        TitleText = titleText;
+        LabelText = labelText;
         FolderName = string.IsNullOrWhiteSpace(initialName) ? "New Folder" : initialName.Trim();
 
         Loaded += (_, _) =>
@@ -25,6 +27,9 @@ public partial class NewFolderDialog : Window, INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string TitleText { get; }
+    public string LabelText { get; }
 
     public string FolderName
     {
@@ -41,9 +46,9 @@ public partial class NewFolderDialog : Window, INotifyPropertyChanged
         }
     }
 
-    public static string? ShowDialog(Window owner, string initialName = "New Folder")
+    public static string? ShowDialog(Window owner, string initialName = "New Folder", string titleText = "새 폴더 만들기", string labelText = "새 폴더 이름을 입력하세요.")
     {
-        var dialog = new NewFolderDialog(initialName)
+        var dialog = new NewFolderDialog(initialName, titleText, labelText)
         {
             Owner = owner
         };
@@ -57,13 +62,13 @@ public partial class NewFolderDialog : Window, INotifyPropertyChanged
         var name = (FolderName ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            StyledDialogWindow.ShowInfo(this, "알림", "폴더 이름을 입력해 주세요.");
+            StyledDialogWindow.ShowInfo(this, "알림", "이름을 입력해 주세요.");
             return;
         }
 
         if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
-            StyledDialogWindow.ShowInfo(this, "알림", "폴더 이름에 사용할 수 없는 문자가 있습니다.");
+            StyledDialogWindow.ShowInfo(this, "알림", "이름에 사용할 수 없는 문자가 있습니다.");
             return;
         }
 

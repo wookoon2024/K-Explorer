@@ -1,7 +1,7 @@
 <Window x:Class="WorkFileExplorer.App.Dialogs.NewFolderDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="새 폴더 만들기"
+        Title="{Binding TitleText}"
         Width="420"
         SizeToContent="Height"
         MinWidth="380"
@@ -18,7 +18,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
-                   Text="새 폴더 이름을 입력하세요."
+                   Text="{Binding LabelText}"
                    FontSize="13"
                    Foreground="#1F1F1F"
                    Margin="0,0,0,6" />

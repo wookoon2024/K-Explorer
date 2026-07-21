@@ -1,4 +1,4 @@
-﻿namespace WorkFileExplorer.App.Models;
+namespace WorkFileExplorer.App.Models;
 
 public sealed class AppSettings
 {
@@ -43,4 +43,6 @@ public sealed class AppSettings
     public string FileListFontFamily { get; set; } = "Malgun Gothic";
     public double FileListFontSize { get; set; } = 13;
     public double FileListRowHeight { get; set; } = 18;
+    public string ExternalEditorPath { get; set; } = "notepad.exe";
+    public bool EnableImageHoverPreview { get; set; } = false;
 }

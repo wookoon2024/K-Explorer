@@ -37,6 +37,8 @@ public sealed class MainWindowViewModel : ObservableObject
         public string FileListFontFamily { get; init; } = "Malgun Gothic";
         public double FileListFontSize { get; init; } = 13;
         public double FileListRowHeight { get; init; } = 18;
+        public string ExternalEditorPath { get; init; } = "notepad.exe";
+        public bool EnableImageHoverPreview { get; init; }
     }
 
     private sealed class FourPanelTabsState
@@ -136,6 +138,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _postMutationRefreshQueued;
     private readonly List<ClipboardTransferItem> _clipboardItems = new();
     private bool _clipboardCutMode;
+    private bool _isDeleting;
     private readonly Dictionary<string, CachedDirectoryItems> _directoryItemsCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CachedFreeSpaceInfo> _freeSpaceCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _freeSpaceRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
@@ -860,6 +863,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public double FileListRowHeight => NormalizeFileListRowHeight(_settings.FileListRowHeight);
 
+    public string ExternalEditorPath => _settings.ExternalEditorPath;
+
+    public bool EnableImageHoverPreview => _settings.EnableImageHoverPreview;
+
     public string ThemeMode => NormalizeThemeMode(_settings.ThemeMode);
     public bool IsWhiteTheme => string.Equals(ThemeMode, "White", StringComparison.OrdinalIgnoreCase);
     public string ThemeWindowBackground => ResolveThemeColor("WindowBackground");
@@ -1448,41 +1455,48 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 progress.NotifyWorkStarted();
-                if (_clipboardCutMode)
+                try
                 {
-                    if (item.IsDirectory)
+                    if (_clipboardCutMode)
                     {
-                        if (exists)
+                        if (item.IsDirectory)
                         {
-                            CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
-                            Directory.Delete(item.Path, true);
+                            if (exists)
+                            {
+                                CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
+                                Directory.Delete(item.Path, true);
+                            }
+                            else
+                            {
+                                var units = CountTransferUnits(item.Path, true);
+                                Directory.Move(item.Path, destinationPath);
+                                AdvanceBy(units, destinationPath);
+                            }
                         }
                         else
                         {
-                            var units = CountTransferUnits(item.Path, true);
-                            Directory.Move(item.Path, destinationPath);
-                            AdvanceBy(units, destinationPath);
+                            File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                            Advance(destinationPath);
                         }
+
+                        movedItems.Add(item);
+                        movedPathEntries.Add((item.Path, destinationPath, item.IsDirectory));
+                        continue;
+                    }
+
+                    if (item.IsDirectory)
+                    {
+                        CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
                     }
                     else
                     {
-                        File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                        File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                         Advance(destinationPath);
                     }
-
-                    movedItems.Add(item);
-                    movedPathEntries.Add((item.Path, destinationPath, item.IsDirectory));
-                    continue;
                 }
-
-                if (item.IsDirectory)
+                catch (OperationCanceledException)
                 {
-                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
-                }
-                else
-                {
-                    File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                    Advance(destinationPath);
+                    break;
                 }
             }
         });
@@ -1543,94 +1557,102 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task DeleteSelectedAsync(IReadOnlyList<FileSystemItem>? selectedItems = null)
     {
-        var panel = GetActivePanel();
-        var items = ResolveSelection(panel, selectedItems)
-            .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
-            .ToArray();
-        if (items.Length == 0) return;
-        LiveTrace.Write($"VM.DeleteSelected start panel='{panel.CurrentPath}' count={items.Length}");
-
-        var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
-        var deletingPaths = items
-            .Select(item => item.FullPath)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
-
-        var deletedItems = new List<FileSystemItem>(items.Length);
-        var failedItems = new List<(string Path, string Reason)>();
-        using (var progress = TransferProgressWindow.Start("삭제", items.Length))
+        _isDeleting = true;
+        try
         {
-            await Task.Run(() =>
-            {
-                progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
-                var completed = 0;
-                void Advance(string path) => progress.ReportItem(completed++, path);
+            var panel = GetActivePanel();
+            var items = ResolveSelection(panel, selectedItems)
+                .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
+                .ToArray();
+            if (items.Length == 0) return;
+            LiveTrace.Write($"VM.DeleteSelected start panel='{panel.CurrentPath}' count={items.Length}");
 
-                foreach (var item in items)
+            var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
+            var deletingPaths = items
+                .Select(item => item.FullPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
+
+            var deletedItems = new List<FileSystemItem>(items.Length);
+            var failedItems = new List<(string Path, string Reason)>();
+            using (var progress = TransferProgressWindow.Start("삭제", items.Length))
+            {
+                await Task.Run(() =>
                 {
-                    if (progress.Token.IsCancellationRequested)
-                    {
-                        break;
-                    }
+                    progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+                    var completed = 0;
+                    void Advance(string path) => progress.ReportItem(completed++, path);
 
-                    progress.NotifyWorkStarted();
-                    if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                    foreach (var item in items)
                     {
-                        deletedItems.Add(item);
-                    }
-                    else
-                    {
-                        failedItems.Add((item.FullPath, reason));
-                    }
-                }
-            });
-        }
+                        if (progress.Token.IsCancellationRequested)
+                        {
+                            break;
+                        }
 
-        if (deletedItems.Count == 0)
-        {
-            if (failedItems.Count > 0)
-            {
-                StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
-                LiveTrace.Write($"VM.DeleteSelected all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
-                ShowDeleteError(failedItems);
+                        progress.NotifyWorkStarted();
+                        if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                        {
+                            deletedItems.Add(item);
+                        }
+                        else
+                        {
+                            failedItems.Add((item.FullPath, reason));
+                        }
+                    }
+                });
             }
 
-            return;
-        }
+            if (deletedItems.Count == 0)
+            {
+                if (failedItems.Count > 0)
+                {
+                    StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
+                    LiveTrace.Write($"VM.DeleteSelected all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+                    ShowDeleteError(failedItems);
+                }
 
-        var memoChanged = false;
-        foreach (var item in deletedItems)
-        {
-            memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
-        }
+                return;
+            }
 
-        if (memoChanged)
-        {
-            await PersistSettingsAsync();
-        }
+            var memoChanged = false;
+            foreach (var item in deletedItems)
+            {
+                memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
+            }
 
-        if (!string.IsNullOrWhiteSpace(expectedSelectionPath))
-        {
-            panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
-                !entry.IsParentDirectory &&
-                string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
-        }
+            if (memoChanged)
+            {
+                await PersistSettingsAsync();
+            }
 
-        await CloseTabsForDeletedDirectoriesAsync(deletedItems);
-        await ReloadPanelsForPathsAsync([panel.CurrentPath]);
-        QueuePostMutationRefresh();
-        SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
+            if (!string.IsNullOrWhiteSpace(expectedSelectionPath))
+            {
+                panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
+                    !entry.IsParentDirectory &&
+                    string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
+            }
 
-        if (failedItems.Count > 0)
-        {
-            StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
-            LiveTrace.Write($"VM.DeleteSelected partial success={deletedItems.Count} failed={failedItems.Count}");
-            LiveTrace.Write($"VM.DeleteSelected first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
-            ShowDeleteError(failedItems);
+            await CloseTabsForDeletedDirectoriesAsync(deletedItems);
+            await ReloadPanelsForPathsAsync([panel.CurrentPath]);
+            QueuePostMutationRefresh();
+            SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
+
+            if (failedItems.Count > 0)
+            {
+                StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
+                LiveTrace.Write($"VM.DeleteSelected partial success={deletedItems.Count} failed={failedItems.Count}");
+                LiveTrace.Write($"VM.DeleteSelected first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+                ShowDeleteError(failedItems);
+            }
+            else
+            {
+                LiveTrace.Write($"VM.DeleteSelected success count={deletedItems.Count}");
+            }
         }
-        else
+        finally
         {
-            LiveTrace.Write($"VM.DeleteSelected success count={deletedItems.Count}");
+            _isDeleting = false;
         }
     }
 
@@ -1726,6 +1748,22 @@ public sealed class MainWindowViewModel : ObservableObject
         var dest = EnsureUniquePath(panel.CurrentPath, name, true);
         Directory.CreateDirectory(dest);
         await ReloadPanelsAndDashboardAsync();
+        panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
+            !entry.IsParentDirectory &&
+            string.Equals(entry.FullPath, dest, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task CreateNewFileAsync(string fileName)
+    {
+        var panel = GetActivePanel();
+        var name = (fileName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var dest = EnsureUniquePath(panel.CurrentPath, name, false);
+        File.WriteAllBytes(dest, Array.Empty<byte>());
+        await ReloadPanelsAndDashboardAsync();
+        panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
+            !entry.IsParentDirectory &&
+            string.Equals(entry.FullPath, dest, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task TogglePinForActiveSelectionAsync(IReadOnlyList<FileSystemItem>? selectedItems = null)
@@ -2689,7 +2727,9 @@ public sealed class MainWindowViewModel : ObservableObject
             ThemeColorOverrides = _settings.ThemeColorOverrides.ToList(),
             FileListFontFamily = FileListFontFamily,
             FileListFontSize = FileListFontSize,
-            FileListRowHeight = FileListRowHeight
+            FileListRowHeight = FileListRowHeight,
+            ExternalEditorPath = _settings.ExternalEditorPath,
+            EnableImageHoverPreview = _settings.EnableImageHoverPreview
         };
     }
 
@@ -2728,6 +2768,8 @@ public sealed class MainWindowViewModel : ObservableObject
         _settings.FileListFontFamily = NormalizeFileListFontFamily(snapshot.FileListFontFamily);
         _settings.FileListFontSize = NormalizeFileListFontSize(snapshot.FileListFontSize);
         _settings.FileListRowHeight = NormalizeFileListRowHeight(snapshot.FileListRowHeight);
+        _settings.ExternalEditorPath = string.IsNullOrWhiteSpace(snapshot.ExternalEditorPath) ? "notepad.exe" : snapshot.ExternalEditorPath.Trim();
+        _settings.EnableImageHoverPreview = snapshot.EnableImageHoverPreview;
 
         SelectedConflictPolicyDisplay = _settings.ConflictPolicyDisplay;
         SearchScope = _settings.DefaultSearchScope;
@@ -3620,95 +3662,103 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task DeleteItemsFromPanelAsync(PanelViewModel panel, IReadOnlyList<FileSystemItem>? selectedItems)
     {
-        var items = ResolveSelection(panel, selectedItems)
-            .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
-            .ToArray();
-        if (items.Length == 0)
+        _isDeleting = true;
+        try
         {
-            return;
-        }
-        LiveTrace.Write($"VM.DeleteItemsFromPanel start panel='{panel.CurrentPath}' count={items.Length}");
-
-        var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
-        var deletingPaths = items
-            .Select(item => item.FullPath)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
-        var deletedItems = new List<FileSystemItem>(items.Length);
-        var failedItems = new List<(string Path, string Reason)>();
-        using (var progress = TransferProgressWindow.Start("삭제", items.Length))
-        {
-            await Task.Run(() =>
+            var items = ResolveSelection(panel, selectedItems)
+                .Where(item => !item.IsParentDirectory && !string.IsNullOrWhiteSpace(item.FullPath))
+                .ToArray();
+            if (items.Length == 0)
             {
-                progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
-                var completed = 0;
-                void Advance(string path) => progress.ReportItem(completed++, path);
+                return;
+            }
+            LiveTrace.Write($"VM.DeleteItemsFromPanel start panel='{panel.CurrentPath}' count={items.Length}");
 
-                foreach (var item in items)
+            var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
+            var deletingPaths = items
+                .Select(item => item.FullPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
+            var deletedItems = new List<FileSystemItem>(items.Length);
+            var failedItems = new List<(string Path, string Reason)>();
+            using (var progress = TransferProgressWindow.Start("삭제", items.Length))
+            {
+                await Task.Run(() =>
                 {
-                    if (progress.Token.IsCancellationRequested)
-                    {
-                        break;
-                    }
+                    progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+                    var completed = 0;
+                    void Advance(string path) => progress.ReportItem(completed++, path);
 
-                    progress.NotifyWorkStarted();
-                    if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                    foreach (var item in items)
                     {
-                        deletedItems.Add(item);
-                    }
-                    else
-                    {
-                        failedItems.Add((item.FullPath, reason));
-                    }
-                }
-            });
-        }
+                        if (progress.Token.IsCancellationRequested)
+                        {
+                            break;
+                        }
 
-        if (deletedItems.Count == 0)
-        {
-            if (failedItems.Count > 0)
-            {
-                StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
-                LiveTrace.Write($"VM.DeleteItemsFromPanel all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
-                ShowDeleteError(failedItems);
+                        progress.NotifyWorkStarted();
+                        if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                        {
+                            deletedItems.Add(item);
+                        }
+                        else
+                        {
+                            failedItems.Add((item.FullPath, reason));
+                        }
+                    }
+                });
             }
 
-            return;
-        }
+            if (deletedItems.Count == 0)
+            {
+                if (failedItems.Count > 0)
+                {
+                    StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
+                    LiveTrace.Write($"VM.DeleteItemsFromPanel all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+                    ShowDeleteError(failedItems);
+                }
 
-        var memoChanged = false;
-        foreach (var item in deletedItems)
-        {
-            memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
-        }
+                return;
+            }
 
-        if (memoChanged)
-        {
-            await PersistSettingsAsync();
-        }
+            var memoChanged = false;
+            foreach (var item in deletedItems)
+            {
+                memoChanged |= RemoveMemoEntriesForPath(item.FullPath, item.IsDirectory);
+            }
 
-        if (!string.IsNullOrWhiteSpace(expectedSelectionPath))
-        {
-            panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
-                !entry.IsParentDirectory &&
-                string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
-        }
+            if (memoChanged)
+            {
+                await PersistSettingsAsync();
+            }
 
-        await CloseTabsForDeletedDirectoriesAsync(deletedItems);
-        await ReloadPanelsForPathsAsync([panel.CurrentPath]);
-        QueuePostMutationRefresh();
-        SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
+            if (!string.IsNullOrWhiteSpace(expectedSelectionPath))
+            {
+                panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
+                    !entry.IsParentDirectory &&
+                    string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
+            }
 
-        if (failedItems.Count > 0)
-        {
-            StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
-            LiveTrace.Write($"VM.DeleteItemsFromPanel partial success={deletedItems.Count} failed={failedItems.Count}");
-            LiveTrace.Write($"VM.DeleteItemsFromPanel first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
-            ShowDeleteError(failedItems);
+            await CloseTabsForDeletedDirectoriesAsync(deletedItems);
+            await ReloadPanelsForPathsAsync([panel.CurrentPath]);
+            QueuePostMutationRefresh();
+            SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
+
+            if (failedItems.Count > 0)
+            {
+                StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
+                LiveTrace.Write($"VM.DeleteItemsFromPanel partial success={deletedItems.Count} failed={failedItems.Count}");
+                LiveTrace.Write($"VM.DeleteItemsFromPanel first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+                ShowDeleteError(failedItems);
+            }
+            else
+            {
+                LiveTrace.Write($"VM.DeleteItemsFromPanel success count={deletedItems.Count}");
+            }
         }
-        else
+        finally
         {
-            LiveTrace.Write($"VM.DeleteItemsFromPanel success count={deletedItems.Count}");
+            _isDeleting = false;
         }
     }
 
@@ -4023,6 +4073,25 @@ public sealed class MainWindowViewModel : ObservableObject
         var destination = EnsureUniquePath(panel.CurrentPath, name, true);
         Directory.CreateDirectory(destination);
         await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
+        panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
+            !entry.IsParentDirectory &&
+            string.Equals(entry.FullPath, destination, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task CreateNewFileInPanelAsync(PanelViewModel panel, string fileName)
+    {
+        var name = (fileName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        var destination = EnsureUniquePath(panel.CurrentPath, name, false);
+        File.WriteAllBytes(destination, Array.Empty<byte>());
+        await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
+        panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
+            !entry.IsParentDirectory &&
+            string.Equals(entry.FullPath, destination, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task PasteClipboardToPanelAsync(PanelViewModel panel)
@@ -4148,40 +4217,47 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 progress.NotifyWorkStarted();
-                if (_clipboardCutMode)
+                try
                 {
-                    if (item.IsDirectory)
+                    if (_clipboardCutMode)
                     {
-                        if (exists)
+                        if (item.IsDirectory)
                         {
-                            CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
-                            Directory.Delete(item.Path, true);
+                            if (exists)
+                            {
+                                CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
+                                Directory.Delete(item.Path, true);
+                            }
+                            else
+                            {
+                                var units = CountTransferUnits(item.Path, true);
+                                Directory.Move(item.Path, destinationPath);
+                                AdvanceBy(units, destinationPath);
+                            }
                         }
                         else
                         {
-                            var units = CountTransferUnits(item.Path, true);
-                            Directory.Move(item.Path, destinationPath);
-                            AdvanceBy(units, destinationPath);
+                            File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                            Advance(destinationPath);
                         }
+
+                        movedItems.Add(item);
+                        continue;
+                    }
+
+                    if (item.IsDirectory)
+                    {
+                        CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
                     }
                     else
                     {
-                        File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                        File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
                         Advance(destinationPath);
                     }
-
-                    movedItems.Add(item);
-                    continue;
                 }
-
-                if (item.IsDirectory)
+                catch (OperationCanceledException)
                 {
-                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
-                }
-                else
-                {
-                    File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                    Advance(destinationPath);
+                    break;
                 }
             }
         });
@@ -4396,7 +4472,10 @@ public sealed class MainWindowViewModel : ObservableObject
             panel.CurrentPath = normalized;
             panel.SetItems(items);
             panel.ApplyFilter(SearchText);
-            RestoreSelectionOrTopAfterLoad(panel, previousSelectedPath, previousSelectedWasParent);
+            if (!_isDeleting)
+            {
+                RestoreSelectionOrTopAfterLoad(panel, previousSelectedPath, previousSelectedWasParent);
+            }
             UpdateTabTitleForPanel(panel);
             var bindElapsed = Stopwatch.GetElapsedTime(bindStart);
             LiveTrace.Write(
