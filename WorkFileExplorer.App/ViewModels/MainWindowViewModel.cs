@@ -1516,6 +1516,31 @@ public sealed class MainWindowViewModel : ObservableObject
         await ReloadPanelsForPathsAndDashboardAsync(affectedPaths);
     }
 
+    private static void ShowDeleteError(IReadOnlyList<(string Path, string Reason)> failedItems)
+    {
+        if (failedItems == null || failedItems.Count == 0)
+        {
+            return;
+        }
+
+        string message;
+        if (failedItems.Count == 1)
+        {
+            var fileName = Path.GetFileName(failedItems[0].Path);
+            message = $"'{fileName}'을(를) 삭제하지 못했습니다.\n\n{failedItems[0].Reason}";
+        }
+        else
+        {
+            var fileName = Path.GetFileName(failedItems[0].Path);
+            message = $"{failedItems.Count}개 항목을 삭제하지 못했습니다.\n\n첫 번째 실패 항목: '{fileName}'\n원인: {failedItems[0].Reason}";
+        }
+
+        if (Application.Current?.MainWindow is Window owner)
+        {
+            StyledDialogWindow.ShowInfo(owner, "삭제 실패", message);
+        }
+    }
+
     public async Task DeleteSelectedAsync(IReadOnlyList<FileSystemItem>? selectedItems = null)
     {
         var panel = GetActivePanel();
@@ -1565,6 +1590,7 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
                 LiveTrace.Write($"VM.DeleteSelected all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+                ShowDeleteError(failedItems);
             }
 
             return;
@@ -1598,6 +1624,7 @@ public sealed class MainWindowViewModel : ObservableObject
             StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
             LiveTrace.Write($"VM.DeleteSelected partial success={deletedItems.Count} failed={failedItems.Count}");
             LiveTrace.Write($"VM.DeleteSelected first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+            ShowDeleteError(failedItems);
         }
         else
         {
@@ -3639,6 +3666,7 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 StatusText = $"삭제 실패: {Path.GetFileName(failedItems[0].Path)} ({failedItems[0].Reason})";
                 LiveTrace.Write($"VM.DeleteItemsFromPanel all-failed first='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+                ShowDeleteError(failedItems);
             }
 
             return;
@@ -3672,6 +3700,7 @@ public sealed class MainWindowViewModel : ObservableObject
             StatusText = $"삭제 완료(일부 실패): 성공 {deletedItems.Count}, 실패 {failedItems.Count}";
             LiveTrace.Write($"VM.DeleteItemsFromPanel partial success={deletedItems.Count} failed={failedItems.Count}");
             LiveTrace.Write($"VM.DeleteItemsFromPanel first-fail='{failedItems[0].Path}' reason='{failedItems[0].Reason}'");
+            ShowDeleteError(failedItems);
         }
         else
         {
