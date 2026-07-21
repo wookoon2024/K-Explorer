@@ -4,10 +4,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <AssemblyName>K-Explorer</AssemblyName>
-    <Version>1.3.17</Version>
-    <FileVersion>1.3.17.0</FileVersion>
-    <AssemblyVersion>1.3.17.0</AssemblyVersion>
-    <InformationalVersion>1.3.17</InformationalVersion>
+    <Version>1.3.18</Version>
+    <FileVersion>1.3.18.0</FileVersion>
+    <AssemblyVersion>1.3.18.0</AssemblyVersion>
+    <InformationalVersion>1.3.18</InformationalVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\Icons\*" />
+    <Resource Include="Assets\Icons\**\*" />
   </ItemGroup>
 
 </Project>

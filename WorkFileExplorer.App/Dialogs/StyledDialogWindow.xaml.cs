@@ -70,6 +70,14 @@ public partial class StyledDialogWindow : Window
         dialog.SenaryButton.Visibility = showApplyAllOptions ? Visibility.Visible : Visibility.Collapsed;
 
         var result = dialog.ShowDialog();
+        try
+        {
+            owner?.Activate();
+        }
+        catch
+        {
+        }
+
         if (result == true)
         {
             return dialog._conflictChoice;
@@ -90,6 +98,14 @@ public partial class StyledDialogWindow : Window
         dialog.SecondaryButton.Content = "아니요(_N)";
 
         var result = dialog.ShowDialog();
+        try
+        {
+            owner?.Activate();
+        }
+        catch
+        {
+        }
+
         return result == true;
     }
 
@@ -101,6 +117,13 @@ public partial class StyledDialogWindow : Window
         };
 
         dialog.ShowDialog();
+        try
+        {
+            owner?.Activate();
+        }
+        catch
+        {
+        }
     }
 
     private void OnPrimaryClick(object sender, RoutedEventArgs e)

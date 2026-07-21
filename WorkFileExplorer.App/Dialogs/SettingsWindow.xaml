@@ -154,22 +154,52 @@
                       BorderThickness="0"
                       Background="Transparent"
                       SelectedItemChanged="OnSettingsTreeSelectedItemChanged">
-                <TreeViewItem x:Name="TreeGeneralRoot" Header="일반" IsExpanded="True" IsSelected="True" Tag="general">
-                    <TreeViewItem Header="시작 패널 모드" Tag="general" />
-                    <TreeViewItem Header="보기 설정" Tag="general" />
+                <TreeViewItem x:Name="TreeGeneralRoot" IsExpanded="True" IsSelected="True" Tag="general">
+                    <TreeViewItem.Header>
+                        <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/general.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="일반" VerticalAlignment="Center"/></StackPanel>
+                    </TreeViewItem.Header>
+                    <TreeViewItem Tag="general">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/rocket.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="시작 패널 모드" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
+                    <TreeViewItem Tag="general">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/eye.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="보기 설정" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
                 </TreeViewItem>
-                <TreeViewItem Header="파일 작업" Tag="file">
-                    <TreeViewItem Header="충돌 처리 방식" Tag="file" />
-                    <TreeViewItem Header="삭제 확인" Tag="file" />
+                <TreeViewItem Tag="file">
+                    <TreeViewItem.Header>
+                        <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/folder.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="파일 작업" VerticalAlignment="Center"/></StackPanel>
+                    </TreeViewItem.Header>
+                    <TreeViewItem Tag="file">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/arrows.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="충돌 처리 방식" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
+                    <TreeViewItem Tag="file">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/trash.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="삭제 확인" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
                 </TreeViewItem>
-                <TreeViewItem Header="검색" Tag="search">
-                    <TreeViewItem Header="기본 검색 범위" Tag="search" />
-                    <TreeViewItem Header="하위 폴더 검색 기본값" Tag="search" />
+                <TreeViewItem Tag="search">
+                    <TreeViewItem.Header>
+                        <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/search.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="검색" VerticalAlignment="Center"/></StackPanel>
+                    </TreeViewItem.Header>
+                    <TreeViewItem Tag="search">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/target.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="기본 검색 범위" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
+                    <TreeViewItem Tag="search">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/dividers.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="하위 폴더 검색 기본값" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
                 </TreeViewItem>
-                <TreeViewItem Header="색상/강조" Tag="color">
-                    <TreeViewItem Header="테마" Tag="color" />
-                    <TreeViewItem Header="확장자 색상" Tag="color" />
-                    <TreeViewItem Header="핀 고정 강조" Tag="color" />
+                <TreeViewItem Tag="color">
+                    <TreeViewItem.Header>
+                        <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/palette.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="색상/강조" VerticalAlignment="Center"/></StackPanel>
+                    </TreeViewItem.Header>
+                    <TreeViewItem Tag="color">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/moon.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="테마" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
+                    <TreeViewItem Tag="color">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/crayon.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="확장자 색상" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
+                    <TreeViewItem Tag="color">
+                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/pushpin.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="핀 고정 강조" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                    </TreeViewItem>
                 </TreeViewItem>
             </TreeView>
         </Border>

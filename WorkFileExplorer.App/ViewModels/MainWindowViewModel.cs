@@ -1345,161 +1345,171 @@ public sealed class MainWindowViewModel : ObservableObject
         var movedPathEntries = new List<(string OldPath, string NewPath, bool IsDirectory)>();
 
         using var progress = TransferProgressWindow.Start(_clipboardCutMode ? "이동" : "복사", items.Length);
-        await Task.Run(() =>
+        try
         {
-            progress.SetTotal(CountTransferUnits(items.Select(i => (i.Path, i.IsDirectory))));
-            var completed = 0;
-            void Advance(string path) => progress.ReportItem(completed++, path);
-            void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
-
-            for (var idx = 0; idx < items.Length; idx++)
+            await Task.Run(() =>
             {
-                if (progress.Token.IsCancellationRequested)
-                {
-                    break;
-                }
+                progress.SetTotal(CountTransferUnits(items.Select(i => (i.Path, i.IsDirectory))));
+                var completed = 0;
+                void Advance(string path) => progress.ReportItem(completed++, path);
+                void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
 
-                var item = items[idx];
-                progress.ReportCurrentFile(item.Path);
-                if (!_fileSystemService.DirectoryExists(targetPanel.CurrentPath))
+                for (var idx = 0; idx < items.Length; idx++)
                 {
-                    continue;
-                }
-
-                if (item.IsDirectory)
-                {
-                    if (!Directory.Exists(item.Path))
-                    {
-                        continue;
-                    }
-                }
-                else if (!File.Exists(item.Path))
-                {
-                    continue;
-                }
-
-                if (_clipboardCutMode &&
-                    string.Equals(Path.GetDirectoryName(item.Path)?.TrimEnd('\\'), targetPanel.CurrentPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                var transferItem = CreateTransferItem(item);
-                if (transferItem is null)
-                {
-                    continue;
-                }
-                var effectivePolicy = policy;
-                string? destinationPath;
-                bool exists;
-
-                var directDestination = Path.Combine(targetPanel.CurrentPath, transferItem.Name);
-                exists = transferItem.IsDirectory
-                    ? Directory.Exists(directDestination)
-                    : File.Exists(directDestination);
-                if (exists)
-                {
-                    var conflictChoice = applyAllChoice switch
-                    {
-                        StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
-                        StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
-                        _ => PromptOverwriteOnConflict(
-                            directDestination,
-                            currentIndex: idx + 1,
-                            totalCount: items.Length,
-                            showApplyAllOptions: items.Length > 1)
-                    };
-                    if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                    if (progress.Token.IsCancellationRequested)
                     {
                         break;
                     }
-                    if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
-                    {
-                        continue;
-                    }
 
-                    if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                    var item = items[idx];
+                    progress.ReportCurrentFile(item.Path);
+                    if (!_fileSystemService.DirectoryExists(targetPanel.CurrentPath))
                     {
-                        applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
-                        effectivePolicy = TransferConflictPolicy.Overwrite;
-                        destinationPath = directDestination;
-                    }
-                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
-                    {
-                        applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
-                        effectivePolicy = TransferConflictPolicy.RenameNew;
-                        destinationPath = EnsureUniquePath(targetPanel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
-                        exists = false;
-                    }
-                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
-                    {
-                        effectivePolicy = TransferConflictPolicy.RenameNew;
-                        destinationPath = EnsureUniquePath(targetPanel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
-                        exists = false;
-                    }
-                    else
-                    {
-                        effectivePolicy = TransferConflictPolicy.Overwrite;
-                        destinationPath = directDestination;
-                    }
-                }
-                else if (!TryResolveTransferDestination(transferItem, targetPanel.CurrentPath, policy, out destinationPath, out exists))
-                {
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(destinationPath) ||
-                    string.Equals(item.Path, destinationPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                progress.NotifyWorkStarted();
-                try
-                {
-                    if (_clipboardCutMode)
-                    {
-                        if (item.IsDirectory)
-                        {
-                            if (exists)
-                            {
-                                CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
-                                Directory.Delete(item.Path, true);
-                            }
-                            else
-                            {
-                                var units = CountTransferUnits(item.Path, true);
-                                Directory.Move(item.Path, destinationPath);
-                                AdvanceBy(units, destinationPath);
-                            }
-                        }
-                        else
-                        {
-                            File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                            Advance(destinationPath);
-                        }
-
-                        movedItems.Add(item);
-                        movedPathEntries.Add((item.Path, destinationPath, item.IsDirectory));
                         continue;
                     }
 
                     if (item.IsDirectory)
                     {
-                        CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
+                        if (!Directory.Exists(item.Path))
+                        {
+                            continue;
+                        }
                     }
-                    else
+                    else if (!File.Exists(item.Path))
                     {
-                        File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                        Advance(destinationPath);
+                        continue;
+                    }
+
+                    if (_clipboardCutMode &&
+                        string.Equals(Path.GetDirectoryName(item.Path)?.TrimEnd('\\'), targetPanel.CurrentPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var transferItem = CreateTransferItem(item);
+                    if (transferItem is null)
+                    {
+                        continue;
+                    }
+                    var effectivePolicy = policy;
+                    string? destinationPath;
+                    bool exists;
+
+                    var directDestination = Path.Combine(targetPanel.CurrentPath, transferItem.Name);
+                    exists = transferItem.IsDirectory
+                        ? Directory.Exists(directDestination)
+                        : File.Exists(directDestination);
+                    if (exists)
+                    {
+                        var conflictChoice = applyAllChoice switch
+                        {
+                            StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
+                            StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
+                            _ => PromptOverwriteOnConflict(
+                                directDestination,
+                                currentIndex: idx + 1,
+                                totalCount: items.Length,
+                                showApplyAllOptions: items.Length > 1)
+                        };
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                        {
+                            break;
+                        }
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
+                        {
+                            continue;
+                        }
+
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                        {
+                            applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
+                            effectivePolicy = TransferConflictPolicy.Overwrite;
+                            destinationPath = directDestination;
+                        }
+                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
+                        {
+                            applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
+                            effectivePolicy = TransferConflictPolicy.RenameNew;
+                            destinationPath = EnsureUniquePath(targetPanel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                            exists = false;
+                        }
+                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
+                        {
+                            effectivePolicy = TransferConflictPolicy.RenameNew;
+                            destinationPath = EnsureUniquePath(targetPanel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                            exists = false;
+                        }
+                        else
+                        {
+                            effectivePolicy = TransferConflictPolicy.Overwrite;
+                            destinationPath = directDestination;
+                        }
+                    }
+                    else if (!TryResolveTransferDestination(transferItem, targetPanel.CurrentPath, policy, out destinationPath, out exists))
+                    {
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(destinationPath) ||
+                        string.Equals(item.Path, destinationPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    progress.NotifyWorkStarted();
+                    try
+                    {
+                        if (_clipboardCutMode)
+                        {
+                            if (item.IsDirectory)
+                            {
+                                if (exists)
+                                {
+                                    CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
+                                    Directory.Delete(item.Path, true);
+                                }
+                                else
+                                {
+                                    var units = CountTransferUnits(item.Path, true);
+                                    Directory.Move(item.Path, destinationPath);
+                                    AdvanceBy(units, destinationPath);
+                                }
+                            }
+                            else
+                            {
+                                File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                                Advance(destinationPath);
+                            }
+
+                            movedItems.Add(item);
+                            movedPathEntries.Add((item.Path, destinationPath, item.IsDirectory));
+                            continue;
+                        }
+
+                        if (item.IsDirectory)
+                        {
+                            CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
+                        }
+                        else
+                        {
+                            File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                            Advance(destinationPath);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
                     }
                 }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+            });
+        }
+        catch (Exception ex)
+        {
+            if (Application.Current?.MainWindow is Window owner)
+            {
+                StyledDialogWindow.ShowInfo(owner, "작업 오류", $"파일을 붙여넣는 도중 오류가 발생했습니다.\n\n사유: {ex.Message}");
             }
-        });
+        }
 
         if (_clipboardCutMode && movedItems.Count > 0)
         {
@@ -3485,78 +3495,88 @@ public sealed class MainWindowViewModel : ObservableObject
         var cancelled = false;
         var movedPathEntries = new List<(string OldPath, string NewPath, bool IsDirectory)>();
         using var progress = TransferProgressWindow.Start(move ? "이동" : "복사", items.Length);
-        await Task.Run(() =>
+        try
         {
-            progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
-            var completed = 0;
-            void Advance(string path) => progress.ReportItem(completed++, path);
-            void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
-
-            for (var idx = 0; idx < items.Length; idx++)
+            await Task.Run(() =>
             {
-                if (progress.Token.IsCancellationRequested)
+                progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+                var completed = 0;
+                void Advance(string path) => progress.ReportItem(completed++, path);
+                void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
+
+                for (var idx = 0; idx < items.Length; idx++)
                 {
-                    cancelled = true;
-                    break;
-                }
-
-                var item = items[idx];
-                progress.ReportCurrentFile(item.FullPath);
-                var effectivePolicy = policy;
-                string? dest;
-                bool exists;
-
-                if (promptOnConflict)
-                {
-                    var directDestination = Path.Combine(destinationDirectory, item.Name);
-                    exists = item.IsDirectory
-                        ? Directory.Exists(directDestination)
-                        : File.Exists(directDestination);
-
-                    if (exists)
+                    if (progress.Token.IsCancellationRequested)
                     {
-                        var conflictChoice = applyAllChoice switch
-                        {
-                            StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
-                            StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
-                            _ => PromptOverwriteOnConflict(
-                                directDestination,
-                                currentIndex: idx + 1,
-                                totalCount: items.Length,
-                                showApplyAllOptions: items.Length > 1)
-                        };
-                        if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
-                        {
-                            break;
-                        }
-                        if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
-                        {
-                            continue;
-                        }
+                        cancelled = true;
+                        break;
+                    }
 
-                        if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                    var item = items[idx];
+                    progress.ReportCurrentFile(item.FullPath);
+                    var effectivePolicy = policy;
+                    string? dest;
+                    bool exists;
+
+                    if (promptOnConflict)
+                    {
+                        var directDestination = Path.Combine(destinationDirectory, item.Name);
+                        exists = item.IsDirectory
+                            ? Directory.Exists(directDestination)
+                            : File.Exists(directDestination);
+
+                        if (exists)
                         {
-                            applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
-                            effectivePolicy = TransferConflictPolicy.Overwrite;
-                            dest = directDestination;
-                        }
-                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
-                        {
-                            applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
-                            effectivePolicy = TransferConflictPolicy.RenameNew;
-                            dest = EnsureUniquePath(destinationDirectory, item.Name, item.IsDirectory);
-                            exists = false;
-                        }
-                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
-                        {
-                            effectivePolicy = TransferConflictPolicy.RenameNew;
-                            dest = EnsureUniquePath(destinationDirectory, item.Name, item.IsDirectory);
-                            exists = false;
+                            var conflictChoice = applyAllChoice switch
+                            {
+                                StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
+                                StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
+                                _ => PromptOverwriteOnConflict(
+                                    directDestination,
+                                    currentIndex: idx + 1,
+                                    totalCount: items.Length,
+                                    showApplyAllOptions: items.Length > 1)
+                            };
+                            if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                            {
+                                break;
+                            }
+                            if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
+                            {
+                                continue;
+                            }
+
+                            if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                            {
+                                applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
+                                effectivePolicy = TransferConflictPolicy.Overwrite;
+                                dest = directDestination;
+                            }
+                            else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
+                            {
+                                applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
+                                effectivePolicy = TransferConflictPolicy.RenameNew;
+                                dest = EnsureUniquePath(destinationDirectory, item.Name, item.IsDirectory);
+                                exists = false;
+                            }
+                            else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
+                            {
+                                effectivePolicy = TransferConflictPolicy.RenameNew;
+                                dest = EnsureUniquePath(destinationDirectory, item.Name, item.IsDirectory);
+                                exists = false;
+                            }
+                            else
+                            {
+                                effectivePolicy = TransferConflictPolicy.Overwrite;
+                                dest = directDestination;
+                            }
                         }
                         else
                         {
-                            effectivePolicy = TransferConflictPolicy.Overwrite;
-                            dest = directDestination;
+                            if (!TryResolveTransferDestination(item, destinationDirectory, policy, out dest, out exists))
+                            {
+                                continue;
+                            }
                         }
                     }
                     else
@@ -3566,71 +3586,71 @@ public sealed class MainWindowViewModel : ObservableObject
                             continue;
                         }
                     }
-                }
-                else
-                {
-                    if (!TryResolveTransferDestination(item, destinationDirectory, policy, out dest, out exists))
-                    {
-                        continue;
-                    }
-                }
 
-                progress.NotifyWorkStarted();
-                try
-                {
-                    if (move)
+                    progress.NotifyWorkStarted();
+                    try
                     {
-                        if (item.IsDirectory)
+                        if (move)
                         {
-                            if (exists)
+                            if (item.IsDirectory)
                             {
-                                CopyDirectory(item.FullPath, dest!, overwrite: true, Advance, progress.Token);
-                                Directory.Delete(item.FullPath, true);
+                                if (exists)
+                                {
+                                    CopyDirectory(item.FullPath, dest!, overwrite: true, Advance, progress.Token);
+                                    Directory.Delete(item.FullPath, true);
+                                }
+                                else
+                                {
+                                    var units = CountTransferUnits(item.FullPath, true);
+                                    Directory.Move(item.FullPath, dest!);
+                                    AdvanceBy(units, dest!);
+                                }
                             }
                             else
                             {
-                                var units = CountTransferUnits(item.FullPath, true);
-                                Directory.Move(item.FullPath, dest!);
-                                AdvanceBy(units, dest!);
+                                File.Move(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                                Advance(dest!);
+                            }
+
+                            movedPathEntries.Add((item.FullPath, dest!, item.IsDirectory));
+                        }
+                        else
+                        {
+                            if (item.IsDirectory)
+                            {
+                                CopyDirectory(item.FullPath, dest!, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
+                            }
+                            else
+                            {
+                                File.Copy(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                                Advance(dest!);
                             }
                         }
-                        else
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        cancelled = true;
+                        break;
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        if (!TryTransferWithElevation(item, dest!, move, effectivePolicy, exists))
                         {
-                            File.Move(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                            Advance(dest!);
+                            throw;
                         }
 
-                        movedPathEntries.Add((item.FullPath, dest!, item.IsDirectory));
-                    }
-                    else
-                    {
-                        if (item.IsDirectory)
-                        {
-                            CopyDirectory(item.FullPath, dest!, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
-                        }
-                        else
-                        {
-                            File.Copy(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                            Advance(dest!);
-                        }
+                        usedElevation = true;
                     }
                 }
-                catch (OperationCanceledException)
-                {
-                    cancelled = true;
-                    break;
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    if (!TryTransferWithElevation(item, dest!, move, effectivePolicy, exists))
-                    {
-                        throw;
-                    }
-
-                    usedElevation = true;
-                }
+            });
+        }
+        catch (Exception ex)
+        {
+            if (Application.Current?.MainWindow is Window owner)
+            {
+                StyledDialogWindow.ShowInfo(owner, "작업 오류", $"작업을 완료할 수 없습니다.\n\n사유: {ex.Message}");
             }
-        });
+        }
 
         if (move && movedPathEntries.Count > 0)
         {
@@ -4107,160 +4127,170 @@ public sealed class MainWindowViewModel : ObservableObject
         var movedItems = new List<ClipboardTransferItem>();
 
         using var progress = TransferProgressWindow.Start(_clipboardCutMode ? "이동" : "복사", items.Length);
-        await Task.Run(() =>
+        try
         {
-            progress.SetTotal(CountTransferUnits(items.Select(i => (i.Path, i.IsDirectory))));
-            var completed = 0;
-            void Advance(string path) => progress.ReportItem(completed++, path);
-            void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
-
-            for (var idx = 0; idx < items.Length; idx++)
+            await Task.Run(() =>
             {
-                if (progress.Token.IsCancellationRequested)
-                {
-                    break;
-                }
+                progress.SetTotal(CountTransferUnits(items.Select(i => (i.Path, i.IsDirectory))));
+                var completed = 0;
+                void Advance(string path) => progress.ReportItem(completed++, path);
+                void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
 
-                var item = items[idx];
-                progress.ReportCurrentFile(item.Path);
-                if (!_fileSystemService.DirectoryExists(panel.CurrentPath))
+                for (var idx = 0; idx < items.Length; idx++)
                 {
-                    continue;
-                }
-
-                if (item.IsDirectory)
-                {
-                    if (!Directory.Exists(item.Path))
-                    {
-                        continue;
-                    }
-                }
-                else if (!File.Exists(item.Path))
-                {
-                    continue;
-                }
-
-                if (_clipboardCutMode &&
-                    string.Equals(Path.GetDirectoryName(item.Path)?.TrimEnd('\\'), panel.CurrentPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                var transferItem = CreateTransferItem(item);
-                if (transferItem is null)
-                {
-                    continue;
-                }
-                var effectivePolicy = policy;
-                string? destinationPath;
-                bool exists;
-
-                var directDestination = Path.Combine(panel.CurrentPath, transferItem.Name);
-                exists = transferItem.IsDirectory
-                    ? Directory.Exists(directDestination)
-                    : File.Exists(directDestination);
-                if (exists)
-                {
-                    var conflictChoice = applyAllChoice switch
-                    {
-                        StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
-                        StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
-                        _ => PromptOverwriteOnConflict(
-                            directDestination,
-                            currentIndex: idx + 1,
-                            totalCount: items.Length,
-                            showApplyAllOptions: items.Length > 1)
-                    };
-                    if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                    if (progress.Token.IsCancellationRequested)
                     {
                         break;
                     }
-                    if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
-                    {
-                        continue;
-                    }
 
-                    if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                    var item = items[idx];
+                    progress.ReportCurrentFile(item.Path);
+                    if (!_fileSystemService.DirectoryExists(panel.CurrentPath))
                     {
-                        applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
-                        effectivePolicy = TransferConflictPolicy.Overwrite;
-                        destinationPath = directDestination;
-                    }
-                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
-                    {
-                        applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
-                        effectivePolicy = TransferConflictPolicy.RenameNew;
-                        destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
-                        exists = false;
-                    }
-                    else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
-                    {
-                        effectivePolicy = TransferConflictPolicy.RenameNew;
-                        destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
-                        exists = false;
-                    }
-                    else
-                    {
-                        effectivePolicy = TransferConflictPolicy.Overwrite;
-                        destinationPath = directDestination;
-                    }
-                }
-                else if (!TryResolveTransferDestination(transferItem, panel.CurrentPath, policy, out destinationPath, out exists))
-                {
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(destinationPath) ||
-                    string.Equals(item.Path, destinationPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                progress.NotifyWorkStarted();
-                try
-                {
-                    if (_clipboardCutMode)
-                    {
-                        if (item.IsDirectory)
-                        {
-                            if (exists)
-                            {
-                                CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
-                                Directory.Delete(item.Path, true);
-                            }
-                            else
-                            {
-                                var units = CountTransferUnits(item.Path, true);
-                                Directory.Move(item.Path, destinationPath);
-                                AdvanceBy(units, destinationPath);
-                            }
-                        }
-                        else
-                        {
-                            File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                            Advance(destinationPath);
-                        }
-
-                        movedItems.Add(item);
                         continue;
                     }
 
                     if (item.IsDirectory)
                     {
-                        CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
+                        if (!Directory.Exists(item.Path))
+                        {
+                            continue;
+                        }
                     }
-                    else
+                    else if (!File.Exists(item.Path))
                     {
-                        File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
-                        Advance(destinationPath);
+                        continue;
+                    }
+
+                    if (_clipboardCutMode &&
+                        string.Equals(Path.GetDirectoryName(item.Path)?.TrimEnd('\\'), panel.CurrentPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var transferItem = CreateTransferItem(item);
+                    if (transferItem is null)
+                    {
+                        continue;
+                    }
+                    var effectivePolicy = policy;
+                    string? destinationPath;
+                    bool exists;
+
+                    var directDestination = Path.Combine(panel.CurrentPath, transferItem.Name);
+                    exists = transferItem.IsDirectory
+                        ? Directory.Exists(directDestination)
+                        : File.Exists(directDestination);
+                    if (exists)
+                    {
+                        var conflictChoice = applyAllChoice switch
+                        {
+                            StyledDialogWindow.ConflictChoice.OverwriteAll => StyledDialogWindow.ConflictChoice.OverwriteAll,
+                            StyledDialogWindow.ConflictChoice.RenameNewAll => StyledDialogWindow.ConflictChoice.RenameNewAll,
+                            _ => PromptOverwriteOnConflict(
+                                directDestination,
+                                currentIndex: idx + 1,
+                                totalCount: items.Length,
+                                showApplyAllOptions: items.Length > 1)
+                        };
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.CancelAll)
+                        {
+                            break;
+                        }
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.Cancel)
+                        {
+                            continue;
+                        }
+
+                        if (conflictChoice == StyledDialogWindow.ConflictChoice.OverwriteAll)
+                        {
+                            applyAllChoice = StyledDialogWindow.ConflictChoice.OverwriteAll;
+                            effectivePolicy = TransferConflictPolicy.Overwrite;
+                            destinationPath = directDestination;
+                        }
+                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNewAll)
+                        {
+                            applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
+                            effectivePolicy = TransferConflictPolicy.RenameNew;
+                            destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                            exists = false;
+                        }
+                        else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
+                        {
+                            effectivePolicy = TransferConflictPolicy.RenameNew;
+                            destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                            exists = false;
+                        }
+                        else
+                        {
+                            effectivePolicy = TransferConflictPolicy.Overwrite;
+                            destinationPath = directDestination;
+                        }
+                    }
+                    else if (!TryResolveTransferDestination(transferItem, panel.CurrentPath, policy, out destinationPath, out exists))
+                    {
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(destinationPath) ||
+                        string.Equals(item.Path, destinationPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    progress.NotifyWorkStarted();
+                    try
+                    {
+                        if (_clipboardCutMode)
+                        {
+                            if (item.IsDirectory)
+                            {
+                                if (exists)
+                                {
+                                    CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
+                                    Directory.Delete(item.Path, true);
+                                }
+                                else
+                                {
+                                    var units = CountTransferUnits(item.Path, true);
+                                    Directory.Move(item.Path, destinationPath);
+                                    AdvanceBy(units, destinationPath);
+                                }
+                            }
+                            else
+                            {
+                                File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                                Advance(destinationPath);
+                            }
+
+                            movedItems.Add(item);
+                            continue;
+                        }
+
+                        if (item.IsDirectory)
+                        {
+                            CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
+                        }
+                        else
+                        {
+                            File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                            Advance(destinationPath);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
                     }
                 }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+            });
+        }
+        catch (Exception ex)
+        {
+            if (Application.Current?.MainWindow is Window owner)
+            {
+                StyledDialogWindow.ShowInfo(owner, "작업 오류", $"파일을 붙여넣는 도중 오류가 발생했습니다.\n\n사유: {ex.Message}");
             }
-        });
+        }
 
         if (_clipboardCutMode && movedItems.Count > 0)
         {

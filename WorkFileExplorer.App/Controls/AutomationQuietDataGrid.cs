@@ -1,5 +1,8 @@
+using System.Collections.Generic;
+using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace WorkFileExplorer.App.Controls;
 
@@ -16,6 +19,29 @@ namespace WorkFileExplorer.App.Controls;
 /// </summary>
 public class AutomationQuietDataGrid : DataGrid
 {
+    public Visibility VerticalScrollBarVisibilityState
+    {
+        get { return (Visibility)GetValue(VerticalScrollBarVisibilityStateProperty); }
+        set { SetValue(VerticalScrollBarVisibilityStateProperty, value); }
+    }
+
+    public static readonly DependencyProperty VerticalScrollBarVisibilityStateProperty =
+        DependencyProperty.Register("VerticalScrollBarVisibilityState", typeof(Visibility), typeof(AutomationQuietDataGrid), new PropertyMetadata(Visibility.Collapsed));
+
+    public override void OnApplyTemplate()
+    {
+        base.OnApplyTemplate();
+        if (GetTemplateChild("DG_ScrollViewer") is ScrollViewer sv)
+        {
+            var binding = new Binding("ComputedVerticalScrollBarVisibility")
+            {
+                Source = sv,
+                Mode = BindingMode.OneWay
+            };
+            this.SetBinding(VerticalScrollBarVisibilityStateProperty, binding);
+        }
+    }
+
     protected override AutomationPeer OnCreateAutomationPeer() => new QuietPeer(this);
 
     private sealed class QuietPeer : FrameworkElementAutomationPeer

@@ -633,6 +633,7 @@
         </Style>
 
         <Style TargetType="DataGridCell">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="1,0,3,0" />
             <Setter Property="Background" Value="Transparent" />
@@ -1122,7 +1123,7 @@
                     </DockPanel>
 
                     <Grid Grid.Row="3" Margin="2,0,2,0">
-                        <controls:AutomationQuietDataGrid Tag="{Binding}"
+                        <controls:AutomationQuietDataGrid x:Name="FourPanelGrid" Tag="{Binding}"
                                   helpers:PanelUi.IsActivePanel="{Binding IsActive}"
                                   ItemsSource="{Binding Panel.Items}"
                                   SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
@@ -1236,6 +1237,14 @@
                                 </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </controls:AutomationQuietDataGrid>
+                        <Border Grid.Row="0"
+                                Background="{Binding DataContext.ThemeHeaderBackground, RelativeSource={RelativeSource AncestorType=Window}}"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Width="{x:Static SystemParameters.VerticalScrollBarWidth}"
+                                Height="24"
+                                Margin="0,1,1,0"
+                                Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=FourPanelGrid}"
+                                IsHitTestVisible="False" />
 
                         <ListBox Tag="{Binding}"
                                  helpers:PanelUi.IsActivePanel="{Binding IsActive}"
@@ -2129,6 +2138,14 @@
                             </Style>
                         </DataGrid.Style>
                     </controls:AutomationQuietDataGrid>
+                    <Border Grid.Row="0"
+                            Background="{Binding DataContext.ThemeHeaderBackground, RelativeSource={RelativeSource AncestorType=Window}}"
+                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Width="{x:Static SystemParameters.VerticalScrollBarWidth}"
+                            Height="24"
+                            Margin="0,1,1,0"
+                            Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=LeftPanelGrid}"
+                            IsHitTestVisible="False" />
                     <ListBox x:Name="LeftPanelTilesList"
                              Grid.Row="0"
                              helpers:PanelUi.IsActivePanel="{Binding IsLeftPanelActive}"
@@ -2498,6 +2515,14 @@
                             </Style>
                         </DataGrid.Style>
                     </controls:AutomationQuietDataGrid>
+                    <Border Grid.Row="0"
+                            Background="{Binding DataContext.ThemeHeaderBackground, RelativeSource={RelativeSource AncestorType=Window}}"
+                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Width="{x:Static SystemParameters.VerticalScrollBarWidth}"
+                            Height="24"
+                            Margin="0,1,1,0"
+                            Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=RightPanelGrid}"
+                            IsHitTestVisible="False" />
                     <ListBox x:Name="RightPanelTilesList"
                              Grid.Row="0"
                              helpers:PanelUi.IsActivePanel="{Binding IsRightPanelActive}"
