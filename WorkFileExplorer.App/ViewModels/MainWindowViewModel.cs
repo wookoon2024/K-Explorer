@@ -1990,6 +1990,8 @@ public sealed class MainWindowViewModel : ObservableObject
         var drivePath = NormalizeDrivePath(driveLabel);
         if (string.IsNullOrWhiteSpace(drivePath) || !_fileSystemService.DirectoryExists(drivePath))
         {
+            StatusText = $"드라이브를 찾을 수 없거나 준비되지 않았습니다: {drivePath ?? driveLabel}";
+            SyncSelectedDrivesFromPaths();
             return;
         }
 
@@ -3039,6 +3041,7 @@ public sealed class MainWindowViewModel : ObservableObject
         var drivePath = NormalizeDrivePath(driveLabel);
         if (string.IsNullOrWhiteSpace(drivePath) || !_fileSystemService.DirectoryExists(drivePath))
         {
+            StatusText = $"드라이브를 찾을 수 없거나 준비되지 않았습니다: {drivePath ?? driveLabel}";
             return;
         }
 
