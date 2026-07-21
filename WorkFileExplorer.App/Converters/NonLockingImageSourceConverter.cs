@@ -11,6 +11,12 @@ namespace WorkFileExplorer.App.Converters;
 public sealed class NonLockingImageSourceConverter : IValueConverter
 {
     private const int MaxCacheEntries = 200;
+
+    // Tiles render at ~108px; decode at 256px so thumbnails stay sharp without
+    // pulling full-resolution frames into memory. A 12MP photo decodes to ~48MB
+    // at full size but only ~0.3MB at 256px — the difference between a crash and
+    // a smooth list when a folder holds thousands of images.
+    private const int ThumbnailDecodeWidth = 256;
     private static readonly object CacheGate = new();
     private static readonly Dictionary<string, CachedImage> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Queue<string> CacheOrder = new();
@@ -110,6 +116,8 @@ public sealed class NonLockingImageSourceConverter : IValueConverter
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
             image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            // Downscale during decode so we never materialize full-resolution frames.
+            image.DecodePixelWidth = ThumbnailDecodeWidth;
             image.StreamSource = stream;
             image.EndInit();
             image.Freeze();
@@ -131,7 +139,15 @@ public sealed class NonLockingImageSourceConverter : IValueConverter
                 return false;
             }
 
-            var frozen = frame.Clone();
+            BitmapSource result = frame;
+            if (frame.PixelWidth > ThumbnailDecodeWidth)
+            {
+                // Match the primary path: keep the cached thumbnail small.
+                var scale = (double)ThumbnailDecodeWidth / frame.PixelWidth;
+                result = new TransformedBitmap(frame, new ScaleTransform(scale, scale));
+            }
+
+            var frozen = result.Clone();
             frozen.Freeze();
             imageSource = frozen;
             return true;

@@ -4008,15 +4008,15 @@ public partial class MainWindow : Window
 
         if ((Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt && e.Key == Key.Left)
         {
-            await Vm.NavigatePanelBackAsync(Vm.IsLeftPanelActive);
             e.Handled = true;
+            await Vm.NavigatePanelBackAsync(Vm.IsLeftPanelActive);
             return;
         }
 
         if ((Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt && e.Key == Key.Right)
         {
-            await Vm.NavigatePanelForwardAsync(Vm.IsLeftPanelActive);
             e.Handled = true;
+            await Vm.NavigatePanelForwardAsync(Vm.IsLeftPanelActive);
             return;
         }
 
@@ -4107,16 +4107,20 @@ public partial class MainWindow : Window
 
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.V)
             {
-                await Vm.PasteClipboardToActivePanelAsync();
                 e.Handled = true;
+                await Vm.PasteClipboardToActivePanelAsync();
                 return;
             }
         }
 
         if (e.Key == Key.Enter)
         {
-            await Vm.OpenSelectedItemAsync();
+            // Mark handled BEFORE awaiting. This is an async void handler, so the
+            // await yields control back to WPF's input pipeline; if Handled were set
+            // afterwards the KeyDown would still bubble to the DataGrid, which moves
+            // the selection down one row right before we navigate into the folder.
             e.Handled = true;
+            await Vm.OpenSelectedItemAsync();
             return;
         }
 
@@ -4129,6 +4133,7 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Delete)
         {
+            e.Handled = true;
             var sourceType = e.OriginalSource?.GetType().Name ?? "(null)";
             var focusedType = Keyboard.FocusedElement?.GetType().Name ?? "(null)";
             LiveTrace.Write($"DeleteKeyDown source={sourceType} focused={focusedType}");
@@ -4143,7 +4148,6 @@ public partial class MainWindow : Window
             }
 
             await DeleteSelectionAsync();
-            e.Handled = true;
             return;
         }
 
@@ -4156,15 +4160,15 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.F5)
         {
-            await Vm.CopySelectedToOtherPanelAsync(GetActiveSelectedItems());
             e.Handled = true;
+            await Vm.CopySelectedToOtherPanelAsync(GetActiveSelectedItems());
             return;
         }
 
         if (e.Key == Key.F6)
         {
-            await Vm.MoveSelectedToOtherPanelAsync(GetActiveSelectedItems());
             e.Handled = true;
+            await Vm.MoveSelectedToOtherPanelAsync(GetActiveSelectedItems());
             return;
         }
 
