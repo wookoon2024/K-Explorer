@@ -1558,31 +1558,33 @@ public sealed class MainWindowViewModel : ObservableObject
 
         var deletedItems = new List<FileSystemItem>(items.Length);
         var failedItems = new List<(string Path, string Reason)>();
-        using var progress = TransferProgressWindow.Start("삭제", items.Length);
-        await Task.Run(() =>
+        using (var progress = TransferProgressWindow.Start("삭제", items.Length))
         {
-            progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
-            var completed = 0;
-            void Advance(string path) => progress.ReportItem(completed++, path);
-
-            foreach (var item in items)
+            await Task.Run(() =>
             {
-                if (progress.Token.IsCancellationRequested)
-                {
-                    break;
-                }
+                progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+                var completed = 0;
+                void Advance(string path) => progress.ReportItem(completed++, path);
 
-                progress.NotifyWorkStarted();
-                if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                foreach (var item in items)
                 {
-                    deletedItems.Add(item);
+                    if (progress.Token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    progress.NotifyWorkStarted();
+                    if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                    {
+                        deletedItems.Add(item);
+                    }
+                    else
+                    {
+                        failedItems.Add((item.FullPath, reason));
+                    }
                 }
-                else
-                {
-                    failedItems.Add((item.FullPath, reason));
-                }
-            }
-        });
+            });
+        }
 
         if (deletedItems.Count == 0)
         {
@@ -3634,31 +3636,33 @@ public sealed class MainWindowViewModel : ObservableObject
         var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
         var deletedItems = new List<FileSystemItem>(items.Length);
         var failedItems = new List<(string Path, string Reason)>();
-        using var progress = TransferProgressWindow.Start("삭제", items.Length);
-        await Task.Run(() =>
+        using (var progress = TransferProgressWindow.Start("삭제", items.Length))
         {
-            progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
-            var completed = 0;
-            void Advance(string path) => progress.ReportItem(completed++, path);
-
-            foreach (var item in items)
+            await Task.Run(() =>
             {
-                if (progress.Token.IsCancellationRequested)
-                {
-                    break;
-                }
+                progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+                var completed = 0;
+                void Advance(string path) => progress.ReportItem(completed++, path);
 
-                progress.NotifyWorkStarted();
-                if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                foreach (var item in items)
                 {
-                    deletedItems.Add(item);
+                    if (progress.Token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    progress.NotifyWorkStarted();
+                    if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
+                    {
+                        deletedItems.Add(item);
+                    }
+                    else
+                    {
+                        failedItems.Add((item.FullPath, reason));
+                    }
                 }
-                else
-                {
-                    failedItems.Add((item.FullPath, reason));
-                }
-            }
-        });
+            });
+        }
 
         if (deletedItems.Count == 0)
         {

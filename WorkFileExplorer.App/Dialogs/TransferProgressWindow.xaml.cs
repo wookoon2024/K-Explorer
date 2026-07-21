@@ -126,15 +126,26 @@ public partial class TransferProgressWindow : Window, IDisposable
 
     public void Dispose()
     {
-        Dispatcher.BeginInvoke(() =>
+        if (Dispatcher.CheckAccess())
         {
             _completed = true;
             if (IsVisible)
             {
                 Close();
             }
-
             _cts.Dispose();
-        });
+        }
+        else
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                _completed = true;
+                if (IsVisible)
+                {
+                    Close();
+                }
+                _cts.Dispose();
+            });
+        }
     }
 }
