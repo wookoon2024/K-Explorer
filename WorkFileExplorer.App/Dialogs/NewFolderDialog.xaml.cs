@@ -16,8 +16,11 @@ public partial class NewFolderDialog : Window, INotifyPropertyChanged
 
         Loaded += (_, _) =>
         {
-            FolderNameTextBox.Focus();
-            FolderNameTextBox.SelectAll();
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () =>
+            {
+                FolderNameTextBox.Focus();
+                FolderNameTextBox.SelectAll();
+            });
         };
     }
 
