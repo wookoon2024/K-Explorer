@@ -13,7 +13,7 @@ public partial class TransferProgressWindow : Window, IDisposable
 {
     private readonly CancellationTokenSource _cts = new();
     private readonly string _operationName;
-    private readonly int _totalItems;
+    private int _totalItems;
     private bool _completed;
     private bool _workStarted;
 
@@ -58,6 +58,19 @@ public partial class TransferProgressWindow : Window, IDisposable
 
             _workStarted = true;
             Show();
+        });
+    }
+
+    /// <summary>
+    /// Updates the total unit count once it is known (e.g. after counting the
+    /// files inside the selected folders). Safe to call from any thread.
+    /// </summary>
+    public void SetTotal(int totalItems)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            _totalItems = Math.Max(1, totalItems);
+            ProgressBarControl.Maximum = _totalItems;
         });
     }
 

@@ -1340,6 +1340,11 @@ public sealed class MainWindowViewModel : ObservableObject
         using var progress = TransferProgressWindow.Start(_clipboardCutMode ? "이동" : "복사", items.Length);
         await Task.Run(() =>
         {
+            progress.SetTotal(CountTransferUnits(items.Select(i => (i.Path, i.IsDirectory))));
+            var completed = 0;
+            void Advance(string path) => progress.ReportItem(completed++, path);
+            void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
+
             for (var idx = 0; idx < items.Length; idx++)
             {
                 if (progress.Token.IsCancellationRequested)
@@ -1348,7 +1353,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 var item = items[idx];
-                progress.ReportItem(idx, item.Path);
+                progress.ReportCurrentFile(item.Path);
                 if (!_fileSystemService.DirectoryExists(targetPanel.CurrentPath))
                 {
                     continue;
@@ -1449,17 +1454,20 @@ public sealed class MainWindowViewModel : ObservableObject
                     {
                         if (exists)
                         {
-                            CopyDirectory(item.Path, destinationPath, overwrite: true);
+                            CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
                             Directory.Delete(item.Path, true);
                         }
                         else
                         {
+                            var units = CountTransferUnits(item.Path, true);
                             Directory.Move(item.Path, destinationPath);
+                            AdvanceBy(units, destinationPath);
                         }
                     }
                     else
                     {
                         File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                        Advance(destinationPath);
                     }
 
                     movedItems.Add(item);
@@ -1469,11 +1477,12 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 if (item.IsDirectory)
                 {
-                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists);
+                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
                 }
                 else
                 {
                     File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                    Advance(destinationPath);
                 }
             }
         });
@@ -1527,7 +1536,10 @@ public sealed class MainWindowViewModel : ObservableObject
         using var progress = TransferProgressWindow.Start("삭제", items.Length);
         await Task.Run(() =>
         {
-            var done = 0;
+            progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+            var completed = 0;
+            void Advance(string path) => progress.ReportItem(completed++, path);
+
             foreach (var item in items)
             {
                 if (progress.Token.IsCancellationRequested)
@@ -1536,8 +1548,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 progress.NotifyWorkStarted();
-                progress.ReportItem(done++, item.FullPath);
-                if (TryDeleteFileSystemItem(item, out var reason))
+                if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
                 {
                     deletedItems.Add(item);
                 }
@@ -3402,6 +3413,11 @@ public sealed class MainWindowViewModel : ObservableObject
         using var progress = TransferProgressWindow.Start(move ? "이동" : "복사", items.Length);
         await Task.Run(() =>
         {
+            progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+            var completed = 0;
+            void Advance(string path) => progress.ReportItem(completed++, path);
+            void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
+
             for (var idx = 0; idx < items.Length; idx++)
             {
                 if (progress.Token.IsCancellationRequested)
@@ -3411,7 +3427,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 var item = items[idx];
-                progress.ReportItem(idx, item.FullPath);
+                progress.ReportCurrentFile(item.FullPath);
                 var effectivePolicy = policy;
                 string? dest;
                 bool exists;
@@ -3494,17 +3510,20 @@ public sealed class MainWindowViewModel : ObservableObject
                         {
                             if (exists)
                             {
-                                CopyDirectory(item.FullPath, dest!, overwrite: true, progress.ReportCurrentFile, progress.Token);
+                                CopyDirectory(item.FullPath, dest!, overwrite: true, Advance, progress.Token);
                                 Directory.Delete(item.FullPath, true);
                             }
                             else
                             {
+                                var units = CountTransferUnits(item.FullPath, true);
                                 Directory.Move(item.FullPath, dest!);
+                                AdvanceBy(units, dest!);
                             }
                         }
                         else
                         {
                             File.Move(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                            Advance(dest!);
                         }
 
                         movedPathEntries.Add((item.FullPath, dest!, item.IsDirectory));
@@ -3513,11 +3532,12 @@ public sealed class MainWindowViewModel : ObservableObject
                     {
                         if (item.IsDirectory)
                         {
-                            CopyDirectory(item.FullPath, dest!, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, progress.ReportCurrentFile, progress.Token);
+                            CopyDirectory(item.FullPath, dest!, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
                         }
                         else
                         {
                             File.Copy(item.FullPath, dest!, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                            Advance(dest!);
                         }
                     }
                 }
@@ -3587,7 +3607,10 @@ public sealed class MainWindowViewModel : ObservableObject
         using var progress = TransferProgressWindow.Start("삭제", items.Length);
         await Task.Run(() =>
         {
-            var done = 0;
+            progress.SetTotal(CountTransferUnits(items.Select(i => (i.FullPath, i.IsDirectory))));
+            var completed = 0;
+            void Advance(string path) => progress.ReportItem(completed++, path);
+
             foreach (var item in items)
             {
                 if (progress.Token.IsCancellationRequested)
@@ -3596,8 +3619,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 progress.NotifyWorkStarted();
-                progress.ReportItem(done++, item.FullPath);
-                if (TryDeleteFileSystemItem(item, out var reason))
+                if (TryDeleteFileSystemItem(item, Advance, progress.Token, out var reason))
                 {
                     deletedItems.Add(item);
                 }
@@ -3656,6 +3678,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private static bool TryDeleteFileSystemItem(FileSystemItem item, out string reason)
     {
+        return TryDeleteFileSystemItem(item, onEntry: null, CancellationToken.None, out reason);
+    }
+
+    /// <param name="onEntry">Invoked once per removed entry so the progress
+    /// window can count files inside a folder, not just the folder itself.</param>
+    private static bool TryDeleteFileSystemItem(FileSystemItem item, Action<string>? onEntry, CancellationToken cancellationToken, out string reason)
+    {
         reason = string.Empty;
 
         try
@@ -3663,7 +3692,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (item.IsDirectory)
             {
                 ClearDirectoryAttributes(item.FullPath);
-                Directory.Delete(item.FullPath, true);
+                DeleteDirectoryWithProgress(item.FullPath, onEntry, cancellationToken);
             }
             else
             {
@@ -3673,6 +3702,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 File.Delete(item.FullPath);
+                onEntry?.Invoke(item.FullPath);
             }
 
             return true;
@@ -3974,6 +4004,11 @@ public sealed class MainWindowViewModel : ObservableObject
         using var progress = TransferProgressWindow.Start(_clipboardCutMode ? "이동" : "복사", items.Length);
         await Task.Run(() =>
         {
+            progress.SetTotal(CountTransferUnits(items.Select(i => (i.Path, i.IsDirectory))));
+            var completed = 0;
+            void Advance(string path) => progress.ReportItem(completed++, path);
+            void AdvanceBy(int units, string path) { completed += Math.Max(1, units); progress.ReportItem(completed - 1, path); }
+
             for (var idx = 0; idx < items.Length; idx++)
             {
                 if (progress.Token.IsCancellationRequested)
@@ -3982,7 +4017,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
 
                 var item = items[idx];
-                progress.ReportItem(idx, item.Path);
+                progress.ReportCurrentFile(item.Path);
                 if (!_fileSystemService.DirectoryExists(panel.CurrentPath))
                 {
                     continue;
@@ -4083,17 +4118,20 @@ public sealed class MainWindowViewModel : ObservableObject
                     {
                         if (exists)
                         {
-                            CopyDirectory(item.Path, destinationPath, overwrite: true);
+                            CopyDirectory(item.Path, destinationPath, overwrite: true, Advance, progress.Token);
                             Directory.Delete(item.Path, true);
                         }
                         else
                         {
+                            var units = CountTransferUnits(item.Path, true);
                             Directory.Move(item.Path, destinationPath);
+                            AdvanceBy(units, destinationPath);
                         }
                     }
                     else
                     {
                         File.Move(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                        Advance(destinationPath);
                     }
 
                     movedItems.Add(item);
@@ -4102,11 +4140,12 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 if (item.IsDirectory)
                 {
-                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists);
+                    CopyDirectory(item.Path, destinationPath, effectivePolicy == TransferConflictPolicy.Overwrite || !exists, Advance, progress.Token);
                 }
                 else
                 {
                     File.Copy(item.Path, destinationPath, overwrite: effectivePolicy == TransferConflictPolicy.Overwrite);
+                    Advance(destinationPath);
                 }
             }
         });
@@ -6104,26 +6143,119 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    private static void CopyDirectory(string source, string dest, bool overwrite)
+    // Enumerate every entry, including hidden/system, so copy/delete/count all
+    // agree on the same set (Explorer copies hidden files too).
+    private static readonly EnumerationOptions AllEntriesOptions = new()
     {
-        CopyDirectory(source, dest, overwrite, onFile: null, CancellationToken.None);
+        RecurseSubdirectories = false,
+        IgnoreInaccessible = true,
+        AttributesToSkip = 0,
+        ReturnSpecialDirectories = false
+    };
+
+    private static readonly EnumerationOptions AllEntriesRecursiveOptions = new()
+    {
+        RecurseSubdirectories = true,
+        IgnoreInaccessible = true,
+        AttributesToSkip = 0,
+        ReturnSpecialDirectories = false
+    };
+
+    /// <summary>
+    /// Total number of progress units an item represents: 1 for a file, or the
+    /// count of every descendant entry plus the folder itself for a directory.
+    /// This is what the progress window shows instead of a bare "(1/1)".
+    /// </summary>
+    private static int CountTransferUnits(string path, bool isDirectory)
+    {
+        if (!isDirectory)
+        {
+            return 1;
+        }
+
+        var count = 1; // the directory itself
+        try
+        {
+            foreach (var _ in Directory.EnumerateFileSystemEntries(path, "*", AllEntriesRecursiveOptions))
+            {
+                count++;
+            }
+        }
+        catch
+        {
+            // Best-effort: an unreadable subtree still counts as at least the root.
+        }
+
+        return count;
     }
 
-    private static void CopyDirectory(string source, string dest, bool overwrite, Action<string>? onFile, CancellationToken cancellationToken)
+    private static int CountTransferUnits(IEnumerable<(string Path, bool IsDirectory)> items)
     {
-        Directory.CreateDirectory(dest);
-        foreach (var file in Directory.EnumerateFiles(source))
+        var total = 0;
+        foreach (var (path, isDirectory) in items)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            onFile?.Invoke(file);
-            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), overwrite);
+            total += CountTransferUnits(path, isDirectory);
         }
 
-        foreach (var dir in Directory.EnumerateDirectories(source))
+        return total;
+    }
+
+    private static void CopyDirectory(string source, string dest, bool overwrite)
+    {
+        CopyDirectory(source, dest, overwrite, onEntry: null, CancellationToken.None);
+    }
+
+    /// <param name="onEntry">Invoked once per copied entry (each file and each
+    /// directory, including <paramref name="dest"/>), to advance progress.</param>
+    private static void CopyDirectory(string source, string dest, bool overwrite, Action<string>? onEntry, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(dest);
+        onEntry?.Invoke(dest);
+
+        foreach (var file in Directory.EnumerateFiles(source, "*", AllEntriesOptions))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)), overwrite, onFile, cancellationToken);
+            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), overwrite);
+            onEntry?.Invoke(file);
         }
+
+        foreach (var dir in Directory.EnumerateDirectories(source, "*", AllEntriesOptions))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)), overwrite, onEntry, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Recursively deletes a directory while reporting one progress unit per
+    /// removed entry (files, subdirectories, and finally the folder itself).
+    /// </summary>
+    private static void DeleteDirectoryWithProgress(string path, Action<string>? onEntry, CancellationToken cancellationToken)
+    {
+        foreach (var file in Directory.EnumerateFiles(path, "*", AllEntriesOptions))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+            catch
+            {
+                // Attribute reset is best-effort; deletion below still attempts it.
+            }
+
+            File.Delete(file);
+            onEntry?.Invoke(file);
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(path, "*", AllEntriesOptions))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DeleteDirectoryWithProgress(dir, onEntry, cancellationToken);
+        }
+
+        Directory.Delete(path, false);
+        onEntry?.Invoke(path);
     }
 
     private static string EnsureUniquePath(string targetDirectory, string name, bool isDirectory)
