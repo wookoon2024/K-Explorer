@@ -124,6 +124,24 @@ public partial class TransferProgressWindow : Window, IDisposable
         base.OnClosing(e);
     }
 
+    protected override void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+        try
+        {
+            var targetOwner = Owner ?? Application.Current?.MainWindow;
+            if (targetOwner is not null)
+            {
+                targetOwner.IsEnabled = true;
+                targetOwner.Activate();
+                targetOwner.Focus();
+            }
+        }
+        catch
+        {
+        }
+    }
+
     public void Dispose()
     {
         if (Dispatcher.CheckAccess())

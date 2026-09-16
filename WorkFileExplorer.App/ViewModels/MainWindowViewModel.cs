@@ -1578,10 +1578,6 @@ public sealed class MainWindowViewModel : ObservableObject
             LiveTrace.Write($"VM.DeleteSelected start panel='{panel.CurrentPath}' count={items.Length}");
 
             var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
-            var deletingPaths = items
-                .Select(item => item.FullPath)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
 
             var deletedItems = new List<FileSystemItem>(items.Length);
             var failedItems = new List<(string Path, string Reason)>();
@@ -1636,12 +1632,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 await PersistSettingsAsync();
             }
 
-            if (!string.IsNullOrWhiteSpace(expectedSelectionPath))
-            {
-                panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
-                    !entry.IsParentDirectory &&
-                    string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
-            }
+
 
             await CloseTabsForDeletedDirectoriesAsync(deletedItems);
             await ReloadPanelsForPathsAsync([panel.CurrentPath]);
@@ -3695,10 +3686,6 @@ public sealed class MainWindowViewModel : ObservableObject
             LiveTrace.Write($"VM.DeleteItemsFromPanel start panel='{panel.CurrentPath}' count={items.Length}");
 
             var nextSelectionIndex = FindDeletionAnchorIndex(panel, items);
-            var deletingPaths = items
-                .Select(item => item.FullPath)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var expectedSelectionPath = FindNearestSurvivingPath(panel, deletingPaths, nextSelectionIndex);
             var deletedItems = new List<FileSystemItem>(items.Length);
             var failedItems = new List<(string Path, string Reason)>();
             using (var progress = TransferProgressWindow.Start("삭제", items.Length))
@@ -3752,12 +3739,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 await PersistSettingsAsync();
             }
 
-            if (!string.IsNullOrWhiteSpace(expectedSelectionPath))
-            {
-                panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
-                    !entry.IsParentDirectory &&
-                    string.Equals(entry.FullPath, expectedSelectionPath, StringComparison.OrdinalIgnoreCase));
-            }
+
 
             await CloseTabsForDeletedDirectoriesAsync(deletedItems);
             await ReloadPanelsForPathsAsync([panel.CurrentPath]);
@@ -6505,9 +6487,14 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         return Application.Current?.Dispatcher?.Invoke(() =>
         {
-            var owner = Application.Current?.Windows
-                .OfType<Window>()
-                .FirstOrDefault(window => window.IsActive)
+            var activeProgressWindow = Application.Current?.Windows
+                .OfType<TransferProgressWindow>()
+                .FirstOrDefault(w => w.IsVisible);
+
+            var owner = activeProgressWindow as Window
+                ?? Application.Current?.Windows
+                    .OfType<Window>()
+                    .FirstOrDefault(window => window.IsActive && window is not StyledDialogWindow)
                 ?? Application.Current?.MainWindow;
             if (owner is null)
             {
@@ -7389,7 +7376,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             app.Dispatcher.Invoke(() =>
             {
-                var owner = app.Windows.OfType<Window>().FirstOrDefault(window => window.IsActive) ?? app.MainWindow;
+                var owner = app.Windows.OfType<Window>().FirstOrDefault(window => window.IsActive && window is not StyledDialogWindow) ?? app.MainWindow;
 
                 if (_imageViewerWindowRef is not null &&
                     _imageViewerWindowRef.TryGetTarget(out var existingViewer) &&

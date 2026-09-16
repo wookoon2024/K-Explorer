@@ -1870,6 +1870,11 @@ public partial class MainWindow : Window
 
     private void OnLeftPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_isDeletingFiles)
+        {
+            return;
+        }
+
         if (!ShouldHandlePanelSelectionChanged(sender, left: true))
         {
             return;
@@ -1894,6 +1899,11 @@ public partial class MainWindow : Window
 
     private void OnRightPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_isDeletingFiles)
+        {
+            return;
+        }
+
         if (!ShouldHandlePanelSelectionChanged(sender, left: false))
         {
             return;
