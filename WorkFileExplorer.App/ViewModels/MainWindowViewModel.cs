@@ -39,6 +39,9 @@ public sealed class MainWindowViewModel : ObservableObject
         public double FileListRowHeight { get; init; } = 18;
         public string ExternalEditorPath { get; init; } = "notepad.exe";
         public bool EnableImageHoverPreview { get; init; }
+        public bool ShowPropertyColumn { get; init; } = true;
+        public bool EnablePanelListAutomation { get; init; }
+        public List<string> ShortcutOverrides { get; init; } = new();
     }
 
     private sealed class FourPanelTabsState
@@ -84,6 +87,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private AppSettings _settings = new();
     private Dictionary<string, string> _themeColorOverridesMap = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, ShortcutGesture> _shortcutGestures = new(StringComparer.Ordinal);
     private bool _isLeftPanelActive = true;
     private string _statusText = "Ready";
     private string _searchText = string.Empty;
@@ -133,6 +137,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _selectedLeftDrive = "C:";
     private string _selectedRightDrive = "C:";
     private bool _isFourPanelMode;
+    private bool _sessionRestoreInProgress;
     private bool _isFourPanelGridLayout;
     private bool _usageRefreshQueued;
     private bool _postMutationRefreshQueued;
@@ -144,6 +149,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly HashSet<string> _freeSpaceRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FileSystemWatcher> _directoryWatchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _pendingWatcherRefreshPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> _selfReloadedPathsUtc = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan SelfReloadSuppressionWindow = TimeSpan.FromMilliseconds(1500);
     private readonly object _freeSpaceSync = new();
     private readonly object _watcherSync = new();
     private bool _watcherRefreshQueued;
@@ -486,6 +493,19 @@ public sealed class MainWindowViewModel : ObservableObject
     public ObservableCollection<string> WorkLogs { get; } = new();
 
     public IReadOnlyList<string> SearchScopes { get; } = ["Active panel", "Both panels"];
+
+    public IReadOnlyList<DisplayOption> SearchScopeDisplayOptions { get; } =
+    [
+        new("Active panel", "활성 패널만"),
+        new("Both panels", "두 패널 모두")
+    ];
+
+    public IReadOnlyList<DisplayOption> ConflictPolicyDisplayOptions { get; } =
+    [
+        new("Rename new", "이름 바꿔 저장"),
+        new("Overwrite", "덮어쓰기"),
+        new("Skip", "건너뛰기")
+    ];
     public IReadOnlyList<string> SearchDepthOptions { get; } =
     [
         "모두 (무제한 깊이)",
@@ -730,8 +750,24 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task RecordFindFilesSearchHistoryAsync()
     {
-        AddSearchHistoryEntry(SearchStartDirectoryHistory, SearchStartDirectory);
-        AddSearchHistoryEntry(SearchFileMaskHistory, SearchFileMasks);
+        var startDirectory = SearchStartDirectory;
+        var fileMasks = SearchFileMasks;
+
+        AddSearchHistoryEntry(SearchStartDirectoryHistory, startDirectory);
+        AddSearchHistoryEntry(SearchFileMaskHistory, fileMasks);
+
+        // Changing an editable ComboBox's items clears its text, which would wipe the
+        // user's input; put it back so a second search can reuse the same values.
+        if (string.IsNullOrWhiteSpace(SearchStartDirectory) && !string.IsNullOrWhiteSpace(startDirectory))
+        {
+            SearchStartDirectory = startDirectory;
+        }
+
+        if (string.IsNullOrWhiteSpace(SearchFileMasks) && !string.IsNullOrWhiteSpace(fileMasks))
+        {
+            SearchFileMasks = fileMasks;
+        }
+
         _settings.SearchStartDirectoryHistory = SearchStartDirectoryHistory.ToList();
         _settings.SearchFileMaskHistory = SearchFileMaskHistory.ToList();
         try
@@ -857,7 +893,11 @@ public sealed class MainWindowViewModel : ObservableObject
         set => _settings.ConfirmBeforeDelete = value;
     }
 
-    public string FileListFontFamily => NormalizeFileListFontFamily(_settings.FileListFontFamily);
+    public const string BundledFontDisplayName = "Pretendard (내장)";
+
+    private const string BundledFontFamilyUri = "./Assets/Fonts/#Pretendard";
+
+    public string FileListFontFamily => ResolveFileListFontFamily(_settings.FileListFontFamily);
 
     public double FileListFontSize => NormalizeFileListFontSize(_settings.FileListFontSize);
 
@@ -866,6 +906,8 @@ public sealed class MainWindowViewModel : ObservableObject
     public string ExternalEditorPath => _settings.ExternalEditorPath;
 
     public bool EnableImageHoverPreview => _settings.EnableImageHoverPreview;
+
+    public bool ShowPropertyColumn => _settings.ShowPropertyColumn;
 
     public string ThemeMode => NormalizeThemeMode(_settings.ThemeMode);
     public bool IsWhiteTheme => string.Equals(ThemeMode, "White", StringComparison.OrdinalIgnoreCase);
@@ -895,6 +937,10 @@ public sealed class MainWindowViewModel : ObservableObject
             LiveTrace.Write("Settings load failed; fallback defaults");
         }
 
+        RebuildShortcuts();
+        OnPropertyChanged(nameof(ShowPropertyColumn));
+        Controls.AutomationQuietDataGrid.Quiet = !_settings.EnablePanelListAutomation;
+
         IsFourPanelMode = _settings.PanelCount >= 4;
         IsFourPanelGridLayout = string.Equals(_settings.PanelLayout, "Grid", StringComparison.OrdinalIgnoreCase);
         SearchScope = SearchScopes.Contains(_settings.DefaultSearchScope, StringComparer.OrdinalIgnoreCase)
@@ -914,6 +960,7 @@ public sealed class MainWindowViewModel : ObservableObject
         FileSystemItem.SetThemeMode(_settings.ThemeMode);
         _settings.ExtensionColorOverrides = NormalizeExtensionColorOverrides(_settings.ExtensionColorOverrides);
         _settings.FileListFontFamily = NormalizeFileListFontFamily(_settings.FileListFontFamily);
+        App.ApplyUiFont(FileListFontFamily);
         _settings.FileListFontSize = NormalizeFileListFontSize(_settings.FileListFontSize);
         _settings.FileListRowHeight = NormalizeFileListRowHeight(_settings.FileListRowHeight);
         FileSystemItem.SetExtensionColorOverrides(BuildExtensionColorMap(_settings.ExtensionColorOverrides));
@@ -922,25 +969,36 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(FileListRowHeight));
         NotifyThemeBrushesChanged();
         NormalizeFavoriteFileCategorySettings();
-        RestoreSessionTabsFromSettings();
-        ApplyDefaultViewToAllTabs(_settings.DefaultTileViewEnabled);
-        SearchStartDirectory = LeftCurrentPath;
-        RestoreFindFilesSearchHistory();
+        // Restoring tabs makes the tab controls raise SelectionChanged for every tab they adopt;
+        // without this guard each of those would list a folder nobody asked for.
+        _sessionRestoreInProgress = true;
+        try
+        {
+            RestoreSessionTabsFromSettings();
+            ApplyViewModeToAllTabs(ResolveStartupViewMode());
+            LiveTrace.Write($"Startup view mode stored='{_settings.LastViewMode}' resolved='{ResolveStartupViewMode()}' L='{SelectedLeftTab?.ViewMode}' R='{SelectedRightTab?.ViewMode}'");
+            SearchStartDirectory = LeftCurrentPath;
+            RestoreFindFilesSearchHistory();
+        }
+        finally
+        {
+            _sessionRestoreInProgress = false;
+        }
+
         LiveTrace.Write($"Initial paths: left='{LeftCurrentPath}', right='{RightCurrentPath}'");
 
         await RestorePathHistoryAsync();
 
-        foreach (var tab in LeftTabs)
-        {
-            await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
-        }
-
-        foreach (var tab in RightTabs)
-        {
-            await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
-        }
+        // Listing every restored tab (and every four-panel slot tab) at startup cost a full
+        // layout/render per tab for folders nobody was looking at. Only the visible tabs are
+        // listed now; the rest are listed the first time they are opened.
+        await EnsurePanelTabLoadedAsync(left: true);
+        await EnsurePanelTabLoadedAsync(left: false);
 
         await InitializeFourPanelsAsync();
+        // Four-panel slots build their own tabs from the saved default, so the last-used view
+        // mode is re-applied once they exist.
+        ApplyViewModeToAllTabs(ResolveStartupViewMode());
         LiveTrace.Write("Panels initialized");
         try
         {
@@ -1007,9 +1065,11 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             sourcePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
+        // A new tab opens in the view mode of the tab it was created from, not the saved default.
+        var viewMode = (left ? SelectedLeftTab : SelectedRightTab)?.ViewMode ?? ResolveStartupViewMode();
         var tab = new PanelTabViewModel(left ? $"L{tabs.Count + 1}" : $"R{tabs.Count + 1}", new PanelViewModel())
         {
-            IsTileViewEnabled = _settings.DefaultTileViewEnabled
+            ViewMode = viewMode
         };
         tabs.Add(tab);
         if (left) SelectedLeftTab = tab; else SelectedRightTab = tab;
@@ -1253,6 +1313,36 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
                 string.Equals(entry.FullPath, targetPath, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    public bool TryOpenWithExternalEditor(string? path, out string? error)
+    {
+        error = null;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            error = "경로가 비어 있습니다.";
+            return false;
+        }
+
+        var editor = string.IsNullOrWhiteSpace(_settings.ExternalEditorPath)
+            ? "notepad.exe"
+            : _settings.ExternalEditorPath;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editor,
+                Arguments = $"\"{path}\"",
+                UseShellExecute = true
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
         }
     }
 
@@ -1636,6 +1726,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             await CloseTabsForDeletedDirectoriesAsync(deletedItems);
             await ReloadPanelsForPathsAsync([panel.CurrentPath]);
+            MarkPathSelfReloaded(panel.CurrentPath);
             QueuePostMutationRefresh();
             SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
 
@@ -2471,6 +2562,21 @@ public sealed class MainWindowViewModel : ObservableObject
         SetViewModeForActivePanel(PanelViewMode.CompactList);
     }
 
+    // The four-panel toolbar buttons switch a slot tab directly, so they ask for a save here.
+    public void RememberViewMode(PanelViewMode mode)
+    {
+        if (IsFourPanelMode)
+        {
+            var slot = _fourPanels.FirstOrDefault(candidate => candidate.IsActive) ?? _fourPanels.FirstOrDefault();
+            if (slot?.SelectedTab is not null)
+            {
+                slot.SelectedTab.ViewMode = mode;
+            }
+        }
+
+        _ = PersistSettingsAsync();
+    }
+
     public void SetViewModeForActivePanel(PanelViewMode mode)
     {
         var targetTab = IsLeftPanelActive ? SelectedLeftTab : SelectedRightTab;
@@ -2480,17 +2586,10 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         targetTab.ViewMode = mode;
-        OnPropertyChanged(nameof(IsTileViewEnabled));
-        OnPropertyChanged(nameof(IsCompactListViewEnabled));
-        if (IsLeftPanelActive)
-        {
-            OnPropertyChanged(nameof(LeftPanelIsTileViewEnabled));
-            OnPropertyChanged(nameof(LeftPanelIsCompactListViewEnabled));
-            return;
-        }
-
-        OnPropertyChanged(nameof(RightPanelIsTileViewEnabled));
-        OnPropertyChanged(nameof(RightPanelIsCompactListViewEnabled));
+        // Saving after the tab changed matters: the save snapshots the session, and that snapshot
+        // reads the remembered mode from the tab.
+        _ = PersistSettingsAsync();
+        NotifyViewModeChanged();
     }
 
     public async Task SetPanelCountAsync(int count)
@@ -2688,8 +2787,10 @@ public sealed class MainWindowViewModel : ObservableObject
                 ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
                 : slot.Panel.CurrentPath)
             : explicitSourcePath;
+        // Same rule as the two-panel tabs: inherit the view mode the slot is showing now.
+        var viewMode = slot.SelectedTab?.ViewMode ?? ResolveStartupViewMode();
         var tab = slot.AddTab(path);
-        tab.IsTileViewEnabled = _settings.DefaultTileViewEnabled;
+        tab.ViewMode = viewMode;
         await LoadPanelAsync(tab.Panel, path, false);
         await PersistSettingsAsync();
     }
@@ -2706,6 +2807,45 @@ public sealed class MainWindowViewModel : ObservableObject
             await PersistSettingsAsync();
         }
     }
+
+    public event EventHandler? ShortcutsChanged;
+
+    public void RebuildShortcuts()
+    {
+        var gestures = new Dictionary<string, ShortcutGesture>(StringComparer.Ordinal);
+        foreach (var definition in ShortcutCatalog.All)
+        {
+            gestures[definition.Id] = definition.DefaultGesture;
+        }
+
+        foreach (var entry in _settings.ShortcutOverrides)
+        {
+            var separator = entry.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var id = entry[..separator].Trim();
+            if (!gestures.ContainsKey(id) ||
+                !ShortcutGesture.TryParse(entry[(separator + 1)..], out var gesture))
+            {
+                continue;
+            }
+
+            gestures[id] = gesture;
+        }
+
+        _shortcutGestures = gestures;
+        ShortcutsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public ShortcutGesture GetShortcutGesture(string commandId) =>
+        _shortcutGestures.TryGetValue(commandId, out var gesture)
+            ? gesture
+            : ShortcutCatalog.DefaultGesture(commandId);
+
+    public string GetShortcutText(string commandId) => GetShortcutGesture(commandId).ToText();
 
     public UiSettingsSnapshot CaptureUiSettings()
     {
@@ -2730,7 +2870,10 @@ public sealed class MainWindowViewModel : ObservableObject
             FileListFontSize = FileListFontSize,
             FileListRowHeight = FileListRowHeight,
             ExternalEditorPath = _settings.ExternalEditorPath,
-            EnableImageHoverPreview = _settings.EnableImageHoverPreview
+            EnableImageHoverPreview = _settings.EnableImageHoverPreview,
+            ShowPropertyColumn = _settings.ShowPropertyColumn,
+            EnablePanelListAutomation = _settings.EnablePanelListAutomation,
+            ShortcutOverrides = _settings.ShortcutOverrides.ToList()
         };
     }
 
@@ -2767,10 +2910,17 @@ public sealed class MainWindowViewModel : ObservableObject
         _themeColorOverridesMap = BuildThemeColorOverridesMap(_settings.ThemeColorOverrides);
         _settings.ExtensionColorOverrides = NormalizeExtensionColorOverrides(snapshot.ExtensionColorOverrides);
         _settings.FileListFontFamily = NormalizeFileListFontFamily(snapshot.FileListFontFamily);
+        App.ApplyUiFont(FileListFontFamily);
         _settings.FileListFontSize = NormalizeFileListFontSize(snapshot.FileListFontSize);
         _settings.FileListRowHeight = NormalizeFileListRowHeight(snapshot.FileListRowHeight);
         _settings.ExternalEditorPath = string.IsNullOrWhiteSpace(snapshot.ExternalEditorPath) ? "notepad.exe" : snapshot.ExternalEditorPath.Trim();
         _settings.EnableImageHoverPreview = snapshot.EnableImageHoverPreview;
+        _settings.ShowPropertyColumn = snapshot.ShowPropertyColumn;
+        OnPropertyChanged(nameof(ShowPropertyColumn));
+        _settings.EnablePanelListAutomation = snapshot.EnablePanelListAutomation;
+        Controls.AutomationQuietDataGrid.Quiet = !_settings.EnablePanelListAutomation;
+        _settings.ShortcutOverrides = snapshot.ShortcutOverrides?.ToList() ?? new List<string>();
+        RebuildShortcuts();
 
         SelectedConflictPolicyDisplay = _settings.ConflictPolicyDisplay;
         SearchScope = _settings.DefaultSearchScope;
@@ -2816,6 +2966,16 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var value = (fontFamily ?? string.Empty).Trim();
         return string.IsNullOrWhiteSpace(value) ? "Malgun Gothic" : value;
+    }
+
+    // Pretendard ships with the app (Assets/Fonts, SIL OFL 1.1). Settings keep the friendly name;
+    // WPF needs the pack-path form to use a font that is not installed on the machine.
+    public static string ResolveFileListFontFamily(string? fontFamily)
+    {
+        var value = NormalizeFileListFontFamily(fontFamily);
+        return string.Equals(value, BundledFontDisplayName, StringComparison.Ordinal)
+            ? BundledFontFamilyUri
+            : value;
     }
 
     private static string NormalizeThemeMode(string? themeMode)
@@ -3120,7 +3280,8 @@ public sealed class MainWindowViewModel : ObservableObject
         await LoadPanelAsync(panel, drivePath, false);
     }
 
-    public async Task NavigateFourPanelHomeAsync(PanelViewModel? panel)
+    // Shared by the four-panel home button and the "모든 탭 닫기" tab command.
+    public async Task NavigatePanelHomeAsync(PanelViewModel? panel)
     {
         if (panel is null)
         {
@@ -3743,6 +3904,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             await CloseTabsForDeletedDirectoriesAsync(deletedItems);
             await ReloadPanelsForPathsAsync([panel.CurrentPath]);
+            MarkPathSelfReloaded(panel.CurrentPath);
             QueuePostMutationRefresh();
             SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
 
@@ -4710,6 +4872,14 @@ public sealed class MainWindowViewModel : ObservableObject
                 return;
             }
 
+            // Our own mutations already reloaded these folders; refreshing them again here
+            // only makes the list (and its selection) blink a moment later.
+            targets = targets.Where(target => !WasRecentlySelfReloaded(target)).ToArray();
+            if (targets.Length == 0)
+            {
+                return;
+            }
+
             try
             {
                 LiveTrace.Write($"Watcher refresh: {string.Join(", ", targets)}");
@@ -4721,6 +4891,39 @@ public sealed class MainWindowViewModel : ObservableObject
             }
         }, System.Windows.Threading.DispatcherPriority.Background);
     }
+
+    private void MarkPathSelfReloaded(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        _selfReloadedPathsUtc[NormalizeWatchKey(path)] = DateTime.UtcNow;
+    }
+
+    private bool WasRecentlySelfReloaded(string path)
+    {
+        var now = DateTime.UtcNow;
+        var key = NormalizeWatchKey(path);
+        if (_selfReloadedPathsUtc.TryGetValue(key, out var at) && now - at < SelfReloadSuppressionWindow)
+        {
+            return true;
+        }
+
+        foreach (var stale in _selfReloadedPathsUtc
+                     .Where(pair => now - pair.Value >= SelfReloadSuppressionWindow)
+                     .Select(pair => pair.Key)
+                     .ToArray())
+        {
+            _selfReloadedPathsUtc.Remove(stale);
+        }
+
+        return false;
+    }
+
+    private string NormalizeWatchKey(string path) =>
+        _fileSystemService.NormalizePath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     private void SyncSelectedDrivesFromPaths()
     {
@@ -5330,11 +5533,32 @@ public sealed class MainWindowViewModel : ObservableObject
             selectedIndex = Math.Clamp(selectedIndex, 0, slot.Tabs.Count - 1);
             slot.SelectedTab = slot.Tabs[selectedIndex];
 
-            foreach (var tab in slot.Tabs)
-            {
-                await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
-            }
+            await EnsureFourPanelTabLoadedAsync(slot);
         }
+    }
+
+    /// <summary>Lists the folder of the visible tab, if it has not been listed yet.</summary>
+    public async Task EnsurePanelTabLoadedAsync(bool left)
+    {
+        await LoadPanelIfNeededAsync(left ? SelectedLeftTab?.Panel : SelectedRightTab?.Panel);
+    }
+
+    public async Task EnsureFourPanelTabLoadedAsync(FourPanelSlotViewModel? slot)
+    {
+        await LoadPanelIfNeededAsync(slot?.Panel);
+    }
+
+    private async Task LoadPanelIfNeededAsync(PanelViewModel? panel)
+    {
+        if (_sessionRestoreInProgress ||
+            panel is null ||
+            panel.Items.Count > 0 ||
+            string.IsNullOrWhiteSpace(panel.CurrentPath))
+        {
+            return;
+        }
+
+        await LoadPanelAsync(panel, panel.CurrentPath, false);
     }
 
     private void CaptureSessionState()
@@ -5359,6 +5583,7 @@ public sealed class MainWindowViewModel : ObservableObject
             .ToList();
         _settings.SelectedLeftTabIndex = LeftTabs.Count == 0 ? 0 : Math.Max(0, LeftTabs.IndexOf(SelectedLeftTab ?? LeftTabs[0]));
         _settings.SelectedRightTabIndex = RightTabs.Count == 0 ? 0 : Math.Max(0, RightTabs.IndexOf(SelectedRightTab ?? RightTabs[0]));
+        _settings.LastViewMode = GetCurrentViewMode().ToString();
         _settings.DefaultSearchScope = SearchScope;
         _settings.DefaultSearchRecursive = SearchRecursive;
         _settings.ConflictPolicyDisplay = SelectedConflictPolicyDisplay;
@@ -5470,32 +5695,73 @@ public sealed class MainWindowViewModel : ObservableObject
         RightCurrentPath = SelectedRightTab.Panel.CurrentPath;
     }
 
-    private void ApplyDefaultViewToAllTabs(bool enabled)
+    // Whichever panel the user is looking at is the one whose mode gets remembered.
+    private PanelViewMode GetCurrentViewMode()
+    {
+        if (IsFourPanelMode)
+        {
+            var slot = _fourPanels.FirstOrDefault(candidate => candidate.IsActive) ?? _fourPanels.FirstOrDefault();
+            if (slot?.SelectedTab is not null)
+            {
+                return slot.SelectedTab.ViewMode;
+            }
+        }
+
+        return (IsLeftPanelActive ? SelectedLeftTab : SelectedRightTab)?.ViewMode
+            ?? (_settings.DefaultTileViewEnabled ? PanelViewMode.Tiles : PanelViewMode.Details);
+    }
+
+    // The last mode the user actually worked in wins; the setting only seeds the very first run.
+    private PanelViewMode ResolveStartupViewMode()
+    {
+        if (Enum.TryParse<PanelViewMode>(_settings.LastViewMode, ignoreCase: true, out var saved))
+        {
+            return saved;
+        }
+
+        return _settings.DefaultTileViewEnabled ? PanelViewMode.Tiles : PanelViewMode.Details;
+    }
+
+    private void ApplyViewModeToAllTabs(PanelViewMode mode)
     {
         foreach (var tab in LeftTabs)
         {
-            tab.IsTileViewEnabled = enabled;
+            tab.ViewMode = mode;
         }
 
         foreach (var tab in RightTabs)
         {
-            tab.IsTileViewEnabled = enabled;
+            tab.ViewMode = mode;
         }
 
         foreach (var slot in _fourPanels)
         {
             foreach (var tab in slot.Tabs)
             {
-                tab.IsTileViewEnabled = enabled;
+                tab.ViewMode = mode;
             }
         }
 
+        // The panels read the mode through these wrappers, so writing the tabs directly is not
+        // enough: without the notifications the views keep drawing the previous mode.
+        NotifyViewModeChanged();
+    }
+
+    private void NotifyViewModeChanged()
+    {
         OnPropertyChanged(nameof(IsTileViewEnabled));
         OnPropertyChanged(nameof(IsCompactListViewEnabled));
         OnPropertyChanged(nameof(LeftPanelIsTileViewEnabled));
         OnPropertyChanged(nameof(LeftPanelIsCompactListViewEnabled));
         OnPropertyChanged(nameof(RightPanelIsTileViewEnabled));
         OnPropertyChanged(nameof(RightPanelIsCompactListViewEnabled));
+    }
+
+    private void ApplyDefaultViewToAllTabs(bool enabled)
+    {
+        var mode = enabled ? PanelViewMode.Tiles : PanelViewMode.Details;
+        _settings.LastViewMode = mode.ToString();
+        ApplyViewModeToAllTabs(mode);
     }
 
     private IReadOnlyList<string> NormalizeTabPaths(IReadOnlyList<string>? paths, string fallbackPath)
@@ -6127,7 +6393,16 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ReloadPanelsForPathsAndDashboardAsync(IEnumerable<string?> paths)
     {
-        await ReloadPanelsForPathsAsync(paths);
+        // Only reached from our own file operations (rename/copy/move/delete helpers), never
+        // from the watcher, so the folders we refresh here are the ones the watcher is about
+        // to report; skipping that duplicate refresh avoids a visible list/selection blink.
+        var targetPaths = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path!).ToArray();
+        foreach (var path in targetPaths)
+        {
+            MarkPathSelfReloaded(path);
+        }
+
+        await ReloadPanelsForPathsAsync(targetPaths);
         await RefreshSidebarAndDashboardAsync();
         await PersistSettingsAsync();
     }
@@ -6155,18 +6430,74 @@ public sealed class MainWindowViewModel : ObservableObject
 
         foreach (var tab in LeftTabs.Where(tab => IsTargetPath(tab.Panel.CurrentPath)))
         {
-            await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
+            await ReloadPanelIfChangedAsync(tab.Panel, IsTargetPath);
         }
 
         foreach (var tab in RightTabs.Where(tab => IsTargetPath(tab.Panel.CurrentPath)))
         {
-            await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
+            await ReloadPanelIfChangedAsync(tab.Panel, IsTargetPath);
         }
 
         foreach (var slot in _fourPanels.Where(slot => IsTargetPath(slot.Panel.CurrentPath)))
         {
-            await LoadPanelAsync(slot.Panel, slot.Panel.CurrentPath, false);
+            await ReloadPanelIfChangedAsync(slot.Panel, IsTargetPath);
         }
+    }
+
+    // Re-lists a panel only when its visible items actually changed. Busy folders (hidden or
+    // system files churning, cloud sync) otherwise re-bind the grid for an identical list,
+    // which costs a layout/render pass each time.
+    private async Task ReloadPanelIfChangedAsync(PanelViewModel panel, Func<string, bool> isTargetPath)
+    {
+        var normalized = _fileSystemService.NormalizePath(panel.CurrentPath);
+        if (string.IsNullOrWhiteSpace(normalized) || !isTargetPath(normalized))
+        {
+            return;
+        }
+
+        IReadOnlyList<FileSystemItem> items;
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            items = await _fileSystemService.GetDirectoryItemsAsync(normalized, timeoutCts.Token);
+        }
+        catch
+        {
+            return;
+        }
+
+        SetDirectoryItemsCache(normalized, items);
+
+        if (HasSameVisibleItems(panel, items))
+        {
+            return;
+        }
+
+        await LoadPanelAsync(panel, normalized, false);
+    }
+
+    private static bool HasSameVisibleItems(PanelViewModel panel, IReadOnlyList<FileSystemItem> items)
+    {
+        var current = panel.Items;
+        if (current.Count != items.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < items.Count; index++)
+        {
+            var existing = current[index];
+            var incoming = items[index];
+            if (!string.Equals(existing.FullPath, incoming.FullPath, StringComparison.OrdinalIgnoreCase) ||
+                existing.IsDirectory != incoming.IsDirectory ||
+                existing.SizeBytes != incoming.SizeBytes ||
+                existing.LastModified != incoming.LastModified)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void QueuePostMutationRefresh()

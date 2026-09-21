@@ -591,6 +591,46 @@ public partial class MainWindow : Window
     {
         AttachVmPropertyEvents();
         HookTabContextMenuTracing();
+        RefreshShortcutGestureTexts();
+        ApplyPropertyColumnVisibility();
+    }
+
+    private void ApplyPropertyColumnVisibility()
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var visibility = Vm.ShowPropertyColumn ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var grid in FindVisualDescendants<DataGrid>(this))
+        {
+            foreach (var column in grid.Columns)
+            {
+                if (column.Header is string header && string.Equals(header, "속성", StringComparison.Ordinal))
+                {
+                    column.Visibility = visibility;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var nested in FindVisualDescendants<T>(child))
+            {
+                yield return nested;
+            }
+        }
     }
 
     private void HookTabContextMenuTracing()
@@ -630,6 +670,7 @@ public partial class MainWindow : Window
 
         _subscribedVm = Vm;
         _subscribedVm.PropertyChanged += OnVmPropertyChanged;
+        _subscribedVm.ShortcutsChanged += OnShortcutsChanged;
     }
 
     private void DetachVmPropertyEvents()
@@ -640,7 +681,49 @@ public partial class MainWindow : Window
         }
 
         _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+        _subscribedVm.ShortcutsChanged -= OnShortcutsChanged;
         _subscribedVm = null;
+    }
+
+    private void OnShortcutsChanged(object? sender, EventArgs e)
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            RefreshShortcutGestureTexts();
+        }
+        else
+        {
+            Dispatcher.BeginInvoke(new Action(RefreshShortcutGestureTexts));
+        }
+    }
+
+    private void RefreshShortcutGestureTexts()
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        FileMenuOpen.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Open);
+        FileMenuEdit.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.EditWithExternalEditor);
+        FileMenuDelete.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Delete);
+        FileMenuRename.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Rename);
+        FileMenuNewFolder.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.NewFolder);
+        FileMenuNewFile.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.NewFile);
+        FileMenuProperties.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Properties);
+        FileMenuSearch.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Search);
+
+        CmdMenuOpen.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Open);
+        CmdMenuEdit.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.EditWithExternalEditor);
+        CmdMenuDelete.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Delete);
+        CmdMenuRename.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Rename);
+        CmdMenuNewFolder.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.NewFolder);
+        CmdMenuNewFile.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.NewFile);
+        CmdMenuProperties.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Properties);
+        CmdMenuSearch.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.Search);
+
+        SelectMenuSelectAll.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.SelectAll);
+        SelectMenuSelectNone.InputGestureText = Vm.GetShortcutText(ShortcutCatalog.SelectNone);
     }
 
     protected override void OnClosed(EventArgs e)
@@ -654,7 +737,19 @@ public partial class MainWindow : Window
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (Vm is null || !IsActive)
+        if (Vm is null)
+        {
+            return;
+        }
+
+        // Column visibility must update even while the settings dialog is modal (window inactive).
+        if (string.Equals(e.PropertyName, nameof(MainWindowViewModel.ShowPropertyColumn), StringComparison.Ordinal))
+        {
+            ApplyPropertyColumnVisibility();
+            return;
+        }
+
+        if (!IsActive)
         {
             return;
         }
@@ -750,7 +845,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Vm?.IsTileViewEnabledForPanel(leftPanel: true) == true)
+        if (IsListStylePanelView(true))
         {
             LeftPanelTilesList.Focus();
         }
@@ -769,7 +864,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Vm?.IsTileViewEnabledForPanel(leftPanel: false) == true)
+        if (IsListStylePanelView(false))
         {
             RightPanelTilesList.Focus();
         }
@@ -879,6 +974,7 @@ public partial class MainWindow : Window
             {
                 slot.SelectedTab.ViewMode = PanelViewMode.Details;
             }
+            Vm.RememberViewMode(PanelViewMode.Details);
             return;
         }
 
@@ -899,6 +995,7 @@ public partial class MainWindow : Window
             {
                 slot.SelectedTab.ViewMode = PanelViewMode.Tiles;
             }
+            Vm.RememberViewMode(PanelViewMode.Tiles);
             return;
         }
 
@@ -921,6 +1018,7 @@ public partial class MainWindow : Window
                 slot.SelectedTab.ViewMode = PanelViewMode.CompactList;
             }
 
+            Vm.RememberViewMode(PanelViewMode.CompactList);
             return;
         }
 
@@ -1416,7 +1514,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        await Vm.NavigateFourPanelHomeAsync(slot.Panel);
+        await Vm.NavigatePanelHomeAsync(slot.Panel);
     }
 
     private async void OnFourPanelRefreshClick(object sender, RoutedEventArgs e)
@@ -1601,6 +1699,7 @@ public partial class MainWindow : Window
             _activeFourPanelIndex = index;
             Vm.SetActiveFourPanel(index);
             Vm.RefreshFreeSpaceIndicators();
+            _ = Vm.EnsureFourPanelTabLoadedAsync(slot);
             Dispatcher.BeginInvoke(RefreshAdaptiveTileLayouts, DispatcherPriority.Background);
         }
     }
@@ -1696,6 +1795,27 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnFourPanelTabCloseAllClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null ||
+            TryGetFourPanelSlotFromContextSender(sender) is not FourPanelSlotViewModel slot ||
+            slot.SelectedTab is null)
+        {
+            return;
+        }
+
+        var panel = slot.Panel;
+        for (var index = slot.Tabs.Count - 1; index >= 0; index--)
+        {
+            if (!ReferenceEquals(slot.Tabs[index], slot.SelectedTab))
+            {
+                slot.Tabs.RemoveAt(index);
+            }
+        }
+
+        await Vm.NavigatePanelHomeAsync(panel);
+    }
+
     private async void OnFourPanelTabsMouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (Vm is null || sender is not FrameworkElement element || TryGetFourPanel(element) is not FourPanelSlotViewModel slot)
@@ -1748,25 +1868,25 @@ public partial class MainWindow : Window
 
         var selected = GetFourPanelSelectedItems(panel);
 
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
+        if (MatchesShortcut(ShortcutCatalog.Copy, e))
         {
             Vm.CopySelectionToClipboard(selected);
             return true;
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.X)
+        if (MatchesShortcut(ShortcutCatalog.Cut, e))
         {
             Vm.CutSelectionToClipboard(selected);
             return true;
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.V)
+        if (MatchesShortcut(ShortcutCatalog.Paste, e))
         {
             await Vm.PasteClipboardToPanelAsync(panel);
             return true;
         }
 
-        if (e.Key == Key.Enter)
+        if (MatchesShortcut(ShortcutCatalog.Open, e))
         {
             await Vm.OpenItemFromFourPanelAsync(panel);
             return true;
@@ -1778,7 +1898,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (e.Key == Key.Delete)
+        if (MatchesShortcut(ShortcutCatalog.Delete, e, ignoreShift: true))
         {
             var targetSelected = selected.Where(item => !item.IsParentDirectory).ToList();
             if (targetSelected.Count == 0)
@@ -1827,7 +1947,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (e.Key == Key.F2)
+        if (MatchesShortcut(ShortcutCatalog.Rename, e))
         {
             if (selected.Count != 1 || selected[0].IsParentDirectory)
             {
@@ -1845,7 +1965,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (e.Key == Key.F4)
+        if (MatchesShortcut(ShortcutCatalog.EditWithExternalEditor, e))
         {
             if (selected.Count == 1 && !selected[0].IsParentDirectory && !selected[0].IsDirectory)
             {
@@ -1854,7 +1974,7 @@ public partial class MainWindow : Window
             return true;
         }
 
-        if (e.Key == Key.F7)
+        if (MatchesShortcut(ShortcutCatalog.NewFolder, e))
         {
             var folderName = NewFolderDialog.ShowDialog(this, "New Folder");
             if (!string.IsNullOrWhiteSpace(folderName))
@@ -3288,24 +3408,10 @@ public partial class MainWindow : Window
     private void LaunchExternalEditor(string filePath)
     {
         if (Vm is null) return;
-        var editor = Vm.ExternalEditorPath;
-        if (string.IsNullOrWhiteSpace(editor))
-        {
-            editor = "notepad.exe";
-        }
 
-        try
+        if (!Vm.TryOpenWithExternalEditor(filePath, out var error))
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = editor,
-                Arguments = $"\"{filePath}\"",
-                UseShellExecute = true
-            });
-        }
-        catch (Exception ex)
-        {
-            StyledDialogWindow.ShowInfo(this, "오류", $"편집기를 실행할 수 없습니다.\n경로: {editor}\n사유: {ex.Message}");
+            StyledDialogWindow.ShowInfo(this, "오류", $"편집기를 실행할 수 없습니다.\n경로: {Vm.ExternalEditorPath}\n사유: {error}");
         }
     }
 
@@ -4091,6 +4197,34 @@ public partial class MainWindow : Window
         Vm.AddFavoriteCommand.Execute(null);
     }
 
+    private bool MatchesShortcut(string commandId, KeyEventArgs e, bool ignoreShift = false)
+    {
+        var gesture = Vm?.GetShortcutGesture(commandId) ?? ShortcutGesture.Unassigned;
+        if (!gesture.IsAssigned || gesture.Key != ShortcutInput.ResolveKey(e))
+        {
+            return false;
+        }
+
+        // Shift is commonly still held right after a Shift range selection (or Shift+click),
+        // so commands like Delete must not go dead in that state.
+        var pressed = ignoreShift
+            ? Keyboard.Modifiers & ~ModifierKeys.Shift
+            : Keyboard.Modifiers;
+
+        if (gesture.Modifiers != pressed)
+        {
+            return false;
+        }
+
+        // Never hijack modifier-less keys while the user is typing in a text box.
+        if (gesture.Modifiers == ModifierKeys.None && IsTextInputFocused())
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     private async void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (Vm is null)
@@ -4107,16 +4241,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (IsPanelInteractionFocused() && !IsTextInputFocused() &&
-            Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.A)
+        if (IsPanelInteractionFocused() && !IsTextInputFocused() && MatchesShortcut(ShortcutCatalog.SelectAll, e))
         {
             ToggleSelectAllInFocusedPanel();
             e.Handled = true;
             return;
         }
 
-        if (IsPanelInteractionFocused() && !IsTextInputFocused() &&
-            Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.Escape)
+        if (IsPanelInteractionFocused() && !IsTextInputFocused() && MatchesShortcut(ShortcutCatalog.SelectNone, e))
         {
             OnSelectNoneClick(sender, e);
             e.Handled = true;
@@ -4136,28 +4268,28 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
+        if (MatchesShortcut(ShortcutCatalog.Search, e))
         {
             OnSearchClick(sender, e);
             e.Handled = true;
             return;
         }
 
-        if ((Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt && e.Key == Key.Left)
+        if (MatchesShortcut(ShortcutCatalog.GoBack, e))
         {
             e.Handled = true;
             await Vm.NavigatePanelBackAsync(Vm.IsLeftPanelActive);
             return;
         }
 
-        if ((Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt && e.Key == Key.Right)
+        if (MatchesShortcut(ShortcutCatalog.GoForward, e))
         {
             e.Handled = true;
             await Vm.NavigatePanelForwardAsync(Vm.IsLeftPanelActive);
             return;
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.D)
+        if (MatchesShortcut(ShortcutCatalog.AddFavorite, e))
         {
             Vm.AddFavoriteCommand.Execute(null);
             e.Handled = true;
@@ -4228,21 +4360,21 @@ public partial class MainWindow : Window
         // e.g. Ctrl+V right after clicking another tab still pastes there.
         if (!IsTextInputFocused())
         {
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
+            if (MatchesShortcut(ShortcutCatalog.Copy, e))
             {
                 Vm.CopySelectionToClipboard(GetActiveSelectedItems());
                 e.Handled = true;
                 return;
             }
 
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.X)
+            if (MatchesShortcut(ShortcutCatalog.Cut, e))
             {
                 Vm.CutSelectionToClipboard(GetActiveSelectedItems());
                 e.Handled = true;
                 return;
             }
 
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.V)
+            if (MatchesShortcut(ShortcutCatalog.Paste, e))
             {
                 e.Handled = true;
                 await Vm.PasteClipboardToActivePanelAsync();
@@ -4250,7 +4382,7 @@ public partial class MainWindow : Window
             }
         }
 
-        if (e.Key == Key.Enter)
+        if (MatchesShortcut(ShortcutCatalog.Open, e))
         {
             // Mark handled BEFORE awaiting. This is an async void handler, so the
             // await yields control back to WPF's input pipeline; if Handled were set
@@ -4268,7 +4400,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.Key == Key.Delete)
+        if (MatchesShortcut(ShortcutCatalog.Delete, e, ignoreShift: true))
         {
             e.Handled = true;
             var sourceType = e.OriginalSource?.GetType().Name ?? "(null)";
@@ -4288,14 +4420,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.Key == Key.F2)
+        if (MatchesShortcut(ShortcutCatalog.Rename, e))
         {
             BeginInlineRename();
             e.Handled = true;
             return;
         }
 
-        if (e.Key == Key.F4)
+        if (MatchesShortcut(ShortcutCatalog.EditWithExternalEditor, e))
         {
             var selected = GetActiveSelectedItems();
             if (selected.Count == 1 && !selected[0].IsParentDirectory && !selected[0].IsDirectory)
@@ -4306,7 +4438,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.Key == Key.F7)
+        if (MatchesShortcut(ShortcutCatalog.NewFolder, e))
         {
             var folderName = NewFolderDialog.ShowDialog(this, "New Folder");
             if (!string.IsNullOrWhiteSpace(folderName))
@@ -4315,6 +4447,27 @@ public partial class MainWindow : Window
             }
 
             e.Handled = true;
+            return;
+        }
+
+        if (MatchesShortcut(ShortcutCatalog.NewFile, e))
+        {
+            e.Handled = true;
+            OnNewFileClick(this, e);
+            return;
+        }
+
+        if (MatchesShortcut(ShortcutCatalog.Properties, e))
+        {
+            e.Handled = true;
+            OnFileMenuPropertiesClick(this, e);
+            return;
+        }
+
+        if (MatchesShortcut(ShortcutCatalog.Refresh, e))
+        {
+            e.Handled = true;
+            Vm.RefreshCommand.Execute(null);
         }
     }
 
@@ -4325,19 +4478,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (ReferenceEquals(grid.CurrentCell.Item, selectedItem))
+        // Never assign SelectedItem when the row is already selected: the setter drops every
+        // other selected row, which would collapse a Shift+Arrow range to a single item.
+        var alreadySelected = grid.SelectedItems.Contains(selectedItem);
+        if (alreadySelected && ReferenceEquals(grid.CurrentCell.Item, selectedItem))
         {
             return;
         }
 
-        grid.SelectedItem = selectedItem;
+        if (!alreadySelected)
+        {
+            grid.SelectedItem = selectedItem;
+        }
 
         // Forcing CurrentCell synchronously can make the DataGrid generate/realize containers
         // immediately, which is expensive right after an ItemsSource swap (tab switch). Defer it
         // so the tab-switch itself stays instant; the cell highlight catches up a frame later.
         grid.Dispatcher.BeginInvoke(() =>
         {
-            if (!ReferenceEquals(grid.SelectedItem, selectedItem))
+            if (!grid.SelectedItems.Contains(selectedItem))
             {
                 return;
             }
@@ -5231,6 +5390,20 @@ public partial class MainWindow : Window
         Vm?.CloseOtherTabs(left: true);
     }
 
+    // Closes every tab but one, then starts that tab over at the home folder.
+    private async void OnLeftTabCloseAllClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var panel = Vm.SelectedLeftTab?.Panel;
+        Vm.CloseOtherTabs(left: true);
+        Vm.SetActivePanelCommand.Execute("Left");
+        await Vm.NavigatePanelHomeAsync(panel);
+    }
+
     private async void OnRightTabDuplicateClick(object sender, RoutedEventArgs e)
     {
         if (Vm is null)
@@ -5271,6 +5444,16 @@ public partial class MainWindow : Window
 
         DismissFavoriteFlyoutsForNavigation();
         _lastTabInteractionUtc = DateTime.UtcNow;
+
+        // Restored tabs are only listed once they are actually shown.
+        if (ReferenceEquals(sender, LeftTabsControl))
+        {
+            _ = Vm?.EnsurePanelTabLoadedAsync(left: true);
+        }
+        else if (ReferenceEquals(sender, RightTabsControl))
+        {
+            _ = Vm?.EnsurePanelTabLoadedAsync(left: false);
+        }
     }
 
     private void OnRightTabCloseToLeftClick(object sender, RoutedEventArgs e)
@@ -5286,6 +5469,19 @@ public partial class MainWindow : Window
     private void OnRightTabCloseOthersClick(object sender, RoutedEventArgs e)
     {
         Vm?.CloseOtherTabs(left: false);
+    }
+
+    private async void OnRightTabCloseAllClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var panel = Vm.SelectedRightTab?.Panel;
+        Vm.CloseOtherTabs(left: false);
+        Vm.SetActivePanelCommand.Execute("Right");
+        await Vm.NavigatePanelHomeAsync(panel);
     }
 
     private void OnTabPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -6657,7 +6853,7 @@ public partial class MainWindow : Window
         // Synchronously focus the active panel container to prevent focus from drifting to the other panel.
         if (activeLeft)
         {
-            if (Vm.IsTileViewEnabledForPanel(true))
+            if (IsListStylePanelView(true))
             {
                 LeftPanelTilesList.Focus();
                 Keyboard.Focus(LeftPanelTilesList);
@@ -6670,7 +6866,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            if (Vm.IsTileViewEnabledForPanel(false))
+            if (IsListStylePanelView(false))
             {
                 RightPanelTilesList.Focus();
                 Keyboard.Focus(RightPanelTilesList);
@@ -6739,9 +6935,28 @@ public partial class MainWindow : Window
             candidate = visibleOrder.FirstOrDefault(item => !item.IsParentDirectory) ?? candidate;
         }
 
-        panel.SelectedItem = candidate;
-        ApplySingleSelectionToPanelControl(left, candidate);
+        // The view model already restores the same anchor item after a delete; only touch
+        // the controls when it is actually out of sync, so there is a single source of truth.
+        if (!ReferenceEquals(panel.SelectedItem, candidate))
+        {
+            panel.SelectedItem = candidate;
+            ApplySingleSelectionToPanelControl(left, candidate);
+        }
+
+        // The grid's current cell still points at the deleted row, so the view can jump
+        // once it re-syncs; point it at the restored row right away.
+        if (!IsListStylePanelView(left))
+        {
+            EnsureGridCurrentCellMatchesSelection(left ? LeftPanelGrid : RightPanelGrid, candidate);
+        }
     }
+
+    // Tile and compact views both render through the panel ListBox; only the details view
+    // uses the DataGrid. Selection/focus helpers must agree on that, or they act on the
+    // wrong (hidden) control.
+    private bool IsListStylePanelView(bool left) =>
+        Vm is not null &&
+        (Vm.IsTileViewEnabledForPanel(left) || Vm.IsCompactListViewEnabledForPanel(left));
 
     private IReadOnlyList<FileSystemItem> GetVisibleOrderForPanel(bool left)
     {
@@ -6750,7 +6965,7 @@ public partial class MainWindow : Window
             return Array.Empty<FileSystemItem>();
         }
 
-        if (Vm.IsTileViewEnabledForPanel(left))
+        if (IsListStylePanelView(left))
         {
             var list = left ? LeftPanelTilesList : RightPanelTilesList;
             return list.Items.Cast<object>().OfType<FileSystemItem>().ToList();
@@ -6805,7 +7020,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Vm.IsTileViewEnabledForPanel(Vm.IsLeftPanelActive))
+        if (IsListStylePanelView(Vm.IsLeftPanelActive))
         {
             item.RenameCandidate = item.Name;
             item.IsInlineRenaming = true;
@@ -6904,7 +7119,7 @@ public partial class MainWindow : Window
             anchorPath = null;
         }
 
-        if (Vm.IsTileViewEnabledForPanel(left))
+        if (IsListStylePanelView(left))
         {
             var list = left ? LeftPanelTilesList : RightPanelTilesList;
             var visibleOrder = list.Items.Cast<object>().OfType<FileSystemItem>().ToList();
@@ -8061,7 +8276,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Vm.IsTileViewEnabledForPanel(left))
+        if (IsListStylePanelView(left))
         {
             var list = left ? LeftPanelTilesList : RightPanelTilesList;
             list.SelectedItems.Clear();
@@ -8582,31 +8797,17 @@ public partial class MainWindow : Window
 
     private void OnInlineRenameTextBoxLoaded(object sender, RoutedEventArgs e)
     {
-        if (sender is TextBox textBox)
+        if (sender is not TextBox textBox)
         {
-            textBox.Focus();
-            var renameText = textBox.Text ?? string.Empty;
-            var selectLength = renameText.Length;
-
-            if (textBox.DataContext is FileSystemItem item && !item.IsDirectory && !item.IsParentDirectory)
-            {
-                var extension = item.Extension ?? string.Empty;
-                if (!string.IsNullOrEmpty(extension) &&
-                    renameText.Length > extension.Length &&
-                    renameText.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-                {
-                    selectLength = renameText.Length - extension.Length;
-                }
-            }
-
-            if (selectLength <= 0 || selectLength > renameText.Length)
-            {
-                textBox.SelectAll();
-                return;
-            }
-
-            textBox.Select(0, selectLength);
+            return;
         }
+
+        // A list row can be shorter than the text's line box, which clips the glyph
+        // bottoms; let the editor grow to fit the font while staying centered on the row.
+        textBox.MinHeight = Math.Max(textBox.MinHeight, textBox.FontSize + 8);
+
+        textBox.Focus();
+        textBox.SelectAll();
     }
 
     private void OnGridInlineRenameTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
@@ -8649,6 +8850,8 @@ public partial class MainWindow : Window
                 {
                     Vm.StatusText = $"이름 바꾸기 실패: {ex.Message}";
                 }
+
+                StyledDialogWindow.ShowInfo(this, "이름 바꾸기 실패", ex.Message);
             }
             return;
         }
@@ -8837,7 +9040,7 @@ public partial class MainWindow : Window
             var left = targetLeftPanel ?? Vm.IsLeftPanelActive;
             Vm.SetActivePanelCommand.Execute(left ? "Left" : "Right");
             var selectedItem = left ? Vm.LeftPanel.SelectedItem : Vm.RightPanel.SelectedItem;
-            if (Vm.IsTileViewEnabledForPanel(left))
+            if (IsListStylePanelView(left))
             {
                 var list = left ? LeftPanelTilesList : RightPanelTilesList;
                 list.UpdateLayout();
@@ -8956,7 +9159,7 @@ public partial class MainWindow : Window
             }
 
             var selectedItem = left ? Vm.LeftPanel.SelectedItem : Vm.RightPanel.SelectedItem;
-            if (Vm.IsTileViewEnabledForPanel(left))
+            if (IsListStylePanelView(left))
             {
                 var list = left ? LeftPanelTilesList : RightPanelTilesList;
                 list.Focus();

@@ -19,6 +19,13 @@ namespace WorkFileExplorer.App.Controls;
 /// </summary>
 public class AutomationQuietDataGrid : DataGrid
 {
+    /// <summary>
+    /// When true (default) only this grid itself is exposed to UI Automation. Turning it off
+    /// exposes rows/cells for screen readers and automation tools, at the cost described above.
+    /// The setting is read when a peer is first created, so a restart applies a change.
+    /// </summary>
+    public static bool Quiet { get; set; } = true;
+
     public Visibility VerticalScrollBarVisibilityState
     {
         get { return (Visibility)GetValue(VerticalScrollBarVisibilityStateProperty); }
@@ -50,7 +57,8 @@ public class AutomationQuietDataGrid : DataGrid
         {
         }
 
-        protected override List<AutomationPeer> GetChildrenCore() => new();
+        protected override List<AutomationPeer> GetChildrenCore() =>
+            Quiet ? new List<AutomationPeer>() : base.GetChildrenCore();
 
         protected override string GetClassNameCore() => "DataGrid";
 

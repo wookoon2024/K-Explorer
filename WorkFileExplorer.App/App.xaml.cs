@@ -41,6 +41,8 @@ public partial class App : Application
             startupSettings = new Models.AppSettings();
         }
 
+        ApplyUiFont(startupSettings.FileListFontFamily);
+
         var viewModel = new MainWindowViewModel(fileSystem, settingsStorage, usageTracking, quickAccess, pathHistoryStore);
         var window = new MainWindow
         {
@@ -65,6 +67,34 @@ public partial class App : Application
         LiveTrace.Write("MainWindow shown");
         await viewModel.InitializeAsync();
         LiveTrace.Write("InitializeAsync complete");
+    }
+
+    /// <summary>
+    /// The file list font doubles as the application font. WPF resolves the default control font
+    /// through the message-font resource key, so replacing it re-fonts every window and dialog
+    /// that is created afterwards; the main window also binds its FontFamily directly.
+    /// </summary>
+    public static void ApplyUiFont(string? fontFamily)
+    {
+        try
+        {
+            var value = MainWindowViewModel.ResolveFileListFontFamily(fontFamily);
+            // A font shipped inside the assembly is addressed as "./Assets/Fonts/#Family". The path
+            // is relative, so a code-created FontFamily needs the pack base to resolve it; without
+            // the base WPF silently falls back to the default font.
+            var resolved = value.Contains('#')
+                ? new System.Windows.Media.FontFamily(new Uri("pack://application:,,,/"), value)
+                : new System.Windows.Media.FontFamily(value);
+
+            // Windows and their controls reference this key directly; the system font keys are
+            // also set so any theme style that reads them stays consistent.
+            Current.Resources["UiFontFamily"] = resolved;
+            Current.Resources[SystemFonts.MessageFontFamilyKey] = resolved;
+            Current.Resources[SystemFonts.MenuFontFamilyKey] = resolved;
+        }
+        catch
+        {
+        }
     }
 
     private static void ApplyWindowPlacement(Window window, Models.AppSettings settings)

@@ -40,6 +40,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.PanelLayout = GetOrDefault(values, "panel_layout", "Horizontal");
             settings.RememberSessionTabs = ParseBool(GetOrDefault(values, "remember_session_tabs", "1"), defaultValue: true);
             settings.DefaultTileViewEnabled = ParseBool(GetOrDefault(values, "default_tile_view_enabled", "0"), defaultValue: false);
+            settings.LastViewMode = GetOrDefault(values, "last_view_mode", string.Empty);
             settings.UseExtensionColors = ParseBool(GetOrDefault(values, "use_extension_colors", "0"), defaultValue: false);
             settings.UsePinnedHighlightColor = ParseBool(GetOrDefault(values, "use_pinned_highlight_color", "1"), defaultValue: true);
             settings.ShowHiddenItems = ParseBool(GetOrDefault(values, "show_hidden_items", "1"), defaultValue: true);
@@ -60,6 +61,10 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.FileListFontFamily = GetOrDefault(values, "file_list_font_family", settings.FileListFontFamily);
             settings.FileListFontSize = ParseDouble(GetOrDefault(values, "file_list_font_size", settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListFontSize);
             settings.FileListRowHeight = ParseDouble(GetOrDefault(values, "file_list_row_height", settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListRowHeight);
+            settings.ExternalEditorPath = GetOrDefault(values, "external_editor_path", settings.ExternalEditorPath);
+            settings.EnableImageHoverPreview = ParseBool(GetOrDefault(values, "enable_image_hover_preview", "0"), defaultValue: false);
+            settings.ShowPropertyColumn = ParseBool(GetOrDefault(values, "show_property_column", "1"), defaultValue: true);
+            settings.EnablePanelListAutomation = ParseBool(GetOrDefault(values, "enable_panel_list_automation", "0"), defaultValue: false);
 
             var lists = await LoadListsAsync(connection, cancellationToken);
             settings.LeftOpenTabPaths = lists.TryGetValue("left_open_tab_paths", out var leftTabs) ? leftTabs : new List<string>();
@@ -76,6 +81,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.MessengerDownloadFolders = lists.TryGetValue("messenger_download_folders", out var messengerFolders) ? messengerFolders : new List<string>();
             settings.SearchStartDirectoryHistory = lists.TryGetValue("search_start_directory_history", out var searchStartDirs) ? searchStartDirs : new List<string>();
             settings.SearchFileMaskHistory = lists.TryGetValue("search_file_mask_history", out var searchFileMasks) ? searchFileMasks : new List<string>();
+            settings.ShortcutOverrides = lists.TryGetValue("shortcut_overrides", out var shortcutOverrides) ? shortcutOverrides : new List<string>();
             settings.ItemMemos = await LoadItemMemosAsync(connection, cancellationToken);
 
             return settings;
@@ -399,6 +405,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["panel_layout"] = settings.PanelLayout ?? string.Empty,
             ["remember_session_tabs"] = settings.RememberSessionTabs ? "1" : "0",
             ["default_tile_view_enabled"] = settings.DefaultTileViewEnabled ? "1" : "0",
+            ["last_view_mode"] = settings.LastViewMode ?? string.Empty,
             ["use_extension_colors"] = settings.UseExtensionColors ? "1" : "0",
             ["use_pinned_highlight_color"] = settings.UsePinnedHighlightColor ? "1" : "0",
             ["show_hidden_items"] = settings.ShowHiddenItems ? "1" : "0",
@@ -418,7 +425,11 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["window_maximized"] = settings.WindowMaximized ? "1" : "0",
             ["file_list_font_family"] = settings.FileListFontFamily ?? string.Empty,
             ["file_list_font_size"] = settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["file_list_row_height"] = settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            ["file_list_row_height"] = settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["external_editor_path"] = settings.ExternalEditorPath ?? string.Empty,
+            ["enable_image_hover_preview"] = settings.EnableImageHoverPreview ? "1" : "0",
+            ["show_property_column"] = settings.ShowPropertyColumn ? "1" : "0",
+            ["enable_panel_list_automation"] = settings.EnablePanelListAutomation ? "1" : "0"
         };
     }
 
@@ -439,7 +450,8 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["pinned_files"] = NormalizeListValues(settings.PinnedFiles, keepDuplicates: false),
             ["messenger_download_folders"] = NormalizeListValues(settings.MessengerDownloadFolders, keepDuplicates: false),
             ["search_start_directory_history"] = NormalizeListValues(settings.SearchStartDirectoryHistory, keepDuplicates: true),
-            ["search_file_mask_history"] = NormalizeListValues(settings.SearchFileMaskHistory, keepDuplicates: true)
+            ["search_file_mask_history"] = NormalizeListValues(settings.SearchFileMaskHistory, keepDuplicates: true),
+            ["shortcut_overrides"] = NormalizeListValues(settings.ShortcutOverrides, keepDuplicates: false)
         };
     }
 

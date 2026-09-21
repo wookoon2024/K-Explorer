@@ -8,83 +8,209 @@
         MinHeight="620"
         ResizeMode="CanResizeWithGrip"
         WindowStartupLocation="CenterOwner"
-        Background="#E5E5E5"
+        Background="#F4F6F9"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="12.5"
         Loaded="OnLoaded">
     <Window.Resources>
+        <!-- Surfaces: window canvas (F4F6F9) -> nav panel (FFFFFF) -> cards (FFFFFF + hairline) -->
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#1B2530" />
+        </Style>
+
+        <Style x:Key="SectionDescriptionStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="#6A7683" />
+            <Setter Property="Margin" Value="0,5,0,18" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
         <Style TargetType="GroupBox">
-            <Setter Property="Margin" Value="0,0,0,12" />
-            <Setter Property="Padding" Value="8" />
-            <Setter Property="BorderBrush" Value="#BFC7D1" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Background" Value="#F7F9FC" />
+            <Setter Property="Margin" Value="0,0,0,16" />
+            <Setter Property="Foreground" Value="#2A3644" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GroupBox">
+                        <Border Background="#FFFFFF"
+                                BorderBrush="#E3E8EF"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                SnapsToDevicePixels="True">
+                            <StackPanel>
+                                <Border Padding="16,10,16,10"
+                                        BorderBrush="#EDF1F6"
+                                        BorderThickness="0,0,0,1">
+                                    <ContentPresenter ContentSource="Header"
+                                                      TextBlock.FontSize="13"
+                                                      TextBlock.FontWeight="SemiBold"
+                                                      TextBlock.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <ContentPresenter Margin="16,14,16,16" />
+                            </StackPanel>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="TreeViewItem">
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Padding" Value="2" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="#3A4652" />
             <Setter Property="IsExpanded" Value="True" />
-        </Style>
-
-        <Style x:Key="BottomActionButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="96" />
-            <Setter Property="Height" Value="32" />
-            <Setter Property="Margin" Value="0,0,8,0" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Foreground" Value="#1F2937" />
-            <Setter Property="Background" Value="#F3F4F6" />
-            <Setter Property="BorderBrush" Value="#D1D5DB" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Root"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center" />
-                        </Border>
+                    <ControlTemplate TargetType="TreeViewItem">
+                        <StackPanel>
+                            <Border x:Name="Row"
+                                    Background="Transparent"
+                                    CornerRadius="6"
+                                    Padding="6,5"
+                                    Margin="0,1"
+                                    SnapsToDevicePixels="True">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ToggleButton x:Name="Expander"
+                                                  Grid.Column="0"
+                                                  Width="14"
+                                                  Height="14"
+                                                  Focusable="False"
+                                                  ClickMode="Press"
+                                                  IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <TextBlock x:Name="Glyph"
+                                                           Text="&#x25B8;"
+                                                           FontSize="9"
+                                                           Foreground="#8A96A3"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="Glyph" Property="Text" Value="&#x25BE;" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                    <ContentPresenter Grid.Column="1"
+                                                      ContentSource="Header"
+                                                      VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <ItemsPresenter x:Name="Items" Margin="14,0,0,0" />
+                        </StackPanel>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Root" Property="Opacity" Value="0.45" />
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#EFF4FA" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#E1EBFA" />
+                                <Setter Property="Foreground" Value="#1D4ED8" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                            <Trigger Property="HasItems" Value="False">
+                                <Setter TargetName="Expander" Property="Visibility" Value="Hidden" />
+                            </Trigger>
+                            <Trigger Property="IsExpanded" Value="False">
+                                <Setter TargetName="Items" Property="Visibility" Value="Collapsed" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#1F2937" />
             <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#EAF2FF" />
-                    <Setter Property="BorderBrush" Value="#6D9EEB" />
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="#DCE8FF" />
-                </Trigger>
-                <Trigger Property="IsKeyboardFocused" Value="True">
+                <Trigger Property="IsKeyboardFocusWithin" Value="True">
                     <Setter Property="BorderBrush" Value="#2F6FED" />
-                    <Setter Property="BorderThickness" Value="1.6" />
                 </Trigger>
             </Style.Triggers>
         </Style>
 
+        <Style TargetType="ComboBox">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="#1F2937" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="#2A3644" />
+        </Style>
+
+        <Style TargetType="RadioButton">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="#2A3644" />
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="RowHeight" Value="28" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#E3E8EF" />
+            <Setter Property="HorizontalGridLinesBrush" Value="#EEF1F5" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Background" Value="#F7F9FC" />
+            <Setter Property="Foreground" Value="#5A6673" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="BorderBrush" Value="#E3E8EF" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+        </Style>
+
+        <Style x:Key="ShortcutHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="ShortcutEditButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+
+        <Style x:Key="BottomActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
+            <Setter Property="Width" Value="92" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="#2A3644" />
+        </Style>
+
         <Style x:Key="BottomActionPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BottomActionButtonStyle}">
             <Setter Property="Foreground" Value="#FFFFFF" />
-            <Setter Property="Background" Value="#2F6FED" />
-            <Setter Property="BorderBrush" Value="#2F6FED" />
+            <Setter Property="Background" Value="#3B82F6" />
+            <Setter Property="BorderBrush" Value="#3B82F6" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#2861D6" />
-                    <Setter Property="BorderBrush" Value="#2861D6" />
+                    <Setter Property="Background" Value="#2E74E8" />
+                    <Setter Property="BorderBrush" Value="#2E74E8" />
                 </Trigger>
                 <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="#1F53BC" />
+                    <Setter Property="Background" Value="#2563C9" />
+                    <Setter Property="BorderBrush" Value="#2563C9" />
                 </Trigger>
                 <Trigger Property="IsKeyboardFocused" Value="True">
-                    <Setter Property="BorderBrush" Value="#153E93" />
-                    <Setter Property="BorderThickness" Value="1.6" />
+                    <Setter Property="BorderBrush" Value="#1D4ED8" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -94,10 +220,10 @@
             <Setter Property="Height" Value="14" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0" />
-            <Setter Property="Background" Value="#F5F8FC" />
-            <Setter Property="BorderBrush" Value="#A8B6C8" />
+            <Setter Property="Background" Value="#F7F9FC" />
+            <Setter Property="BorderBrush" Value="#DCE1E8" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Foreground" Value="#334155" />
+            <Setter Property="Foreground" Value="#5A6673" />
             <Setter Property="FontSize" Value="9" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
@@ -108,28 +234,30 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="2">
+                                CornerRadius="4">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="#EAF2FF" />
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#6D9EEB" />
+                                <Setter TargetName="Border" Property="Background" Value="#E4EDF9" />
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#C6D9F0" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="#DCE8FF" />
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#4E7FCC" />
+                                <Setter TargetName="Border" Property="Background" Value="#D3E2F5" />
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#A9C5E6" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Border" Property="Background" Value="#F2F2F2" />
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#D0D0D0" />
+                                <Setter TargetName="Border" Property="Opacity" Value="0.45" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Any other button in this dialog (browse, pick color, reset, ...) uses the same chip. -->
+        <Style TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}" />
     </Window.Resources>
 
     <Grid Margin="12">
@@ -145,12 +273,12 @@
 
         <Border Grid.Row="0"
                 Grid.Column="0"
-                Background="#F3F4F7"
-                BorderBrush="#B8C0CC"
+                Background="#FFFFFF"
+                BorderBrush="#E3E8EF"
                 BorderThickness="1"
-                CornerRadius="4">
+                CornerRadius="8">
             <TreeView x:Name="SettingsTreeView"
-                      Margin="8"
+                      Margin="6,8"
                       BorderThickness="0"
                       Background="Transparent"
                       SelectedItemChanged="OnSettingsTreeSelectedItemChanged">
@@ -159,10 +287,10 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/general.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="일반" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="general">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/rocket.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="시작 패널 모드" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="시작 패널 모드" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="general">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/eye.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="보기 설정" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="보기 설정" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="file">
@@ -170,10 +298,10 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/folder.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="파일 작업" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="file">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/arrows.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="충돌 처리 방식" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="충돌 처리 방식" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="file">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/trash.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="삭제 확인" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="삭제 확인" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="search">
@@ -181,10 +309,10 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/search.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="검색" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="search">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/target.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="기본 검색 범위" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="기본 검색 범위" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="search">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/dividers.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="하위 폴더 검색 기본값" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="하위 폴더 검색 기본값" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="color">
@@ -192,13 +320,21 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/palette.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="색상/강조" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="color">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/moon.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="테마" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="테마" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="color">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/crayon.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="확장자 색상" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="확장자 색상" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="color">
-                        <TreeViewItem.Header><StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/pushpin.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="핀 고정 강조" VerticalAlignment="Center"/></StackPanel></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="핀 고정 강조" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                    </TreeViewItem>
+                </TreeViewItem>
+                <TreeViewItem Tag="shortcut">
+                    <TreeViewItem.Header>
+                        <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/dividers.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="단축키" VerticalAlignment="Center"/></StackPanel>
+                    </TreeViewItem.Header>
+                    <TreeViewItem Tag="shortcut">
+                        <TreeViewItem.Header><TextBlock Text="명령 단축키" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
             </TreeView>
@@ -206,18 +342,16 @@
 
         <Border Grid.Row="0"
                 Grid.Column="2"
-                Background="#EEF2F7"
-                BorderBrush="#B8C0CC"
-                BorderThickness="1"
-                CornerRadius="4">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <Grid Margin="16">
+                Background="Transparent"
+                BorderThickness="0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
+                <Grid Margin="18,4,8,0">
                     <StackPanel x:Name="SectionGeneralPanel" Visibility="Visible">
-                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="일반 설정" />
-                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="시작 레이아웃과 기본 보기 방식을 설정합니다." />
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="일반 설정" />
+                        <TextBlock Style="{StaticResource SectionDescriptionStyle}" Text="시작 레이아웃과 기본 보기 방식을 설정합니다." />
 
                         <GroupBox Header="시작 패널 모드">
-                            <Grid Margin="6">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="220" />
                                     <ColumnDefinition Width="*" />
@@ -234,8 +368,8 @@
                                     <RadioButton x:Name="RadioFourPanel" Content="4패널" />
                                 </StackPanel>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,10,0,0" VerticalAlignment="Center" Text="4패널 배치" />
-                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,10,0,0" Orientation="Horizontal">
+                                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Center" Text="4패널 배치" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,12,0,0" Orientation="Horizontal">
                                     <RadioButton x:Name="RadioLayout1x4" Content="1x4 (가로)" Margin="0,0,18,0" />
                                     <RadioButton x:Name="RadioLayout2x2" Content="2x2" />
                                 </StackPanel>
@@ -243,19 +377,21 @@
                                 <CheckBox x:Name="CheckRememberSession"
                                           Grid.Row="2"
                                           Grid.Column="1"
-                                          Margin="0,10,0,0"
+                                          Margin="0,12,0,0"
                                           Content="세션 종료 후 경로 복원"
                                           IsChecked="True" />
                             </Grid>
                         </GroupBox>
 
                         <GroupBox Header="보기 설정">
-                            <Grid Margin="6">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="220" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
@@ -269,19 +405,19 @@
                                     <RadioButton x:Name="RadioTileView" Content="타일보기" />
                                 </StackPanel>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,10,0,0" VerticalAlignment="Center" Text="파일리스트 폰트" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Center" Text="파일리스트 폰트" />
                                 <ComboBox x:Name="ComboFileListFontFamily"
                                           Grid.Row="1"
                                           Grid.Column="1"
-                                          Margin="0,10,0,0"
+                                          Margin="0,12,0,0"
                                           Width="300"
                                           Height="26"
                                           IsEditable="True"
                                           IsTextSearchEnabled="True"
                                           HorizontalAlignment="Left" />
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,10,0,0" VerticalAlignment="Center" Text="파일리스트 글꼴 크기" />
-                                <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,10,0,0" Orientation="Horizontal" HorizontalAlignment="Left">
+                                <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Center" Text="파일리스트 글꼴 크기" />
+                                <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,12,0,0" Orientation="Horizontal" HorizontalAlignment="Left">
                                     <TextBox x:Name="TextFileListFontSize"
                                              Width="76"
                                              Height="26"
@@ -294,8 +430,8 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,10,0,0" VerticalAlignment="Center" Text="줄 간격 (행 높이)" />
-                                <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,10,0,0" Orientation="Horizontal" HorizontalAlignment="Left">
+                                <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Center" Text="줄 간격 (행 높이)" />
+                                <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,12,0,0" Orientation="Horizontal" HorizontalAlignment="Left">
                                     <TextBox x:Name="TextFileListRowHeight"
                                              Width="76"
                                              Height="26"
@@ -308,8 +444,8 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,10,0,0" VerticalAlignment="Center" Text="숨김/시스템 항목" />
-                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,10,0,0">
+                                <TextBlock Grid.Row="4" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Center" Text="숨김/시스템 항목" />
+                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,12,0,0">
                                     <CheckBox x:Name="CheckShowHiddenItems"
                                               Content="숨김 파일/폴더 표시"
                                               IsChecked="True" />
@@ -322,16 +458,34 @@
                                               Content="마우스 호버 시 이미지 미리보기 표시"
                                               IsChecked="False" />
                                 </StackPanel>
+
+                                <TextBlock Grid.Row="5" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Top" Text="목록 속성 열" />
+                                <CheckBox x:Name="CheckShowPropertyColumn"
+                                          Grid.Row="5"
+                                          Grid.Column="1"
+                                          Margin="0,12,0,0"
+                                          Content="'속성' 열 표시 (메모·핀 아이콘)"
+                                          ToolTip="끄면 각 줄의 메모/핀 아이콘 열이 사라집니다. 항목이 많은 폴더에서 목록이 더 가볍게 표시됩니다."
+                                          IsChecked="True" />
+
+                                <TextBlock Grid.Row="6" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Top" Text="접근성" />
+                                <CheckBox x:Name="CheckPanelListAutomation"
+                                          Grid.Row="6"
+                                          Grid.Column="1"
+                                          Margin="0,12,0,0"
+                                          Content="파일 목록을 화면 낭독기/자동화 도구에 노출"
+                                          ToolTip="켜면 각 행과 셀을 읽을 수 있습니다. 대신 큰 폴더에서 목록 갱신이 느려질 수 있고, 적용에는 앱 재시작이 필요합니다."
+                                          IsChecked="False" />
                             </Grid>
                         </GroupBox>
                     </StackPanel>
 
                     <StackPanel x:Name="SectionFilePanel" Visibility="Collapsed">
-                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="파일 작업 설정" />
-                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="복사/이동 시 충돌 처리 방식과 삭제 확인 여부를 설정합니다." />
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="파일 작업 설정" />
+                        <TextBlock Style="{StaticResource SectionDescriptionStyle}" Text="복사/이동 시 충돌 처리 방식과 삭제 확인 여부를 설정합니다." />
 
                         <GroupBox Header="충돌 처리">
-                            <Grid Margin="6">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="220" />
                                     <ColumnDefinition Width="*" />
@@ -342,12 +496,13 @@
                                           Grid.Column="1"
                                           Width="240"
                                           Height="26"
+                                          DisplayMemberPath="Label"
                                           HorizontalAlignment="Left" />
                             </Grid>
                         </GroupBox>
 
                         <GroupBox Header="삭제 동작">
-                            <Grid Margin="6">
+                            <Grid>
                                 <CheckBox x:Name="CheckConfirmDeleteFileSection"
                                           Content="삭제 시 확인 창 표시"
                                           IsChecked="True" />
@@ -355,7 +510,7 @@
                         </GroupBox>
 
                         <GroupBox Header="외부 편집 프로그램 (F4)">
-                            <Grid Margin="6">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="220" />
                                     <ColumnDefinition Width="*" />
@@ -377,11 +532,11 @@
                     </StackPanel>
 
                     <StackPanel x:Name="SectionSearchPanel" Visibility="Collapsed">
-                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="검색 설정" />
-                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="기본 검색 범위와 하위 폴더 검색 기본값을 설정합니다." />
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="검색 설정" />
+                        <TextBlock Style="{StaticResource SectionDescriptionStyle}" Text="기본 검색 범위와 하위 폴더 검색 기본값을 설정합니다." />
 
                         <GroupBox Header="기본 검색 옵션">
-                            <Grid Margin="6">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="220" />
                                     <ColumnDefinition Width="*" />
@@ -397,15 +552,13 @@
                                           Grid.Column="1"
                                           Width="240"
                                           Height="26"
-                                          HorizontalAlignment="Left">
-                                    <ComboBoxItem Content="Active panel" />
-                                    <ComboBoxItem Content="Both panels" />
-                                </ComboBox>
+                                          DisplayMemberPath="Label"
+                                          HorizontalAlignment="Left" />
 
                                 <CheckBox x:Name="CheckSearchRecursive"
                                           Grid.Row="1"
                                           Grid.Column="1"
-                                          Margin="0,10,0,0"
+                                          Margin="0,12,0,0"
                                           Content="하위 폴더 검색 기본값"
                                           IsChecked="True" />
                             </Grid>
@@ -413,8 +566,8 @@
                     </StackPanel>
 
                     <StackPanel x:Name="SectionColorPanel" Visibility="Collapsed">
-                        <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="#223044" Text="색상/강조 설정" />
-                        <TextBlock Margin="0,4,0,14" Foreground="#4B5B70" Text="확장자별 텍스트 색상과 핀 고정 항목 강조를 설정합니다." />
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="색상/강조 설정" />
+                        <TextBlock Style="{StaticResource SectionDescriptionStyle}" Text="확장자별 텍스트 색상과 핀 고정 항목 강조를 설정합니다." />
 
                         <GroupBox Header="표시 색상">
                             <StackPanel Margin="6">
@@ -435,7 +588,7 @@
                                             Click="OnResetThemeColorsClick" />
                                 </StackPanel>
 
-                                <Border Margin="0,10,0,0"
+                                <Border Margin="0,12,0,0"
                                         Padding="10,8"
                                         BorderBrush="#CCD4DF"
                                         BorderThickness="1"
@@ -593,11 +746,86 @@
                                     Click="OnClearExtensionColorRulesClick" />
                         </StackPanel>
                     </StackPanel>
+
+                    <StackPanel x:Name="SectionShortcutPanel" Visibility="Collapsed">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="단축키 설정" />
+                        <TextBlock Style="{StaticResource SectionDescriptionStyle}"
+                                   Text="연필 아이콘(또는 행 더블클릭)을 눌러 수정자 키와 키를 선택해 지정합니다. 미지정 항목은 빈 칸이며, 방향키·Shift 선택 등 탐색용 키는 변경 대상이 아닙니다." />
+
+                        <GroupBox Header="명령 단축키">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <DataGrid x:Name="ShortcutGrid"
+                                          Grid.Row="0"
+                                          Height="330"
+                                          MinWidth="420"
+                                          HorizontalAlignment="Stretch"
+                                          AutoGenerateColumns="False"
+                                          CanUserAddRows="False"
+                                          CanUserDeleteRows="False"
+                                          IsReadOnly="True"
+                                          SelectionMode="Single"
+                                          HeadersVisibility="Column"
+                                          RowHeight="24"
+                                          MouseDoubleClick="OnShortcutGridDoubleClick">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="기능"
+                                                            Width="180"
+                                                            HeaderStyle="{StaticResource ShortcutHeaderStyle}"
+                                                            Binding="{Binding Name}" />
+                                        <DataGridTextColumn Header="단축키"
+                                                            Width="120"
+                                                            HeaderStyle="{StaticResource ShortcutHeaderStyle}"
+                                                            Binding="{Binding ShortcutText}" />
+                                        <DataGridTextColumn Header="설명"
+                                                            Width="*"
+                                                            MinWidth="140"
+                                                            HeaderStyle="{StaticResource ShortcutHeaderStyle}"
+                                                            Binding="{Binding Description}" />
+                                        <DataGridTemplateColumn Header="변경"
+                                                                Width="58"
+                                                                HeaderStyle="{StaticResource ShortcutHeaderStyle}">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Button Style="{StaticResource ShortcutEditButtonStyle}"
+                                                            HorizontalAlignment="Center"
+                                                            ToolTip="단축키 변경"
+                                                            Click="OnEditShortcutClick">
+                                                        <Path Width="13"
+                                                              Height="13"
+                                                              Stretch="Uniform"
+                                                              Fill="#3C5A80"
+                                                              Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                                    </Button>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <StackPanel Grid.Row="1" Margin="0,12,0,0" Orientation="Horizontal">
+                                    <Button Width="90" Height="26" Content="지정 해제" Click="OnClearShortcutClick" />
+                                    <Button Width="90" Height="26" Margin="6,0,0,0" Content="전체 초기화" Click="OnResetShortcutsClick" />
+                                </StackPanel>
+                            </Grid>
+                        </GroupBox>
+                    </StackPanel>
                 </Grid>
             </ScrollViewer>
         </Border>
 
-        <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0">
+        <Border Grid.Row="1"
+                Grid.Column="0"
+                Grid.ColumnSpan="3"
+                Margin="0,2,0,0"
+                Padding="0,14,0,0"
+                BorderBrush="#E3E8EF"
+                BorderThickness="0,1,0,0">
+        <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -620,5 +848,6 @@
                     Content="취소"
                     IsCancel="True" />
         </Grid>
+        </Border>
     </Grid>
 </Window>

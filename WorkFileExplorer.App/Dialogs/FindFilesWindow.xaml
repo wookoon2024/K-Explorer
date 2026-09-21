@@ -1,6 +1,7 @@
 <Window x:Class="WorkFileExplorer.App.Dialogs.FindFilesWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:WorkFileExplorer.App.ViewModels"
         Title="파일 찾기"
         Width="960"
         Height="560"
@@ -8,7 +9,95 @@
         MinHeight="500"
         WindowStartupLocation="CenterOwner"
         Background="#ECECEC"
-        FontFamily="Malgun Gothic">
+        FontFamily="{DynamicResource UiFontFamily}"
+        PreviewKeyDown="OnFindWindowPreviewKeyDown">
+    <Window.Resources>
+        <!-- Every button here uses the same chip look as the settings dialog. -->
+        <Style TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}" />
+
+        <DataTemplate x:Key="ResultTabContentTemplate" DataType="{x:Type vm:SearchResultTabViewModel}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Margin="8,8,8,4">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="{Binding Summary}" />
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="{Binding ElapsedText}" />
+                        <ProgressBar Width="140"
+                                     Height="12"
+                                     Margin="12,0,0,0"
+                                     HorizontalAlignment="Left"
+                                     IsIndeterminate="True">
+                            <ProgressBar.Style>
+                                <Style TargetType="ProgressBar">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSearching}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ProgressBar.Style>
+                        </ProgressBar>
+                        <Button Margin="12,0,0,0" Padding="10,2" Content="중지" Click="OnStopSearchClick">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSearching}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Margin="0,2,0,0"
+                               FontSize="11"
+                               Foreground="#707070"
+                               TextTrimming="CharacterEllipsis"
+                               Text="{Binding ConditionText}"
+                               ToolTip="{Binding ConditionText}" />
+                </StackPanel>
+                <ListView Grid.Row="1"
+                          Margin="8,0,8,8"
+                          ItemsSource="{Binding Results}"
+                          SelectionMode="Extended"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          Loaded="OnResultListViewLoaded"
+                          SizeChanged="OnResultsListViewSizeChanged"
+                          GridViewColumnHeader.Click="OnResultsHeaderClick"
+                          MouseDoubleClick="OnResultDoubleClick">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="경로" Width="620">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="크기" Width="90">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding SizeDisplay}" HorizontalAlignment="Right" />
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                            <GridViewColumn Header="날짜" Width="140" DisplayMemberBinding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm}" />
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
     <Grid Margin="10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -26,7 +115,8 @@
             <MenuItem Header="옵션" />
         </Menu>
 
-        <TabControl x:Name="FindTabs" Grid.Column="0" Grid.Row="1" Margin="0,8,10,0">
+        <TabControl x:Name="FindTabs" Grid.Column="0" Grid.Row="1" Margin="0,8,10,0"
+                    SelectionChanged="OnFindTabsSelectionChanged">
             <TabItem Header="기본">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="8">
@@ -209,74 +299,29 @@
                 <TextBlock Margin="12" Text="검색 프리셋 저장과 불러오기는 다음 단계에서 연결됩니다." />
             </TabItem>
 
-            <TabItem Header="결과">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <StackPanel Grid.Row="0" Margin="8,8,8,4">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding FindResultSummary}" />
-                            <TextBlock Margin="8,0,0,0" Text="{Binding FindElapsedText}" />
-                            <ProgressBar x:Name="SearchProgressBar"
-                                         Width="140"
-                                         Height="12"
-                                         Margin="12,0,0,0"
-                                         HorizontalAlignment="Left"
-                                         IsIndeterminate="True"
-                                         Visibility="Collapsed" />
-                        </StackPanel>
-                        <TextBlock Margin="0,2,0,0"
-                                   FontSize="11"
-                                   Foreground="#707070"
-                                   TextTrimming="CharacterEllipsis"
-                                   Text="{Binding FindSearchConditionText}"
-                                   ToolTip="{Binding FindSearchConditionText}" />
-                    </StackPanel>
-                    <ListView x:Name="ResultsListView"
-                              Grid.Row="1"
-                              Margin="8,0,8,8"
-                              ItemsSource="{Binding SearchResults}"
-                              SelectionMode="Extended"
-                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                              SizeChanged="OnResultsListViewSizeChanged"
-                              GridViewColumnHeader.Click="OnResultsHeaderClick"
-                              MouseDoubleClick="OnResultDoubleClick">
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            </Style>
-                        </ListView.ItemContainerStyle>
-                        <ListView.View>
-                            <GridView>
-                                <GridViewColumn Header="경로" Width="620">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="크기" Width="90">
-                                    <GridViewColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding SizeDisplay}" HorizontalAlignment="Right" />
-                                        </DataTemplate>
-                                    </GridViewColumn.CellTemplate>
-                                </GridViewColumn>
-                                <GridViewColumn Header="날짜" Width="140" DisplayMemberBinding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm}" />
-                            </GridView>
-                        </ListView.View>
-                    </ListView>
-                </Grid>
-            </TabItem>
         </TabControl>
 
         <StackPanel Grid.Column="1" Grid.RowSpan="2" Orientation="Vertical" Margin="0,34,0,0">
-            <Button x:Name="StartSearchButton" Height="30" Margin="0,0,0,6" Content="시작(S)" IsDefault="True" Click="OnStartClick" />
-            <Button Height="30" Margin="0,0,0,6" Content="닫기(C)" IsCancel="True" Click="OnCloseClick" />
-            <Button Height="30" Margin="0,14,0,6" Content="새 검색(N)" Click="OnNewSearchClick" />
-            <Button Height="30" Content="마지막 검색(L)" Click="OnLastSearchClick" />
+            <StackPanel x:Name="InputActionsPanel">
+                <Button x:Name="StartSearchButton"
+                        Height="30"
+                        Margin="0,0,0,6"
+                        Style="{StaticResource DialogPrimaryButtonStyle}"
+                        Content="시작(S)"
+                        IsDefault="True"
+                        Click="OnStartClick" />
+                <Button Height="30" Margin="0,0,0,6" Content="새 검색(N)" Click="OnNewSearchClick" />
+                <Button Height="30" Content="마지막 검색(L)" Click="OnLastSearchClick" />
+            </StackPanel>
+
+            <StackPanel x:Name="ResultActionsPanel" Visibility="Collapsed">
+                <Button Height="30" Margin="0,0,0,6" Content="폴더 열기" Click="OnOpenResultFolderClick" />
+                <Button Height="30" Margin="0,0,0,6" Content="삭제" Click="OnDeleteResultClick" />
+                <Button Height="30" Margin="0,0,0,6" Content="즐겨찾기 추가" Click="OnFavoriteResultClick" />
+                <Button Height="30" Content="핀 고정/해제" Click="OnPinResultClick" />
+            </StackPanel>
+
+            <Button Height="30" Margin="0,14,0,0" Content="닫기(C)" IsCancel="True" Click="OnCloseClick" />
         </StackPanel>
     </Grid>
 </Window>

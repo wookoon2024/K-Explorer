@@ -8,7 +8,7 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Background="#F4F4F4"
-        FontFamily="Malgun Gothic">
+        FontFamily="{DynamicResource UiFontFamily}">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

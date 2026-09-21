@@ -27,6 +27,10 @@
 
   <ItemGroup>
     <Resource Include="Assets\Icons\**\*" />
+    <!-- Pretendard (SIL OFL 1.1) — bundled so the file list font works without installation.
+         The license text must ship with the font, so it is copied next to the executable. -->
+    <Resource Include="Assets\Fonts\Pretendard-*.otf" />
+    <Content Include="Assets\Fonts\LICENSE-Pretendard.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

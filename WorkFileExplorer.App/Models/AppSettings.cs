@@ -8,6 +8,8 @@ public sealed class AppSettings
     public string PanelLayout { get; set; } = "Horizontal";
     public bool RememberSessionTabs { get; set; } = true;
     public bool DefaultTileViewEnabled { get; set; }
+    // View mode the last session ended in, so restarting shows the same one instead of the default.
+    public string LastViewMode { get; set; } = string.Empty;
     public bool UseExtensionColors { get; set; }
     public bool UsePinnedHighlightColor { get; set; } = true;
     public bool ShowHiddenItems { get; set; } = true;
@@ -45,4 +47,7 @@ public sealed class AppSettings
     public double FileListRowHeight { get; set; } = 18;
     public string ExternalEditorPath { get; set; } = "notepad.exe";
     public bool EnableImageHoverPreview { get; set; } = false;
+    public bool ShowPropertyColumn { get; set; } = true;
+    public bool EnablePanelListAutomation { get; set; } = false;
+    public List<string> ShortcutOverrides { get; set; } = new();
 }

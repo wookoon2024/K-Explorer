@@ -9,75 +9,16 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip"
         Background="#F4F4F4"
-        FontFamily="Malgun Gothic">
+        FontFamily="{DynamicResource UiFontFamily}">
     <Window.Resources>
-        <Style x:Key="TreeActionButtonStyle" TargetType="Button">
+        <Style x:Key="TreeActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
             <Setter Property="Width" Value="84" />
             <Setter Property="Height" Value="28" />
             <Setter Property="Margin" Value="0,0,6,0" />
-            <Setter Property="Background" Value="#F5F6F8" />
-            <Setter Property="BorderBrush" Value="#B9C1CE" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="FontSize" Value="12.5" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="3">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#EAF0FA" />
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#A7B6CD" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#DCE6F5" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.6" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
 
-        <Style x:Key="BottomButtonStyle" TargetType="Button">
+        <Style x:Key="BottomButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
             <Setter Property="Height" Value="30" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="BorderBrush" Value="#B6B6B6" />
-            <Setter Property="Background" Value="#F5F5F5" />
-            <Setter Property="FontSize" Value="12.5" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="2">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#EBEEF3" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#E0E6EF" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.6" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
     </Window.Resources>
 
@@ -115,12 +56,9 @@
                             Margin="0,8,0,0">
                     <Button Style="{StaticResource TreeActionButtonStyle}" Content="폴더 추가" Click="OnAddFolderClick" />
                     <Button Style="{StaticResource TreeActionButtonStyle}" Content="이름 변경" Click="OnRenameFolderClick" />
-                    <Button Width="84"
-                            Height="28"
+                    <Button Style="{StaticResource TreeActionButtonStyle}"
                             Margin="0"
-                            Background="#F5F6F8"
                             BorderBrush="#C3A8A8"
-                            BorderThickness="1"
                             Content="폴더 삭제"
                             Click="OnDeleteFolderClick" />
                 </StackPanel>
@@ -196,9 +134,7 @@
                     IsEnabled="{Binding CanUnfavorite}" />
             <Button Width="84"
                     Margin="0,0,8,0"
-                    Style="{StaticResource BottomButtonStyle}"
-                    Background="#E8F0FD"
-                    BorderBrush="#8CAEE8"
+                    Style="{StaticResource DialogPrimaryButtonStyle}"
                     Content="확인"
                     IsDefault="True"
                     Click="OnConfirmClick" />

@@ -11,11 +11,15 @@ namespace WorkFileExplorer.App.Dialogs;
 
 public partial class FindFilesWindow : Window
 {
-    private readonly Stopwatch _stopwatch = new();
+    private sealed class SearchRun
+    {
+        public CancellationTokenSource Cancellation { get; } = new();
+        public Stopwatch Stopwatch { get; } = new();
+    }
+
     private readonly System.Windows.Threading.DispatcherTimer _elapsedTimer;
-    private CancellationTokenSource? _searchCts;
-    private string? _resultSortMember;
-    private ListSortDirection _resultSortDirection = ListSortDirection.Ascending;
+    private readonly Dictionary<SearchResultTabViewModel, SearchRun> _runs = new();
+    private int _resultTabCount;
 
     public FindFilesWindow()
     {
@@ -27,9 +31,9 @@ public partial class FindFilesWindow : Window
         };
         _elapsedTimer.Tick += (_, _) =>
         {
-            if (Vm is not null)
+            foreach (var (session, run) in _runs)
             {
-                Vm.FindElapsedText = $"경과 시간: {_stopwatch.Elapsed:hh\\:mm\\:ss}";
+                session.ElapsedText = $"경과 시간: {run.Stopwatch.Elapsed:hh\\:mm\\:ss}";
             }
         };
     }
@@ -38,7 +42,7 @@ public partial class FindFilesWindow : Window
 
     private void OnFindFilesWindowLoaded(object sender, RoutedEventArgs e)
     {
-        AdjustResultColumns();
+        AdjustVisibleResultColumns();
         TopMenu.Visibility = Visibility.Collapsed;
 
         // Keep features wired, but hide placeholder tabs from UI.
@@ -51,6 +55,8 @@ public partial class FindFilesWindow : Window
         {
             loadSaveTab.Visibility = Visibility.Collapsed;
         }
+
+        UpdateActionPanels();
     }
 
     private async void OnStartClick(object sender, RoutedEventArgs e)
@@ -60,73 +66,315 @@ public partial class FindFilesWindow : Window
             return;
         }
 
-        // While a search is running the start button acts as a stop button.
-        if (_searchCts is not null)
+        if (string.IsNullOrWhiteSpace(Vm.SearchStartDirectory))
         {
-            _searchCts.Cancel();
+            StyledDialogWindow.ShowInfo(this, "알림", "시작 디렉터리를 입력하거나 선택한 뒤 검색하세요.");
             return;
         }
 
-        _searchCts = new CancellationTokenSource();
-        _stopwatch.Restart();
-        Vm.FindResultSummary = "검색 중...";
-        Vm.FindElapsedText = string.Empty;
-        Vm.SearchResults.Clear();
-        StartSearchButton.Content = "검색 중지(S)";
-        SearchProgressBar.Visibility = Visibility.Visible;
-        _elapsedTimer.Start();
+        // Every search gets its own result tab and cancellation token so several
+        // searches can run side by side.
+        var session = new SearchResultTabViewModel(NextResultTabTitle());
+        var run = new SearchRun();
+        _runs[session] = run;
+        run.Stopwatch.Start();
+        session.IsSearching = true;
+        session.Summary = "검색 중...";
+
+        var options = BuildOptionsFromVm(Vm);
+        session.ConditionText = DescribeSearchConditions(options);
+
+        AddResultTab(session);
+        StartElapsedTimer();
 
         try
         {
-            if (FindTabs.SelectedIndex != 4)
-            {
-                FindTabs.SelectedIndex = 4;
-            }
-
-            var options = BuildOptionsFromVm(Vm);
-            Vm.FindSearchConditionText = DescribeSearchConditions(options);
             await Vm.RecordFindFilesSearchHistoryAsync();
             var progress = new Progress<IReadOnlyList<FileSystemItem>>(batch =>
             {
                 foreach (var item in batch)
                 {
-                    Vm.SearchResults.Add(item);
+                    session.Results.Add(item);
                 }
 
-                Vm.FindResultSummary = $"검색 중... 찾음: {Vm.SearchResults.Count}개";
-                AdjustResultColumns();
+                session.Summary = $"검색 중... 찾음: {session.Results.Count}개";
+                AdjustVisibleResultColumns();
             });
 
-            var results = await Vm.FindFilesAsync(options, _searchCts.Token, progress);
-            Vm.FindResultSummary = options.MaxResults is { } maxResultCount && results.Count >= maxResultCount
+            var results = await Vm.FindFilesAsync(options, run.Cancellation.Token, progress);
+            session.Summary = options.MaxResults is { } maxResultCount && results.Count >= maxResultCount
                 ? $"검색 완료: {results.Count}개 찾음 (최대 개수 도달, 더 있을 수 있음)"
                 : $"검색 완료: {results.Count}개 찾음";
+            session.Title = $"{session.BaseTitle}(완료)";
         }
         catch (OperationCanceledException)
         {
-            Vm.FindResultSummary = $"검색 취소됨 (찾음: {Vm.SearchResults.Count}개)";
+            session.Summary = $"검색 취소됨 (찾음: {session.Results.Count}개)";
+            session.Title = $"{session.BaseTitle}(취소)";
         }
         catch (Exception ex)
         {
-            Vm.FindResultSummary = "검색 실패";
+            session.Summary = "검색 실패";
+            session.Title = $"{session.BaseTitle}(실패)";
             StyledDialogWindow.ShowInfo(this, "검색 오류", ex.Message);
         }
         finally
         {
+            run.Stopwatch.Stop();
+            session.IsSearching = false;
+            session.ElapsedText = $"검색 시간: {run.Stopwatch.Elapsed:hh\\:mm\\:ss\\.fff}";
+            run.Cancellation.Dispose();
+            _runs.Remove(session);
+            StopElapsedTimerIfIdle();
+            AdjustVisibleResultColumns();
+        }
+    }
+
+    private void OnStopSearchClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: SearchResultTabViewModel session } &&
+            _runs.TryGetValue(session, out var run))
+        {
+            run.Cancellation.Cancel();
+        }
+    }
+
+    private string NextResultTabTitle()
+    {
+        _resultTabCount++;
+        return $"결과{_resultTabCount}";
+    }
+
+    private void AddResultTab(SearchResultTabViewModel session)
+    {
+        var tab = new TabItem
+        {
+            Content = session,
+            ContentTemplate = (DataTemplate)FindResource("ResultTabContentTemplate")
+        };
+        tab.SetBinding(TabItem.HeaderProperty, new Binding(nameof(SearchResultTabViewModel.Title)) { Source = session });
+
+        var menu = new ContextMenu();
+
+        var closeItem = new MenuItem { Header = "탭 닫기" };
+        closeItem.Click += (_, _) => CloseResultTab(tab, session);
+        menu.Items.Add(closeItem);
+
+        menu.Items.Add(new Separator());
+
+        var closeOthersItem = new MenuItem { Header = "이 탭만 남기고 닫기" };
+        closeOthersItem.Click += (_, _) => CloseOtherResultTabs(tab);
+        menu.Items.Add(closeOthersItem);
+
+        menu.Items.Add(new Separator());
+
+        var closeAllItem = new MenuItem { Header = "모든 탭 닫기" };
+        closeAllItem.Click += (_, _) => CloseAllResultTabs();
+        menu.Items.Add(closeAllItem);
+
+        tab.ContextMenu = menu;
+        // Right-clicking a tab acts on that tab, matching the usual tab behaviour.
+        tab.PreviewMouseRightButtonDown += (_, _) => tab.IsSelected = true;
+
+        FindTabs.Items.Add(tab);
+        FindTabs.SelectedItem = tab;
+    }
+
+    private void CloseResultTab(TabItem tab, SearchResultTabViewModel session)
+    {
+        // Closing a tab stops the search it owns instead of letting it run unseen.
+        if (_runs.TryGetValue(session, out var run))
+        {
+            run.Cancellation.Cancel();
+        }
+
+        FindTabs.Items.Remove(tab);
+    }
+
+    private void CloseOtherResultTabs(TabItem keep)
+    {
+        var others = FindTabs.Items
+            .OfType<TabItem>()
+            .Where(item => !ReferenceEquals(item, keep) && item.Content is SearchResultTabViewModel)
+            .ToList();
+
+        foreach (var tab in others)
+        {
+            if (tab.Content is SearchResultTabViewModel session)
+            {
+                CloseResultTab(tab, session);
+            }
+        }
+    }
+
+    private void CloseAllResultTabs()
+    {
+        var resultTabs = FindTabs.Items
+            .OfType<TabItem>()
+            .Where(item => item.Content is SearchResultTabViewModel)
+            .ToList();
+
+        foreach (var tab in resultTabs)
+        {
+            if (tab.Content is SearchResultTabViewModel session)
+            {
+                CloseResultTab(tab, session);
+            }
+        }
+
+        if (!FindTabs.Items.OfType<TabItem>().Any(item => item.Content is SearchResultTabViewModel))
+        {
+            _resultTabCount = 0;
+        }
+    }
+
+    private void StartElapsedTimer()
+    {
+        if (!_elapsedTimer.IsEnabled)
+        {
+            _elapsedTimer.Start();
+        }
+    }
+
+    private void StopElapsedTimerIfIdle()
+    {
+        if (_runs.Count == 0)
+        {
             _elapsedTimer.Stop();
-            _stopwatch.Stop();
-            StartSearchButton.Content = "시작(S)";
-            SearchProgressBar.Visibility = Visibility.Collapsed;
-            AdjustResultColumns();
-            Vm.FindElapsedText = $"검색 시간: {_stopwatch.Elapsed:hh\\:mm\\:ss\\.fff}";
-            _searchCts.Dispose();
-            _searchCts = null;
+        }
+    }
+
+    private void OnFindTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateActionPanels();
+    }
+
+    private void UpdateActionPanels()
+    {
+        // SelectionChanged fires while the visual tree is still being built.
+        if (InputActionsPanel is null || ResultActionsPanel is null)
+        {
+            return;
+        }
+
+        var isResultTab = FindTabs.SelectedItem is TabItem { Content: SearchResultTabViewModel };
+        InputActionsPanel.Visibility = isResultTab ? Visibility.Collapsed : Visibility.Visible;
+        ResultActionsPanel.Visibility = isResultTab ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private FileSystemItem? GetActiveResultItem()
+    {
+        return FindDescendant<ListView>(FindTabs) is { } listView
+            ? listView.SelectedItem as FileSystemItem
+            : null;
+    }
+
+    private List<FileSystemItem> GetSelectedResultItems()
+    {
+        return FindDescendant<ListView>(FindTabs) is { } listView
+            ? listView.SelectedItems.Cast<FileSystemItem>().ToList()
+            : new List<FileSystemItem>();
+    }
+
+    private void OnFindWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Vm is null || IsTextInputFocused())
+        {
+            return;
+        }
+
+        // "편집(외부 편집기)" shortcut (F4 by default) works on the result list too.
+        var gesture = Vm.GetShortcutGesture(ShortcutCatalog.EditWithExternalEditor);
+        if (!gesture.IsAssigned ||
+            gesture.Key != ShortcutInput.ResolveKey(e) ||
+            gesture.Modifiers != Keyboard.Modifiers)
+        {
+            return;
+        }
+
+        if (GetActiveResultItem() is not { IsDirectory: false } item)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (!Vm.TryOpenWithExternalEditor(item.FullPath, out var error))
+        {
+            StyledDialogWindow.ShowInfo(this, "오류", $"편집기를 실행할 수 없습니다.\n경로: {Vm.ExternalEditorPath}\n사유: {error}");
+        }
+    }
+
+    private static bool IsTextInputFocused() =>
+        Keyboard.FocusedElement is TextBox ||
+        Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase ||
+        Keyboard.FocusedElement is ComboBox;
+
+    private async void OnOpenResultFolderClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null || GetActiveResultItem() is not { } item)
+        {
+            return;
+        }
+
+        await Vm.OpenSearchResultAsync(item);
+    }
+
+    private async void OnDeleteResultClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var selected = GetSelectedResultItems();
+        if (selected.Count == 0)
+        {
+            return;
+        }
+
+        var message = $"선택한 {selected.Count}개 항목을 삭제하시겠습니까?";
+        if (Vm.ConfirmBeforeDelete && !StyledDialogWindow.ShowConfirm(this, "삭제 확인", message))
+        {
+            return;
+        }
+
+        await Vm.DeleteSelectedAsync(selected);
+    }
+
+    private async void OnFavoriteResultClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        await Vm.AddFavoriteItemsAsync(GetSelectedResultItems());
+    }
+
+    private async void OnPinResultClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        await Vm.TogglePinForItemsAsync(GetSelectedResultItems());
+    }
+
+    private void OnResultListViewLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is ListView listView)
+        {
+            AdjustResultColumns(listView);
         }
     }
 
     private void OnResultsListViewSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        AdjustResultColumns();
+        if (sender is ListView listView)
+        {
+            AdjustResultColumns(listView);
+        }
     }
 
     private void OnResultsHeaderClick(object sender, RoutedEventArgs e)
@@ -137,7 +385,12 @@ public partial class FindFilesWindow : Window
             return;
         }
 
-        var sortMember = (header.Column?.Header as string) switch
+        if (header.Column?.Header is not string headerText)
+        {
+            return;
+        }
+
+        var sortMember = headerText switch
         {
             "경로" => nameof(FileSystemItem.FullPath),
             "크기" => nameof(FileSystemItem.SizeBytes),
@@ -149,31 +402,45 @@ public partial class FindFilesWindow : Window
             return;
         }
 
-        _resultSortDirection = string.Equals(_resultSortMember, sortMember, StringComparison.Ordinal) &&
-                               _resultSortDirection == ListSortDirection.Ascending
-            ? ListSortDirection.Descending
-            : ListSortDirection.Ascending;
-        _resultSortMember = sortMember;
-
-        var view = CollectionViewSource.GetDefaultView(ResultsListView.ItemsSource);
+        var listView = FindAncestor<ListView>(header);
+        var view = listView is null ? null : CollectionViewSource.GetDefaultView(listView.ItemsSource);
         if (view is null)
         {
             return;
         }
 
+        // Toggle direction based on what this column's view currently shows so each
+        // result tab keeps its own sort state.
+        var direction = view.SortDescriptions.Count > 0 &&
+                        view.SortDescriptions[0].PropertyName == sortMember &&
+                        view.SortDescriptions[0].Direction == ListSortDirection.Ascending
+            ? ListSortDirection.Descending
+            : ListSortDirection.Ascending;
+
         view.SortDescriptions.Clear();
-        view.SortDescriptions.Add(new SortDescription(sortMember, _resultSortDirection));
+        view.SortDescriptions.Add(new SortDescription(sortMember, direction));
         view.Refresh();
     }
 
-    private void AdjustResultColumns()
+    private void AdjustVisibleResultColumns()
     {
-        if (ResultsListView.View is not GridView gridView || gridView.Columns.Count < 3)
+        if (FindDescendant<ListView>(FindTabs) is { IsLoaded: true, IsVisible: true } listView)
+        {
+            AdjustResultColumns(listView);
+        }
+    }
+
+    private void AdjustResultColumns(ListView listView)
+    {
+        if (listView.View is not GridView gridView || gridView.Columns.Count < 3)
         {
             return;
         }
 
-        var available = ResultsListView.ActualWidth
+        // Keep the path column inside the viewport so long paths are trimmed with an
+        // ellipsis (the full value stays available in the tooltip) instead of forcing
+        // a horizontal scrollbar.
+        var available = listView.ActualWidth
             - gridView.Columns[1].Width
             - gridView.Columns[2].Width
             - SystemParameters.VerticalScrollBarWidth
@@ -183,51 +450,57 @@ public partial class FindFilesWindow : Window
             return;
         }
 
-        // Long paths get the full width they need so the horizontal scrollbar can
-        // reach them; short results keep the column stretched to the window width.
-        var needed = MeasureWidestResultPathWidth();
-        gridView.Columns[0].Width = Math.Max(available, needed + 18);
+        gridView.Columns[0].Width = available;
     }
 
-    private double MeasureWidestResultPathWidth()
+    private static T? FindAncestor<T>(DependencyObject? source) where T : DependencyObject
     {
-        if (Vm is null || Vm.SearchResults.Count == 0)
+        while (source is not null)
         {
-            return 0;
+            if (source is T match)
+            {
+                return match;
+            }
+
+            source = System.Windows.Media.VisualTreeHelper.GetParent(source);
         }
 
-        // Measuring every row is too expensive for large result sets; measure only the
-        // few longest strings (character count is a close proxy for pixel width).
-        var candidates = Vm.SearchResults
-            .Select(item => item.FullPath)
-            .Where(path => !string.IsNullOrEmpty(path))
-            .OrderByDescending(path => path.Length)
-            .Take(10);
+        return null;
+    }
 
-        var typeface = new System.Windows.Media.Typeface(
-            ResultsListView.FontFamily, ResultsListView.FontStyle, ResultsListView.FontWeight, ResultsListView.FontStretch);
-        var pixelsPerDip = System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip;
-
-        double widest = 0;
-        foreach (var path in candidates)
+    private static T? FindDescendant<T>(DependencyObject? source) where T : DependencyObject
+    {
+        if (source is null)
         {
-            var formatted = new System.Windows.Media.FormattedText(
-                path,
-                System.Globalization.CultureInfo.CurrentUICulture,
-                FlowDirection.LeftToRight,
-                typeface,
-                ResultsListView.FontSize,
-                System.Windows.Media.Brushes.Black,
-                pixelsPerDip);
-            widest = Math.Max(widest, formatted.WidthIncludingTrailingWhitespace);
+            return null;
         }
 
-        return widest;
+        var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(source);
+        for (var i = 0; i < count; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(source, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            var nested = FindDescendant<T>(child);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e)
     {
-        _searchCts?.Cancel();
+        foreach (var run in _runs.Values.ToList())
+        {
+            run.Cancellation.Cancel();
+        }
+
         Close();
     }
 
@@ -263,10 +536,12 @@ public partial class FindFilesWindow : Window
         Vm.SearchUseDateTo = false;
         Vm.SearchDateFrom = DateTime.Today;
         Vm.SearchDateTo = DateTime.Today;
-        Vm.SearchResults.Clear();
-        Vm.FindResultSummary = "검색 준비";
-        Vm.FindElapsedText = string.Empty;
-        Vm.FindSearchConditionText = string.Empty;
+
+        // Reset only the input form; existing result tabs keep running/keep their results.
+        if (FindTabs.SelectedIndex != 0)
+        {
+            FindTabs.SelectedIndex = 0;
+        }
     }
 
     private async void OnLastSearchClick(object sender, RoutedEventArgs e)

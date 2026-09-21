@@ -1,0 +1,88 @@
+<Window x:Class="WorkFileExplorer.App.Dialogs.ShortcutEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="단축키 변경"
+        Width="400"
+        SizeToContent="Height"
+        MinWidth="380"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="#F4F4F4"
+        FontFamily="{DynamicResource UiFontFamily}">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="CommandText"
+                   Grid.Row="0"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="#1F1F1F" />
+
+        <GroupBox Grid.Row="1" Header="수정자 키" Margin="0,10,0,0">
+            <StackPanel Orientation="Horizontal" Margin="6">
+                <CheckBox x:Name="CheckCtrl" Content="Ctrl" Margin="0,0,16,0" Checked="OnOptionChanged" Unchecked="OnOptionChanged" />
+                <CheckBox x:Name="CheckShift" Content="Shift" Margin="0,0,16,0" Checked="OnOptionChanged" Unchecked="OnOptionChanged" />
+                <CheckBox x:Name="CheckAlt" Content="Alt" Margin="0,0,16,0" Checked="OnOptionChanged" Unchecked="OnOptionChanged" />
+                <CheckBox x:Name="CheckWin" Content="Win" Checked="OnOptionChanged" Unchecked="OnOptionChanged" />
+            </StackPanel>
+        </GroupBox>
+
+        <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="56" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="키" />
+            <ComboBox x:Name="ComboKey"
+                      Grid.Column="1"
+                      Height="26"
+                      DisplayMemberPath="Display"
+                      SelectionChanged="OnKeySelectionChanged" />
+        </Grid>
+
+        <Border Grid.Row="3"
+                Margin="0,10,0,0"
+                Padding="8,7"
+                Background="White"
+                BorderBrush="#B6B6B6"
+                BorderThickness="1"
+                CornerRadius="4">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="지정될 단축키: " Foreground="#4B5B70" VerticalAlignment="Center" />
+                <TextBlock x:Name="PreviewText" FontWeight="SemiBold" Foreground="#1F2937" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="4" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0"
+                    HorizontalAlignment="Left"
+                    Style="{StaticResource DialogButtonStyle}"
+                    Content="지정 해제"
+                    Click="OnClearClick" />
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Style="{StaticResource DialogPrimaryButtonStyle}"
+                        Margin="0,0,6,0"
+                        Content="확인"
+                        IsDefault="True"
+                        Click="OnConfirmClick" />
+                <Button Style="{StaticResource DialogButtonStyle}"
+                        Content="취소"
+                        IsCancel="True"
+                        Click="OnCancelClick" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

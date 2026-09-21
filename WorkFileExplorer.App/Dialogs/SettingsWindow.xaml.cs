@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -21,6 +22,34 @@ public partial class SettingsWindow : Window
     private readonly Dictionary<string, string> _themeColorOverrideMap = new(StringComparer.OrdinalIgnoreCase);
     private string _editingThemeMode = "Black";
     private bool _isInitializing;
+    private readonly ObservableCollection<ShortcutRow> _shortcutRows = [];
+    private readonly Dictionary<string, ShortcutGesture> _editingShortcuts = new(StringComparer.Ordinal);
+
+    private sealed class ShortcutRow : INotifyPropertyChanged
+    {
+        private string _shortcutText = string.Empty;
+
+        public required string Id { get; init; }
+        public required string Name { get; init; }
+        public required string Description { get; init; }
+
+        public string ShortcutText
+        {
+            get => _shortcutText;
+            set
+            {
+                if (string.Equals(_shortcutText, value, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _shortcutText = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShortcutText)));
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+    }
     private static readonly string[] PresetHexColors =
     [
         "#66B3FF", "#4CAF50", "#FFC107", "#FF7043", "#E91E63", "#9C27B0",
@@ -78,6 +107,8 @@ public partial class SettingsWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(font => font, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+        // The bundled Pretendard works on machines where it is not installed, so it leads the list.
+        fontFamilies.Insert(0, MainWindowViewModel.BundledFontDisplayName);
         ComboFileListFontFamily.ItemsSource = fontFamilies;
         ComboFileListFontFamily.Text = snapshot.FileListFontFamily;
         TextFileListFontSize.Text = snapshot.FileListFontSize.ToString("0.##", CultureInfo.InvariantCulture);
@@ -94,15 +125,22 @@ public partial class SettingsWindow : Window
         CheckConfirmDeleteFileSection.IsChecked = snapshot.ConfirmBeforeDelete;
         TextExternalEditorPath.Text = snapshot.ExternalEditorPath;
         CheckEnableImageHoverPreview.IsChecked = snapshot.EnableImageHoverPreview;
+        CheckShowPropertyColumn.IsChecked = snapshot.ShowPropertyColumn;
+        CheckPanelListAutomation.IsChecked = snapshot.EnablePanelListAutomation;
         CheckSearchRecursive.IsChecked = snapshot.SearchRecursive;
         ExtensionColorRulesGrid.ItemsSource = _extensionColorRules;
         LoadExtensionColorRulesForTheme(_editingThemeMode);
 
-        ComboConflictPolicy.ItemsSource = Vm.ConflictPolicyOptions;
-        ComboConflictPolicy.SelectedItem = Vm.ConflictPolicyOptions.Contains(snapshot.ConflictPolicyDisplay)
-            ? snapshot.ConflictPolicyDisplay
-            : Vm.ConflictPolicyOptions.FirstOrDefault();
-        ComboSearchScope.SelectedIndex = string.Equals(snapshot.SearchScope, "Both panels", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        // Korean labels in the list, original values kept for storage.
+        ComboConflictPolicy.ItemsSource = Vm.ConflictPolicyDisplayOptions;
+        ComboConflictPolicy.SelectedItem = Vm.ConflictPolicyDisplayOptions
+            .FirstOrDefault(option => string.Equals(option.Value, snapshot.ConflictPolicyDisplay, StringComparison.OrdinalIgnoreCase))
+            ?? Vm.ConflictPolicyDisplayOptions.FirstOrDefault();
+        ComboSearchScope.ItemsSource = Vm.SearchScopeDisplayOptions;
+        ComboSearchScope.SelectedItem = Vm.SearchScopeDisplayOptions
+            .FirstOrDefault(option => string.Equals(option.Value, snapshot.SearchScope, StringComparison.OrdinalIgnoreCase))
+            ?? Vm.SearchScopeDisplayOptions.FirstOrDefault();
+        LoadShortcuts(snapshot.ShortcutOverrides);
         ShowSection("general");
         _isInitializing = false;
     }
@@ -156,8 +194,8 @@ public partial class SettingsWindow : Window
             ShowSystemItems = CheckShowSystemItems.IsChecked == true,
             ThemeMode = ComboThemeMode.SelectedIndex == 1 ? "White" : "Black",
             ConfirmBeforeDelete = CheckConfirmDeleteFileSection.IsChecked == true,
-            ConflictPolicyDisplay = (ComboConflictPolicy.SelectedItem as string) ?? vm.SelectedConflictPolicyDisplay,
-            SearchScope = ComboSearchScope.SelectedIndex == 1 ? "Both panels" : "Active panel",
+            ConflictPolicyDisplay = (ComboConflictPolicy.SelectedItem as DisplayOption)?.Value ?? vm.SelectedConflictPolicyDisplay,
+            SearchScope = (ComboSearchScope.SelectedItem as DisplayOption)?.Value ?? vm.SearchScope,
             SearchRecursive = CheckSearchRecursive.IsChecked == true,
             ExtensionColorOverrides = BuildExtensionColorOverrides(),
             ThemeColorOverrides = BuildThemeColorOverrides(),
@@ -165,7 +203,10 @@ public partial class SettingsWindow : Window
             FileListFontSize = ParseDoubleInRange(TextFileListFontSize.Text, vm.FileListFontSize, 9, 28),
             FileListRowHeight = ParseDoubleInRange(TextFileListRowHeight.Text, vm.FileListRowHeight, 16, 52),
             ExternalEditorPath = string.IsNullOrWhiteSpace(TextExternalEditorPath.Text) ? "notepad.exe" : TextExternalEditorPath.Text.Trim(),
-            EnableImageHoverPreview = CheckEnableImageHoverPreview.IsChecked == true
+            EnableImageHoverPreview = CheckEnableImageHoverPreview.IsChecked == true,
+            ShowPropertyColumn = CheckShowPropertyColumn.IsChecked == true,
+            EnablePanelListAutomation = CheckPanelListAutomation.IsChecked == true,
+            ShortcutOverrides = BuildShortcutOverrides()
         };
     }
 
@@ -201,7 +242,8 @@ public partial class SettingsWindow : Window
         if (SectionGeneralPanel is null ||
             SectionFilePanel is null ||
             SectionSearchPanel is null ||
-            SectionColorPanel is null)
+            SectionColorPanel is null ||
+            SectionShortcutPanel is null)
         {
             return;
         }
@@ -210,6 +252,7 @@ public partial class SettingsWindow : Window
         SectionFilePanel.Visibility = Visibility.Collapsed;
         SectionSearchPanel.Visibility = Visibility.Collapsed;
         SectionColorPanel.Visibility = Visibility.Collapsed;
+        SectionShortcutPanel.Visibility = Visibility.Collapsed;
 
         switch ((sectionKey ?? "general").ToLowerInvariant())
         {
@@ -222,10 +265,156 @@ public partial class SettingsWindow : Window
             case "color":
                 SectionColorPanel.Visibility = Visibility.Visible;
                 break;
+            case "shortcut":
+                SectionShortcutPanel.Visibility = Visibility.Visible;
+                break;
             default:
                 SectionGeneralPanel.Visibility = Visibility.Visible;
                 break;
         }
+    }
+
+    private void LoadShortcuts(IEnumerable<string>? overrides)
+    {
+        _editingShortcuts.Clear();
+        foreach (var definition in ShortcutCatalog.All)
+        {
+            _editingShortcuts[definition.Id] = definition.DefaultGesture;
+        }
+
+        foreach (var entry in overrides ?? Enumerable.Empty<string>())
+        {
+            var separator = entry.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var id = entry[..separator].Trim();
+            if (!_editingShortcuts.ContainsKey(id) ||
+                !ShortcutGesture.TryParse(entry[(separator + 1)..], out var gesture))
+            {
+                continue;
+            }
+
+            _editingShortcuts[id] = gesture;
+        }
+
+        _shortcutRows.Clear();
+        foreach (var definition in ShortcutCatalog.All)
+        {
+            _shortcutRows.Add(new ShortcutRow
+            {
+                Id = definition.Id,
+                Name = definition.Name,
+                Description = definition.Description,
+                ShortcutText = ShortcutText(_editingShortcuts[definition.Id])
+            });
+        }
+
+        ShortcutGrid.ItemsSource = _shortcutRows;
+    }
+
+    private void OnEditShortcutClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ShortcutRow row })
+        {
+            EditShortcut(row);
+        }
+    }
+
+    private void OnShortcutGridDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ShortcutGrid.SelectedItem is ShortcutRow row)
+        {
+            EditShortcut(row);
+        }
+    }
+
+    private void EditShortcut(ShortcutRow row)
+    {
+        var current = _editingShortcuts.TryGetValue(row.Id, out var value)
+            ? value
+            : ShortcutGesture.Unassigned;
+
+        var updated = ShortcutEditDialog.Show(this, row.Name, current);
+        if (updated is null)
+        {
+            return;
+        }
+
+        AssignShortcut(row, updated.Value);
+    }
+
+    private void AssignShortcut(ShortcutRow row, ShortcutGesture gesture)
+    {
+        if (gesture.IsAssigned)
+        {
+            var conflict = _shortcutRows.FirstOrDefault(other =>
+                !string.Equals(other.Id, row.Id, StringComparison.Ordinal) &&
+                _editingShortcuts.TryGetValue(other.Id, out var otherGesture) &&
+                otherGesture == gesture);
+
+            if (conflict is not null &&
+                !StyledDialogWindow.ShowConfirm(this, "단축키 충돌", $"이 키는 '{conflict.Name}' 기능에 사용 중입니다. 재할당하시겠습니까?"))
+            {
+                return;
+            }
+
+            if (conflict is not null)
+            {
+                _editingShortcuts[conflict.Id] = ShortcutGesture.Unassigned;
+                conflict.ShortcutText = string.Empty;
+            }
+        }
+
+        _editingShortcuts[row.Id] = gesture;
+        row.ShortcutText = ShortcutText(gesture);
+    }
+
+    private static string ShortcutText(ShortcutGesture gesture) =>
+        gesture.IsAssigned ? gesture.ToDisplayText() : "(미지정)";
+
+    private void OnClearShortcutClick(object sender, RoutedEventArgs e)
+    {
+        if (ShortcutGrid.SelectedItem is not ShortcutRow row)
+        {
+            return;
+        }
+
+        AssignShortcut(row, ShortcutGesture.Unassigned);
+    }
+
+    private void OnResetShortcutsClick(object sender, RoutedEventArgs e)
+    {
+        foreach (var definition in ShortcutCatalog.All)
+        {
+            _editingShortcuts[definition.Id] = definition.DefaultGesture;
+        }
+
+        foreach (var row in _shortcutRows)
+        {
+            row.ShortcutText = ShortcutText(_editingShortcuts[row.Id]);
+        }
+    }
+
+    private List<string> BuildShortcutOverrides()
+    {
+        var result = new List<string>();
+        foreach (var definition in ShortcutCatalog.All)
+        {
+            var gesture = _editingShortcuts.TryGetValue(definition.Id, out var value)
+                ? value
+                : definition.DefaultGesture;
+            if (gesture == definition.DefaultGesture)
+            {
+                continue;
+            }
+
+            result.Add($"{definition.Id}={gesture.ToPersistText()}");
+        }
+
+        return result;
     }
 
     private void LoadExtensionOverrides(IEnumerable<string>? overrides)
@@ -727,6 +916,25 @@ public partial class SettingsWindow : Window
             Filter = "실행 파일 (*.exe)|*.exe|모든 파일 (*.*)|*.*",
             Title = "외부 편집 프로그램 선택"
         };
+
+        // Start where the currently registered program lives so re-picking is quick.
+        var currentPath = TextExternalEditorPath.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(currentPath))
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(currentPath);
+                if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
+                {
+                    openFileDialog.InitialDirectory = directory;
+                }
+            }
+            catch
+            {
+                // ignore: fall back to the dialog's default location
+            }
+        }
+
         if (openFileDialog.ShowDialog(this) == true)
         {
             TextExternalEditorPath.Text = openFileDialog.FileName;
