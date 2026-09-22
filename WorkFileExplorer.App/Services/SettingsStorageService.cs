@@ -62,6 +62,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.FileListFontSize = ParseDouble(GetOrDefault(values, "file_list_font_size", settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListFontSize);
             settings.FileListRowHeight = ParseDouble(GetOrDefault(values, "file_list_row_height", settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListRowHeight);
             settings.ExternalEditorPath = GetOrDefault(values, "external_editor_path", settings.ExternalEditorPath);
+            settings.CommandPromptStartupCommands = GetOrDefault(values, "command_prompt_startup_commands", string.Empty);
             settings.EnableImageHoverPreview = ParseBool(GetOrDefault(values, "enable_image_hover_preview", "0"), defaultValue: false);
             settings.ShowPropertyColumn = ParseBool(GetOrDefault(values, "show_property_column", "1"), defaultValue: true);
             settings.EnablePanelListAutomation = ParseBool(GetOrDefault(values, "enable_panel_list_automation", "0"), defaultValue: false);
@@ -427,6 +428,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["file_list_font_size"] = settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["file_list_row_height"] = settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["external_editor_path"] = settings.ExternalEditorPath ?? string.Empty,
+            ["command_prompt_startup_commands"] = settings.CommandPromptStartupCommands ?? string.Empty,
             ["enable_image_hover_preview"] = settings.EnableImageHoverPreview ? "1" : "0",
             ["show_property_column"] = settings.ShowPropertyColumn ? "1" : "0",
             ["enable_panel_list_automation"] = settings.EnablePanelListAutomation ? "1" : "0"

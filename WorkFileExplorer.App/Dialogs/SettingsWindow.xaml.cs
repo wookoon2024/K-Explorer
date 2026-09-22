@@ -124,6 +124,7 @@ public partial class SettingsWindow : Window
         CheckShowSystemItems.IsChecked = snapshot.ShowSystemItems;
         CheckConfirmDeleteFileSection.IsChecked = snapshot.ConfirmBeforeDelete;
         TextExternalEditorPath.Text = snapshot.ExternalEditorPath;
+        TextCommandPromptStartup.Text = snapshot.CommandPromptStartupCommands;
         CheckEnableImageHoverPreview.IsChecked = snapshot.EnableImageHoverPreview;
         CheckShowPropertyColumn.IsChecked = snapshot.ShowPropertyColumn;
         CheckPanelListAutomation.IsChecked = snapshot.EnablePanelListAutomation;
@@ -203,6 +204,7 @@ public partial class SettingsWindow : Window
             FileListFontSize = ParseDoubleInRange(TextFileListFontSize.Text, vm.FileListFontSize, 9, 28),
             FileListRowHeight = ParseDoubleInRange(TextFileListRowHeight.Text, vm.FileListRowHeight, 16, 52),
             ExternalEditorPath = string.IsNullOrWhiteSpace(TextExternalEditorPath.Text) ? "notepad.exe" : TextExternalEditorPath.Text.Trim(),
+            CommandPromptStartupCommands = TextCommandPromptStartup.Text ?? string.Empty,
             EnableImageHoverPreview = CheckEnableImageHoverPreview.IsChecked == true,
             ShowPropertyColumn = CheckShowPropertyColumn.IsChecked == true,
             EnablePanelListAutomation = CheckPanelListAutomation.IsChecked == true,
@@ -355,16 +357,13 @@ public partial class SettingsWindow : Window
                 _editingShortcuts.TryGetValue(other.Id, out var otherGesture) &&
                 otherGesture == gesture);
 
-            if (conflict is not null &&
-                !StyledDialogWindow.ShowConfirm(this, "단축키 충돌", $"이 키는 '{conflict.Name}' 기능에 사용 중입니다. 재할당하시겠습니까?"))
-            {
-                return;
-            }
-
             if (conflict is not null)
             {
-                _editingShortcuts[conflict.Id] = ShortcutGesture.Unassigned;
-                conflict.ShortcutText = string.Empty;
+                StyledDialogWindow.ShowInfo(
+                    this,
+                    "단축키 사용 중",
+                    $"{gesture.ToDisplayText()} 키는 이미 '{conflict.Name}' 기능에서 사용 중입니다. 다른 키를 선택해 주세요.");
+                return;
             }
         }
 

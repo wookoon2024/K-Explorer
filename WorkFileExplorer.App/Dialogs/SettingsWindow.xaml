@@ -529,6 +529,33 @@
                                         Click="OnBrowseExternalEditorClick" />
                             </Grid>
                         </GroupBox>
+
+                        <GroupBox Header="명령 프롬프트 (cmd)">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0"
+                                           Foreground="#6B7280"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Text="툴바의 명령 프롬프트 버튼으로 창을 열 때 아래 명령이 현재 폴더에서 자동 실행됩니다." />
+                                <TextBox x:Name="TextCommandPromptStartup"
+                                         Grid.Row="1"
+                                         Height="90"
+                                         Margin="0,6,0,0"
+                                         AcceptsReturn="True"
+                                         AcceptsTab="True"
+                                         TextWrapping="NoWrap"
+                                         VerticalContentAlignment="Top"
+                                         Padding="3,2,3,2"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Auto"
+                                         FontFamily="Consolas"
+                                         SpellCheck.IsEnabled="False" />
+                            </Grid>
+                        </GroupBox>
                     </StackPanel>
 
                     <StackPanel x:Name="SectionSearchPanel" Visibility="Collapsed">

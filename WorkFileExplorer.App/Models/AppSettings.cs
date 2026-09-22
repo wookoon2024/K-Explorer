@@ -46,6 +46,8 @@ public sealed class AppSettings
     public double FileListFontSize { get; set; } = 13;
     public double FileListRowHeight { get; set; } = 18;
     public string ExternalEditorPath { get; set; } = "notepad.exe";
+    // Lines typed here run in the cmd window opened from the toolbar (one command per line).
+    public string CommandPromptStartupCommands { get; set; } = string.Empty;
     public bool EnableImageHoverPreview { get; set; } = false;
     public bool ShowPropertyColumn { get; set; } = true;
     public bool EnablePanelListAutomation { get; set; } = false;

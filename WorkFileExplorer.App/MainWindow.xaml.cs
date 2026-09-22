@@ -16,6 +16,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -578,11 +579,25 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = $"K탐색기 (v{GetAppVersion()})";
         _imagePreviewHoverTimer.Tick += OnImagePreviewHoverTimerTick;
         Loaded += (_, _) => _windowLoaded = true;
         SizeChanged += OnMainWindowSizeChanged;
         Loaded += OnMainWindowLoaded;
         DataContextChanged += OnMainWindowDataContextChanged;
+    }
+
+    private static string GetAppVersion()
+    {
+        var informationalVersion = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            var metadataIndex = informationalVersion.IndexOf('+');
+            return metadataIndex >= 0 ? informationalVersion[..metadataIndex] : informationalVersion;
+        }
+
+        return Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
@@ -1616,10 +1631,17 @@ public partial class MainWindow : Window
     private void OnFourPanelSlotDragOver(object sender, DragEventArgs e)
     {
         if (sender is not FrameworkElement element ||
-            TryGetFourPanel(element) is not FourPanelSlotViewModel slot ||
-            TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
+            TryGetFourPanel(element) is not FourPanelSlotViewModel slot)
         {
             e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        if (TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
+        {
+            // 외부(탐색기)에서 온 파일은 복사만 허용한다.
+            e.Effects = TryGetExternalDropPaths(e.Data) is null ? DragDropEffects.None : DragDropEffects.Copy;
             e.Handled = true;
             return;
         }
@@ -1641,9 +1663,32 @@ public partial class MainWindow : Window
     {
         if (Vm is null ||
             sender is not FrameworkElement element ||
-            TryGetFourPanel(element) is not FourPanelSlotViewModel slot ||
-            TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
+            TryGetFourPanel(element) is not FourPanelSlotViewModel slot)
         {
+            return;
+        }
+
+        var externalPaths = TryGetExternalDropPaths(e.Data);
+        if (TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
+        {
+            if (externalPaths is null)
+            {
+                return;
+            }
+
+            e.Handled = true;
+
+            var externalDirectory = ResolveDropTargetDirectory(e.OriginalSource as DependencyObject, slot.Panel);
+            LiveTrace.Write($"[Drag] drop-external count={externalPaths.Length} target='{externalDirectory}'");
+            try
+            {
+                await Vm.CopyExternalPathsIntoFolderAsync(slot.Panel, externalPaths, externalDirectory);
+            }
+            catch (Exception ex)
+            {
+                Vm.StatusText = $"드래그 복사 실패: {ex.Message}";
+            }
+
             return;
         }
 
@@ -5946,6 +5991,14 @@ public partial class MainWindow : Window
     {
         if (TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
         {
+            if (TryGetExternalDropPaths(e.Data) is not null)
+            {
+                // 외부(탐색기)에서 온 파일은 원본을 건드리지 않도록 복사만 허용한다.
+                e.Effects = DragDropEffects.Copy;
+                e.Handled = true;
+                return;
+            }
+
             LiveTrace.Write($"[Drag] over-reject no-payload sender={sender.GetType().Name}");
             e.Effects = DragDropEffects.None;
             e.Handled = true;
@@ -5969,9 +6022,41 @@ public partial class MainWindow : Window
 
     private async void OnPanelItemsDrop(object sender, DragEventArgs e)
     {
-        if (Vm is null || TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
+        if (Vm is null)
         {
-            LiveTrace.Write($"[Drag] drop-reject no-payload sender={sender.GetType().Name}");
+            return;
+        }
+
+        var externalPaths = TryGetExternalDropPaths(e.Data);
+        if (TryGetPanelItemDragPayload(e.Data) is not PanelItemDragPayload payload)
+        {
+            if (externalPaths is null)
+            {
+                LiveTrace.Write($"[Drag] drop-reject no-payload sender={sender.GetType().Name}");
+                return;
+            }
+
+            // 외부(탐색기)에서 온 파일 — 대상 패널의 현재 폴더(폴더 위에 놓았으면 그 폴더)로 복사한다.
+            // Handled 는 첫 await 전에 세팅해 상위(4패널 슬롯) 핸들러로 번지지 않게 한다.
+            e.Handled = true;
+
+            var externalTarget = TryResolvePanelFromSource(sender as DependencyObject);
+            if (externalTarget is null)
+            {
+                return;
+            }
+
+            var externalDirectory = ResolveDropTargetDirectory(e.OriginalSource as DependencyObject, externalTarget);
+            LiveTrace.Write($"[Drag] drop-external count={externalPaths.Length} target='{externalDirectory}'");
+            try
+            {
+                await Vm.CopyExternalPathsIntoFolderAsync(externalTarget, externalPaths, externalDirectory);
+            }
+            catch (Exception ex)
+            {
+                Vm.StatusText = $"드래그 복사 실패: {ex.Message}";
+            }
+
             return;
         }
 
@@ -6027,6 +6112,20 @@ public partial class MainWindow : Window
         }
 
         FocusFourPanelAfterPathNavigation(slot);
+    }
+
+    /// <summary>
+    /// Windows 탐색기 등 외부에서 끌어온 파일 경로 목록. 없으면 null.
+    /// </summary>
+    private static string[]? TryGetExternalDropPaths(IDataObject data)
+    {
+        if (!data.GetDataPresent(DataFormats.FileDrop))
+        {
+            return null;
+        }
+
+        var files = data.GetData(DataFormats.FileDrop) as string[];
+        return files is { Length: > 0 } ? files : null;
     }
 
     private PanelItemDragPayload? TryGetPanelItemDragPayload(IDataObject data)
@@ -7929,6 +8028,46 @@ public partial class MainWindow : Window
 
         key = $"four:{index}";
         return true;
+    }
+
+    private void OnOpenCommandPromptClick(object sender, RoutedEventArgs e)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        if (!TryResolveTerminalTarget(TerminalPanelTarget.Active, out _, out _, out var workingDirectory, out _, out _))
+        {
+            return;
+        }
+
+        var startupCommands = (Vm.CommandPromptStartupCommands ?? string.Empty)
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .ToArray();
+
+        // Separate with "& " (no space before '&'): cmd's SET takes everything up to the
+        // separator, so " & " would store the value with a trailing space (e.g. "0 ").
+        var arguments = startupCommands.Length == 0
+            ? "/k"
+            : "/k \"" + string.Join("& ", startupCommands).Replace("\"", "\"\"") + "\"";
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = arguments,
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            StyledDialogWindow.ShowInfo(this, "오류", $"명령 프롬프트를 실행할 수 없습니다.\n경로: {workingDirectory}\n사유: {ex.Message}");
+        }
     }
 
     private static string ResolveTerminalWorkingDirectory(string? path)

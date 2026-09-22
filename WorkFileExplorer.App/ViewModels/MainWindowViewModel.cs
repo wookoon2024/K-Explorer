@@ -38,6 +38,7 @@ public sealed class MainWindowViewModel : ObservableObject
         public double FileListFontSize { get; init; } = 13;
         public double FileListRowHeight { get; init; } = 18;
         public string ExternalEditorPath { get; init; } = "notepad.exe";
+        public string CommandPromptStartupCommands { get; init; } = string.Empty;
         public bool EnableImageHoverPreview { get; init; }
         public bool ShowPropertyColumn { get; init; } = true;
         public bool EnablePanelListAutomation { get; init; }
@@ -905,6 +906,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string ExternalEditorPath => _settings.ExternalEditorPath;
 
+    public string CommandPromptStartupCommands => _settings.CommandPromptStartupCommands;
+
     public bool EnableImageHoverPreview => _settings.EnableImageHoverPreview;
 
     public bool ShowPropertyColumn => _settings.ShowPropertyColumn;
@@ -1422,6 +1425,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public async Task PasteClipboardToActivePanelAsync()
     {
+        // Windows 탐색기 등 외부에서 복사한 파일은 윈도우 클립보드에만 있으므로 먼저 끌어온다.
+        TryFillClipboardFromSystemClipboard();
         if (_clipboardItems.Count == 0)
         {
             return;
@@ -2870,6 +2875,7 @@ public sealed class MainWindowViewModel : ObservableObject
             FileListFontSize = FileListFontSize,
             FileListRowHeight = FileListRowHeight,
             ExternalEditorPath = _settings.ExternalEditorPath,
+            CommandPromptStartupCommands = _settings.CommandPromptStartupCommands,
             EnableImageHoverPreview = _settings.EnableImageHoverPreview,
             ShowPropertyColumn = _settings.ShowPropertyColumn,
             EnablePanelListAutomation = _settings.EnablePanelListAutomation,
@@ -2914,6 +2920,7 @@ public sealed class MainWindowViewModel : ObservableObject
         _settings.FileListFontSize = NormalizeFileListFontSize(snapshot.FileListFontSize);
         _settings.FileListRowHeight = NormalizeFileListRowHeight(snapshot.FileListRowHeight);
         _settings.ExternalEditorPath = string.IsNullOrWhiteSpace(snapshot.ExternalEditorPath) ? "notepad.exe" : snapshot.ExternalEditorPath.Trim();
+        _settings.CommandPromptStartupCommands = snapshot.CommandPromptStartupCommands ?? string.Empty;
         _settings.EnableImageHoverPreview = snapshot.EnableImageHoverPreview;
         _settings.ShowPropertyColumn = snapshot.ShowPropertyColumn;
         OnPropertyChanged(nameof(ShowPropertyColumn));
@@ -4258,10 +4265,21 @@ public sealed class MainWindowViewModel : ObservableObject
             string.Equals(entry.FullPath, destination, StringComparison.OrdinalIgnoreCase));
     }
 
-    public async Task PasteClipboardToPanelAsync(PanelViewModel panel)
+    public async Task PasteClipboardToPanelAsync(PanelViewModel panel, string? destinationDirectoryOverride = null)
     {
+        // Windows 탐색기 등 외부에서 복사한 파일은 윈도우 클립보드에만 있으므로 먼저 끌어온다.
+        TryFillClipboardFromSystemClipboard();
         if (_clipboardItems.Count == 0)
         {
+            return;
+        }
+
+        var destinationRoot = string.IsNullOrWhiteSpace(destinationDirectoryOverride)
+            ? panel.CurrentPath
+            : destinationDirectoryOverride;
+        if (!_fileSystemService.DirectoryExists(destinationRoot))
+        {
+            StatusText = "대상 폴더가 유효하지 않아 작업을 건너뜁니다.";
             return;
         }
 
@@ -4289,7 +4307,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
                     var item = items[idx];
                     progress.ReportCurrentFile(item.Path);
-                    if (!_fileSystemService.DirectoryExists(panel.CurrentPath))
+                    if (!_fileSystemService.DirectoryExists(destinationRoot))
                     {
                         continue;
                     }
@@ -4307,7 +4325,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     }
 
                     if (_clipboardCutMode &&
-                        string.Equals(Path.GetDirectoryName(item.Path)?.TrimEnd('\\'), panel.CurrentPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                        string.Equals(Path.GetDirectoryName(item.Path)?.TrimEnd('\\'), destinationRoot.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
@@ -4321,7 +4339,7 @@ public sealed class MainWindowViewModel : ObservableObject
                     string? destinationPath;
                     bool exists;
 
-                    var directDestination = Path.Combine(panel.CurrentPath, transferItem.Name);
+                    var directDestination = Path.Combine(destinationRoot, transferItem.Name);
                     exists = transferItem.IsDirectory
                         ? Directory.Exists(directDestination)
                         : File.Exists(directDestination);
@@ -4356,13 +4374,13 @@ public sealed class MainWindowViewModel : ObservableObject
                         {
                             applyAllChoice = StyledDialogWindow.ConflictChoice.RenameNewAll;
                             effectivePolicy = TransferConflictPolicy.RenameNew;
-                            destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                            destinationPath = EnsureUniquePath(destinationRoot, transferItem.Name, transferItem.IsDirectory);
                             exists = false;
                         }
                         else if (conflictChoice == StyledDialogWindow.ConflictChoice.RenameNew)
                         {
                             effectivePolicy = TransferConflictPolicy.RenameNew;
-                            destinationPath = EnsureUniquePath(panel.CurrentPath, transferItem.Name, transferItem.IsDirectory);
+                            destinationPath = EnsureUniquePath(destinationRoot, transferItem.Name, transferItem.IsDirectory);
                             exists = false;
                         }
                         else
@@ -4371,7 +4389,7 @@ public sealed class MainWindowViewModel : ObservableObject
                             destinationPath = directDestination;
                         }
                     }
-                    else if (!TryResolveTransferDestination(transferItem, panel.CurrentPath, policy, out destinationPath, out exists))
+                    else if (!TryResolveTransferDestination(transferItem, destinationRoot, policy, out destinationPath, out exists))
                     {
                         continue;
                     }
@@ -7618,6 +7636,91 @@ public sealed class MainWindowViewModel : ObservableObject
             LastModified = item.LastModified,
             TypeDisplay = item.TypeDisplay
         };
+    }
+
+    /// <summary>
+    /// 경로 목록으로 내부 클립보드를 채운다. 항상 '복사' 모드로 시작한다.
+    /// </summary>
+    private void SetClipboardItemsFromPaths(IEnumerable<string> paths)
+    {
+        _clipboardItems.Clear();
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            var isDirectory = Directory.Exists(path);
+            if (!isDirectory && !File.Exists(path))
+            {
+                continue;
+            }
+
+            if (_clipboardItems.Any(existing => string.Equals(existing.Path, path, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            _clipboardItems.Add(new ClipboardTransferItem(path, isDirectory));
+        }
+
+        _clipboardCutMode = false;
+    }
+
+    /// <summary>
+    /// 내부 클립보드가 비어 있으면 윈도우 클립보드의 파일 목록을 끌어와 채운다.
+    /// (Windows 탐색기에서 복사한 파일을 붙여넣기 위해)
+    /// </summary>
+    private void TryFillClipboardFromSystemClipboard()
+    {
+        if (_clipboardItems.Count > 0)
+        {
+            return;
+        }
+
+        string[] paths;
+        try
+        {
+            if (!Clipboard.ContainsFileDropList())
+            {
+                return;
+            }
+
+            paths = Clipboard.GetFileDropList().Cast<string>().ToArray();
+        }
+        catch (Exception)
+        {
+            // 다른 프로세스가 클립보드를 점유 중이면 조용히 건너뛴다.
+            return;
+        }
+
+        if (paths.Length == 0)
+        {
+            return;
+        }
+
+        SetClipboardItemsFromPaths(paths);
+    }
+
+    /// <summary>
+    /// 외부(Windows 탐색기 드래그 등)에서 넘어온 경로들을 대상 폴더로 복사한다.
+    /// 외부 원본은 남겨 두기 위해 항상 복사로 처리한다.
+    /// </summary>
+    public async Task CopyExternalPathsIntoFolderAsync(PanelViewModel panel, IReadOnlyList<string> paths, string? destinationDirectory = null)
+    {
+        if (panel is null || paths is null || paths.Count == 0)
+        {
+            return;
+        }
+
+        SetClipboardItemsFromPaths(paths);
+        if (_clipboardItems.Count == 0)
+        {
+            return;
+        }
+
+        await PasteClipboardToPanelAsync(panel, destinationDirectory);
     }
 
     private void SetClipboardItems(IReadOnlyList<FileSystemItem> selectedItems, bool cutMode)
