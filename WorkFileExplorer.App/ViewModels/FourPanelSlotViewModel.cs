@@ -14,7 +14,7 @@ public sealed class FourPanelSlotViewModel : ObservableObject
     public FourPanelSlotViewModel(string slotKey, string initialPath)
     {
         SlotKey = slotKey;
-        var tab = new PanelTabViewModel($"{slotKey}1", new PanelViewModel
+        var tab = new PanelTabViewModel(MainWindowViewModel.TitleForPath(initialPath), new PanelViewModel
         {
             CurrentPath = initialPath
         });
@@ -74,7 +74,7 @@ public sealed class FourPanelSlotViewModel : ObservableObject
 
     public PanelTabViewModel AddTab(string path)
     {
-        var tab = new PanelTabViewModel($"{SlotKey}{Tabs.Count + 1}", new PanelViewModel
+        var tab = new PanelTabViewModel(MainWindowViewModel.TitleForPath(path), new PanelViewModel
         {
             CurrentPath = path
         });

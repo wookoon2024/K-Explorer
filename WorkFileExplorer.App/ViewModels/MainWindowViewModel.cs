@@ -1067,7 +1067,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         // A new tab opens in the view mode of the tab it was created from, not the saved default.
         var viewMode = (left ? SelectedLeftTab : SelectedRightTab)?.ViewMode ?? ResolveStartupViewMode();
-        var tab = new PanelTabViewModel(left ? $"L{tabs.Count + 1}" : $"R{tabs.Count + 1}", new PanelViewModel())
+        var tab = new PanelTabViewModel(TitleForPath(sourcePath), new PanelViewModel())
         {
             ViewMode = viewMode
         };
@@ -2675,7 +2675,7 @@ public sealed class MainWindowViewModel : ObservableObject
             var path = string.IsNullOrWhiteSpace(source.Panel.CurrentPath)
                 ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
                 : source.Panel.CurrentPath;
-            var copied = new PanelTabViewModel($"{slot.SlotKey}{index + 1}", new PanelViewModel
+            var copied = new PanelTabViewModel(TitleForPath(path), new PanelViewModel
             {
                 CurrentPath = path
             })
@@ -5186,31 +5186,35 @@ public sealed class MainWindowViewModel : ObservableObject
         return string.IsNullOrWhiteSpace(fallback) ? null : fallback;
     }
 
+    // Tabs are created from a remembered path before their folder is read, and tabs that are not
+    // visible yet are not loaded at all, so the title has to be derivable from the path alone.
+    internal static string TitleForPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return "-";
+        if (string.Equals(path, MemoListVirtualPath, StringComparison.Ordinal)) return "메모목록";
+        if (string.Equals(path, FrequentFoldersVirtualPath, StringComparison.Ordinal)) return "자주가는폴더";
+        if (string.Equals(path, FrequentFilesVirtualPath, StringComparison.Ordinal)) return "자주사용한파일";
+        if (string.Equals(path, DriveRootVirtualPath, StringComparison.Ordinal)) return "Drives";
+        var root = Path.GetPathRoot(path);
+        if (string.Equals(path.TrimEnd('\\'), root?.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return path;
+        return Path.GetFileName(path.TrimEnd('\\'));
+    }
+
     private void UpdateTabTitleForPanel(PanelViewModel panel)
     {
-        static string Title(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path)) return "-";
-            if (string.Equals(path, MemoListVirtualPath, StringComparison.Ordinal)) return "메모목록";
-            if (string.Equals(path, FrequentFoldersVirtualPath, StringComparison.Ordinal)) return "자주가는폴더";
-            if (string.Equals(path, FrequentFilesVirtualPath, StringComparison.Ordinal)) return "자주사용한파일";
-            if (string.Equals(path, DriveRootVirtualPath, StringComparison.Ordinal)) return "Drives";
-            var root = Path.GetPathRoot(path);
-            if (string.Equals(path.TrimEnd('\\'), root?.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return path;
-            return Path.GetFileName(path.TrimEnd('\\'));
-        }
+        var title = TitleForPath(panel.CurrentPath);
 
         var left = LeftTabs.FirstOrDefault(t => ReferenceEquals(t.Panel, panel));
-        if (left is not null) { left.Title = Title(panel.CurrentPath); return; }
+        if (left is not null) { left.Title = title; return; }
         var right = RightTabs.FirstOrDefault(t => ReferenceEquals(t.Panel, panel));
-        if (right is not null) { right.Title = Title(panel.CurrentPath); return; }
+        if (right is not null) { right.Title = title; return; }
 
         foreach (var slot in _fourPanels)
         {
             var tab = slot.Tabs.FirstOrDefault(t => ReferenceEquals(t.Panel, panel));
             if (tab is not null)
             {
-                tab.Title = Title(panel.CurrentPath);
+                tab.Title = title;
                 if (ReferenceEquals(slot.SelectedTab, tab))
                 {
                     OnPropertyChanged(nameof(FourPanels));
@@ -5519,7 +5523,7 @@ public sealed class MainWindowViewModel : ObservableObject
             slot.Tabs.Clear();
             for (var tabIndex = 0; tabIndex < tabPaths.Count; tabIndex++)
             {
-                var tab = new PanelTabViewModel($"{slot.SlotKey}{tabIndex + 1}", new PanelViewModel
+                var tab = new PanelTabViewModel(TitleForPath(tabPaths[tabIndex]), new PanelViewModel
                 {
                     CurrentPath = tabPaths[tabIndex]
                 })
@@ -5665,7 +5669,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         for (var index = 0; index < leftPaths.Count; index++)
         {
-            var tab = new PanelTabViewModel($"L{index + 1}", new PanelViewModel
+            var tab = new PanelTabViewModel(TitleForPath(leftPaths[index]), new PanelViewModel
             {
                 CurrentPath = leftPaths[index]
             })
@@ -5677,7 +5681,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         for (var index = 0; index < rightPaths.Count; index++)
         {
-            var tab = new PanelTabViewModel($"R{index + 1}", new PanelViewModel
+            var tab = new PanelTabViewModel(TitleForPath(rightPaths[index]), new PanelViewModel
             {
                 CurrentPath = rightPaths[index]
             })
