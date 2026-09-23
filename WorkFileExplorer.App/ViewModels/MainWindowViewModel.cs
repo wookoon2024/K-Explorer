@@ -900,6 +900,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string FileListFontFamily => ResolveFileListFontFamily(_settings.FileListFontFamily);
 
+    public string FileListFontFamilyDisplayName => NormalizeFileListFontFamily(_settings.FileListFontFamily);
+
     public double FileListFontSize => NormalizeFileListFontSize(_settings.FileListFontSize);
 
     public double FileListRowHeight => NormalizeFileListRowHeight(_settings.FileListRowHeight);
@@ -2871,7 +2873,7 @@ public sealed class MainWindowViewModel : ObservableObject
             SearchRecursive = SearchRecursive,
             ExtensionColorOverrides = _settings.ExtensionColorOverrides.ToList(),
             ThemeColorOverrides = _settings.ThemeColorOverrides.ToList(),
-            FileListFontFamily = FileListFontFamily,
+            FileListFontFamily = FileListFontFamilyDisplayName,
             FileListFontSize = FileListFontSize,
             FileListRowHeight = FileListRowHeight,
             ExternalEditorPath = _settings.ExternalEditorPath,
@@ -2969,10 +2971,24 @@ public sealed class MainWindowViewModel : ObservableObject
         StatusText = "환경설정이 적용되었습니다.";
     }
 
-    private static string NormalizeFileListFontFamily(string? fontFamily)
+    public static string NormalizeFileListFontFamily(string? fontFamily)
     {
         var value = (fontFamily ?? string.Empty).Trim();
-        return string.IsNullOrWhiteSpace(value) ? "Malgun Gothic" : value;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "Malgun Gothic";
+        }
+
+        if (string.Equals(value, BundledFontDisplayName, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, BundledFontFamilyUri, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "Assets/Fonts/#Pretendard", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "Pretendard", StringComparison.OrdinalIgnoreCase) ||
+            value.EndsWith("#Pretendard", StringComparison.OrdinalIgnoreCase))
+        {
+            return BundledFontDisplayName;
+        }
+
+        return value;
     }
 
     // Pretendard ships with the app (Assets/Fonts, SIL OFL 1.1). Settings keep the friendly name;

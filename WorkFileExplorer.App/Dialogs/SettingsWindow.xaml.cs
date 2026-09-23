@@ -110,7 +110,12 @@ public partial class SettingsWindow : Window
         // The bundled Pretendard works on machines where it is not installed, so it leads the list.
         fontFamilies.Insert(0, MainWindowViewModel.BundledFontDisplayName);
         ComboFileListFontFamily.ItemsSource = fontFamilies;
-        ComboFileListFontFamily.Text = snapshot.FileListFontFamily;
+        var initialFont = MainWindowViewModel.NormalizeFileListFontFamily(snapshot.FileListFontFamily);
+        ComboFileListFontFamily.SelectedItem = fontFamilies.FirstOrDefault(font => string.Equals(font, initialFont, StringComparison.OrdinalIgnoreCase));
+        if (ComboFileListFontFamily.SelectedItem is null)
+        {
+            ComboFileListFontFamily.Text = initialFont;
+        }
         TextFileListFontSize.Text = snapshot.FileListFontSize.ToString("0.##", CultureInfo.InvariantCulture);
         TextFileListRowHeight.Text = snapshot.FileListRowHeight.ToString("0.##", CultureInfo.InvariantCulture);
         LoadThemeColorOverrides(snapshot.ThemeColorOverrides);
@@ -200,7 +205,9 @@ public partial class SettingsWindow : Window
             SearchRecursive = CheckSearchRecursive.IsChecked == true,
             ExtensionColorOverrides = BuildExtensionColorOverrides(),
             ThemeColorOverrides = BuildThemeColorOverrides(),
-            FileListFontFamily = string.IsNullOrWhiteSpace(ComboFileListFontFamily.Text) ? vm.FileListFontFamily : ComboFileListFontFamily.Text.Trim(),
+            FileListFontFamily = string.IsNullOrWhiteSpace(ComboFileListFontFamily.Text)
+                ? vm.FileListFontFamilyDisplayName
+                : MainWindowViewModel.NormalizeFileListFontFamily(ComboFileListFontFamily.Text.Trim()),
             FileListFontSize = ParseDoubleInRange(TextFileListFontSize.Text, vm.FileListFontSize, 9, 28),
             FileListRowHeight = ParseDoubleInRange(TextFileListRowHeight.Text, vm.FileListRowHeight, 16, 52),
             ExternalEditorPath = string.IsNullOrWhiteSpace(TextExternalEditorPath.Text) ? "notepad.exe" : TextExternalEditorPath.Text.Trim(),
