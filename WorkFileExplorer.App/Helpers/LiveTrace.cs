@@ -8,6 +8,7 @@ public static class LiveTrace
 {
     private static readonly object Gate = new();
     private static readonly string LogFile = Path.Combine(AppContext.BaseDirectory, "live_trace.log");
+    private static readonly string SessionId = Guid.NewGuid().ToString("N")[..8];
     private static readonly Dictionary<string, DateTime> LastSnapshotByTag = new(StringComparer.Ordinal);
     private static readonly TimeSpan SnapshotMinInterval = TimeSpan.FromMilliseconds(500);
     private static readonly ConcurrentQueue<string> PendingLines = new();
@@ -16,7 +17,8 @@ public static class LiveTrace
     private static readonly bool Enabled = true;
 #else
     private static readonly bool Enabled =
-        string.Equals(Environment.GetEnvironmentVariable("KEXPLORER_LIVETRACE"), "1", StringComparison.OrdinalIgnoreCase);
+        string.Equals(Environment.GetEnvironmentVariable("KEXPLORER_LIVETRACE"), "1", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(Environment.GetEnvironmentVariable("KEXPLORER_DIAG"), "1", StringComparison.OrdinalIgnoreCase);
 #endif
     private static bool _initialized;
 
@@ -25,6 +27,8 @@ public static class LiveTrace
 
     private const uint GR_GDIOBJECTS = 0;
     private const uint GR_USEROBJECTS = 1;
+
+    public static string CurrentSessionId => SessionId;
 
     public static void Init()
     {
@@ -44,7 +48,10 @@ public static class LiveTrace
             _initialized = true;
             try
             {
-                File.WriteAllText(LogFile, string.Empty);
+                // Keep history across restarts for before/after comparison; mark a
+                // per-session boundary so logs are easy to split.
+                var separator = $"===== session {SessionId} {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====";
+                File.AppendAllText(LogFile, separator + Environment.NewLine);
             }
             catch
             {
@@ -60,7 +67,7 @@ public static class LiveTrace
             };
             writerThread.Start();
 
-            Write("LiveTrace initialized");
+            Write($"LiveTrace initialized session={SessionId}");
         }
     }
 
@@ -134,6 +141,11 @@ public static class LiveTrace
             LastSnapshotByTag[tag] = now;
         }
 
+        _ = Task.Run(() => CaptureProcessSnapshot(tag));
+    }
+
+    private static void CaptureProcessSnapshot(string tag)
+    {
         try
         {
             using var process = Process.GetCurrentProcess();
@@ -168,6 +180,15 @@ public static class LiveTrace
         catch (Exception ex)
         {
             Write($"{tag} perf snapshot failed: {ex.GetType().Name}");
+        }
+    }
+
+    public static void WriteProcessSnapshot(string tag, string? counters = null)
+    {
+        WriteProcessSnapshot(tag);
+        if (!string.IsNullOrEmpty(counters))
+        {
+            Write($"{tag} counters {counters}");
         }
     }
 }

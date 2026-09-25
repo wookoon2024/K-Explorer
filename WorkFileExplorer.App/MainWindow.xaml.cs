@@ -23,6 +23,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Win32.SafeHandles;
 using Microsoft.VisualBasic;
 using WorkFileExplorer.App.Controls;
+using WorkFileExplorer.App.Converters;
 using WorkFileExplorer.App.Dialogs;
 using WorkFileExplorer.App.Helpers;
 using WorkFileExplorer.App.Models;
@@ -575,10 +576,19 @@ public partial class MainWindow : Window
     private DateTime _typeAheadLastInputUtc = DateTime.MinValue;
     private int _leftSelectionSummaryVersion;
     private int _rightSelectionSummaryVersion;
+    private int _leftTabSwitchSequence;
+    private int _rightTabSwitchSequence;
+    private int _panelPrewarmGeneration;
+    private bool _panelRenderingAttached;
+    private bool _panelPrewarmQueued;
 
     public MainWindow()
     {
         InitializeComponent();
+        LeftPanelItemsCacheHost.EntryRemoved += OnPanelCacheEntryRemoved;
+        RightPanelItemsCacheHost.EntryRemoved += OnPanelCacheEntryRemoved;
+        LeftPanelItemsCacheHost.VisualReady += OnPanelCacheVisualReady;
+        RightPanelItemsCacheHost.VisualReady += OnPanelCacheVisualReady;
         Title = $"K탐색기 (v{GetAppVersion()})";
         _imagePreviewHoverTimer.Tick += OnImagePreviewHoverTimerTick;
         Loaded += (_, _) => _windowLoaded = true;
@@ -602,12 +612,202 @@ public partial class MainWindow : Window
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
 
+    private DataGrid LeftPanelGrid => GetActivePanelGrid(left: true) ?? LeftPanelGridFallback;
+
+    private DataGrid RightPanelGrid => GetActivePanelGrid(left: false) ?? RightPanelGridFallback;
+
+    private ListBox LeftPanelTilesList => GetActivePanelTilesList(left: true) ?? LeftPanelTilesListFallback;
+
+    private ListBox RightPanelTilesList => GetActivePanelTilesList(left: false) ?? RightPanelTilesListFallback;
+
     private void OnMainWindowLoaded(object sender, RoutedEventArgs e)
     {
         AttachVmPropertyEvents();
         HookTabContextMenuTracing();
         RefreshShortcutGestureTexts();
         ApplyPropertyColumnVisibility();
+        ActivatePanelCaches();
+        QueueAdjacentPanelPrewarm();
+    }
+
+    private void ActivatePanelCaches()
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        ActivatePanelCache(left: true);
+        ActivatePanelCache(left: false);
+        TrimPanelCaches();
+    }
+
+    private void ActivatePanelCache(bool left)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var host = left ? LeftPanelItemsCacheHost : RightPanelItemsCacheHost;
+        host.Activate(left ? Vm.SelectedLeftTab : Vm.SelectedRightTab);
+        UpdatePanelFallbackVisibility(left);
+    }
+
+    private void UpdatePanelFallbackVisibility(bool left)
+    {
+        var showFallback = GetActivePanelCacheEntry(left)?.IsVisualReady != true;
+        var listMode = IsListStylePanelView(left);
+        var grid = left ? LeftPanelGridFallback : RightPanelGridFallback;
+        var list = left ? LeftPanelTilesListFallback : RightPanelTilesListFallback;
+        grid.Visibility = showFallback && !listMode ? Visibility.Visible : Visibility.Collapsed;
+        list.Visibility = showFallback && listMode ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void TrimPanelCaches()
+    {
+        var entries = LeftPanelItemsCacheHost.Entries
+            .Concat(RightPanelItemsCacheHost.Entries)
+            .ToArray();
+        if (entries.Length <= 8)
+        {
+            return;
+        }
+
+        var pinned = new HashSet<PanelVisualCacheEntry>
+        {
+            LeftPanelItemsCacheHost.ActiveEntry!,
+            RightPanelItemsCacheHost.ActiveEntry!
+        };
+        foreach (var entry in entries
+            .Where(entry => !pinned.Contains(entry))
+            .OrderBy(entry => entry.LastTouched)
+            .Take(entries.Length - 8))
+        {
+            entry.Host.Remove(entry.Tab);
+        }
+    }
+
+    private void OnPanelCacheVisualReady(object? sender, PanelVisualCacheEntry entry)
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            HandlePanelCacheVisualReady(entry);
+        }
+        else
+        {
+            _ = Dispatcher.BeginInvoke(() => HandlePanelCacheVisualReady(entry));
+        }
+    }
+
+    private void HandlePanelCacheVisualReady(PanelVisualCacheEntry entry)
+    {
+        UpdatePanelFallbackVisibility(entry.IsLeft);
+        if (!entry.IsCurrent && entry.NeedsStateRestore)
+        {
+            entry.NeedsStateRestore = false;
+            RestorePanelViewState(entry);
+        }
+    }
+
+    private void OnPanelCacheEntryRemoved(object? sender, PanelVisualCacheEntry entry)
+    {
+        if (entry.List is { } list)
+        {
+            _adaptiveTileSizes.Remove(list);
+        }
+
+        if (entry.Grid is { } grid)
+        {
+            foreach (var column in grid.Columns)
+            {
+                _panelGridHeaderLabels.Remove(column);
+            }
+        }
+    }
+
+    private void QueueAdjacentPanelPrewarm()
+    {
+        if (Vm is null || _panelPrewarmQueued)
+        {
+            return;
+        }
+
+        _panelPrewarmQueued = true;
+        var generation = ++_panelPrewarmGeneration;
+        _ = Dispatcher.BeginInvoke(
+            async () =>
+            {
+                try
+                {
+                    if (Vm is null || generation != _panelPrewarmGeneration || _allowInlineNameEdit || _isTileInlineRenameCommitting)
+                    {
+                        return;
+                    }
+
+                    var adjacentTabs = new List<(PanelItemsCacheHost Host, PanelTabViewModel Tab)>();
+                    var leftIndex = Vm.SelectedLeftTab is null ? -1 : Vm.LeftTabs.IndexOf(Vm.SelectedLeftTab);
+                    if (leftIndex >= 0)
+                    {
+                        if (leftIndex > 0)
+                        {
+                            adjacentTabs.Add((LeftPanelItemsCacheHost, Vm.LeftTabs[leftIndex - 1]));
+                        }
+
+                        if (leftIndex + 1 < Vm.LeftTabs.Count)
+                        {
+                            adjacentTabs.Add((LeftPanelItemsCacheHost, Vm.LeftTabs[leftIndex + 1]));
+                        }
+                    }
+
+                    var rightIndex = Vm.SelectedRightTab is null ? -1 : Vm.RightTabs.IndexOf(Vm.SelectedRightTab);
+                    if (rightIndex >= 0)
+                    {
+                        if (rightIndex > 0)
+                        {
+                            adjacentTabs.Add((RightPanelItemsCacheHost, Vm.RightTabs[rightIndex - 1]));
+                        }
+
+                        if (rightIndex + 1 < Vm.RightTabs.Count)
+                        {
+                            adjacentTabs.Add((RightPanelItemsCacheHost, Vm.RightTabs[rightIndex + 1]));
+                        }
+                    }
+
+                    foreach (var (host, tab) in adjacentTabs)
+                    {
+                        if (generation != _panelPrewarmGeneration)
+                        {
+                            return;
+                        }
+
+                        var tabs = host == LeftPanelItemsCacheHost ? Vm.LeftTabs : Vm.RightTabs;
+                        if (!tabs.Contains(tab))
+                        {
+                            return;
+                        }
+
+                        host.Prewarm(tab);
+                        if (host.GetEntry(tab) is { IsCurrent: false } entry)
+                        {
+                            entry.NeedsStateRestore = true;
+                        }
+                        await Vm.EnsurePanelTabDataLoadedAsync(tab);
+                        if (generation != _panelPrewarmGeneration || !tabs.Contains(tab))
+                        {
+                            return;
+                        }
+
+                        host.Prewarm(tab);
+                    }
+                }
+                finally
+                {
+                    _panelPrewarmQueued = false;
+                    TrimPanelCaches();
+                }
+            },
+            DispatcherPriority.ApplicationIdle);
     }
 
     private void ApplyPropertyColumnVisibility()
@@ -685,6 +885,10 @@ public partial class MainWindow : Window
 
         _subscribedVm = Vm;
         _subscribedVm.PropertyChanged += OnVmPropertyChanged;
+        _subscribedVm.LeftTabSelectionChanging += OnLeftTabSelectionChanging;
+        _subscribedVm.RightTabSelectionChanging += OnRightTabSelectionChanging;
+        _subscribedVm.PanelContentRefreshing += OnPanelContentRefreshing;
+        _subscribedVm.PanelContentRefreshed += OnPanelContentRefreshed;
         _subscribedVm.ShortcutsChanged += OnShortcutsChanged;
     }
 
@@ -696,8 +900,190 @@ public partial class MainWindow : Window
         }
 
         _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
+        _subscribedVm.LeftTabSelectionChanging -= OnLeftTabSelectionChanging;
+        _subscribedVm.RightTabSelectionChanging -= OnRightTabSelectionChanging;
+        _subscribedVm.PanelContentRefreshing -= OnPanelContentRefreshing;
+        _subscribedVm.PanelContentRefreshed -= OnPanelContentRefreshed;
         _subscribedVm.ShortcutsChanged -= OnShortcutsChanged;
         _subscribedVm = null;
+    }
+
+    private void OnLeftTabSelectionChanging(object? sender, EventArgs e)
+    {
+        CapturePanelViewState(left: true);
+    }
+
+    private void OnRightTabSelectionChanging(object? sender, EventArgs e)
+    {
+        CapturePanelViewState(left: false);
+    }
+
+    private void OnPanelContentRefreshing(object? sender, PanelViewModel panel)
+    {
+        foreach (var entry in GetPanelCacheEntries(panel))
+        {
+            CapturePanelViewState(entry.Tab, entry);
+        }
+    }
+
+    private void OnPanelContentRefreshed(object? sender, PanelViewModel panel)
+    {
+        var entries = GetPanelCacheEntries(panel).ToArray();
+        _ = Dispatcher.BeginInvoke(
+            () =>
+            {
+                foreach (var entry in entries)
+                {
+                    if (ReferenceEquals(entry.Panel, panel) &&
+                        (entry.Host.GetEntry(entry.Tab) is not null))
+                    {
+                        RestorePanelViewState(entry);
+                    }
+                }
+            },
+            DispatcherPriority.ContextIdle);
+    }
+
+    private async void OnPanelItemsDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (GetPanelCacheEntry(sender, e.OriginalSource as DependencyObject) is not { } entry)
+        {
+            return;
+        }
+
+        var originalSource = e.OriginalSource as DependencyObject;
+        if (IsDataGridHeaderInteraction(originalSource) ||
+            !IsPanelItemDoubleClickSource(sender, originalSource))
+        {
+            return;
+        }
+
+        var item = sender switch
+        {
+            DataGrid grid => grid.SelectedItem as FileSystemItem,
+            ListBox list => list.SelectedItem as FileSystemItem,
+            _ => null
+        };
+        if (item is not null && Vm is not null)
+        {
+            Vm.SetActivePanelCommand.Execute(entry.IsLeft ? "Left" : "Right");
+            if (ReferenceEquals(entry.Panel.SelectedItem, item))
+            {
+                await Vm.OpenItemFromPanelAsync(entry.IsLeft);
+            }
+        }
+    }
+
+    private void OnPanelItemsFocus(object sender, RoutedEventArgs e)
+    {
+        if (_isDeletingFiles || GetPanelCacheEntry(sender, e.OriginalSource as DependencyObject) is not { IsCurrent: true } entry)
+        {
+            return;
+        }
+
+        DismissFavoriteFlyoutsForNavigation();
+        Vm?.SetActivePanelCommand.Execute(entry.IsLeft ? "Left" : "Right");
+    }
+
+    private void OnPanelItemsSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isDeletingFiles ||
+            Vm is null ||
+            GetPanelCacheEntry(sender, e.OriginalSource as DependencyObject) is not { IsCurrent: true } entry)
+        {
+            return;
+        }
+
+        if (IsListStylePanelView(entry.IsLeft) != (sender is ListBox))
+        {
+            return;
+        }
+
+        var panel = entry.Panel;
+        SyncSelectionFromControl(panel, sender, e);
+        if (panel.IsParentSelectionSuppressionActive && panel.TryRestoreNonParentSelection())
+        {
+            LiveTrace.Write($"UI.Cache.SelectionChanged restored non-parent panel='{panel.CurrentPath}'");
+        }
+
+        if (sender is DataGrid grid)
+        {
+            Dispatcher.BeginInvoke(
+                () =>
+                {
+                    if (entry.IsCurrent && panel.SelectedItem is FileSystemItem selectedItem && panel.Items.Contains(selectedItem))
+                    {
+                        EnsureGridCurrentCellMatchesSelection(grid, selectedItem);
+                    }
+                },
+                DispatcherPriority.ApplicationIdle);
+        }
+
+        QueueSelectionSummaryUpdate(entry.IsLeft);
+        ShowMemoListSelectionMemo(entry.IsLeft, e);
+    }
+
+    private PanelTabViewModel? _pendingRenderLeftTab;
+    private PanelTabViewModel? _pendingRenderRightTab;
+    private long _pendingRenderLeftTimestamp;
+    private long _pendingRenderRightTimestamp;
+    private long _pendingRenderLeftSequence;
+    private long _pendingRenderRightSequence;
+
+    private void RecordPanelFirstFrame(bool left, PanelTabViewModel? tab, long started)
+    {
+        if (tab is null)
+        {
+            return;
+        }
+
+        var entry = left ? LeftPanelItemsCacheHost.GetEntry(tab) : RightPanelItemsCacheHost.GetEntry(tab);
+        var cacheHit = entry?.IsVisualReady == true;
+        var side = left ? "L" : "R";
+        if (left)
+        {
+            _pendingRenderLeftTab = tab;
+            _pendingRenderLeftTimestamp = started;
+            _pendingRenderLeftSequence = _leftTabSwitchSequence;
+        }
+        else
+        {
+            _pendingRenderRightTab = tab;
+            _pendingRenderRightTimestamp = started;
+            _pendingRenderRightSequence = _rightTabSwitchSequence;
+        }
+
+        LiveTrace.Write($"TabSwitch[{side}] cache-hit={cacheHit} layout-ready={Stopwatch.GetElapsedTime(started).TotalMilliseconds:0.0}ms");
+        if (!_panelRenderingAttached)
+        {
+            CompositionTarget.Rendering += OnPanelRendering;
+            _panelRenderingAttached = true;
+        }
+    }
+
+    private void OnPanelRendering(object? sender, EventArgs e)
+    {
+        if (_pendingRenderLeftTab is { } leftTab &&
+            _pendingRenderLeftSequence == _leftTabSwitchSequence &&
+            ReferenceEquals(Vm?.SelectedLeftTab, leftTab))
+        {
+            LiveTrace.Write($"TabSwitch[L] first-frame={Stopwatch.GetElapsedTime(_pendingRenderLeftTimestamp).TotalMilliseconds:0.0}ms cache-hit={LeftPanelItemsCacheHost.GetEntry(leftTab)?.IsVisualReady == true}");
+            _pendingRenderLeftTab = null;
+        }
+
+        if (_pendingRenderRightTab is { } rightTab &&
+            _pendingRenderRightSequence == _rightTabSwitchSequence &&
+            ReferenceEquals(Vm?.SelectedRightTab, rightTab))
+        {
+            LiveTrace.Write($"TabSwitch[R] first-frame={Stopwatch.GetElapsedTime(_pendingRenderRightTimestamp).TotalMilliseconds:0.0}ms cache-hit={RightPanelItemsCacheHost.GetEntry(rightTab)?.IsVisualReady == true}");
+            _pendingRenderRightTab = null;
+        }
+
+        if (_pendingRenderLeftTab is null && _pendingRenderRightTab is null)
+        {
+            CompositionTarget.Rendering -= OnPanelRendering;
+            _panelRenderingAttached = false;
+        }
     }
 
     private void OnShortcutsChanged(object? sender, EventArgs e)
@@ -710,6 +1096,61 @@ public partial class MainWindow : Window
         {
             Dispatcher.BeginInvoke(new Action(RefreshShortcutGestureTexts));
         }
+    }
+
+    private PanelVisualCacheEntry? GetPanelCacheEntry(DependencyObject? source)
+    {
+        var current = source;
+        while (current is not null)
+        {
+            if (PanelUi.GetPanelEntry(current) is PanelVisualCacheEntry entry)
+            {
+                return entry;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    private PanelVisualCacheEntry? GetPanelCacheEntry(object? sender, DependencyObject? originalSource = null)
+    {
+        if (sender is DependencyObject senderElement)
+        {
+            var entry = GetPanelCacheEntry(senderElement);
+            if (entry is not null)
+            {
+                return entry;
+            }
+        }
+
+        return GetPanelCacheEntry(originalSource);
+    }
+
+    private PanelVisualCacheEntry? GetActivePanelCacheEntry(bool left) =>
+        left ? LeftPanelItemsCacheHost.ActiveEntry : RightPanelItemsCacheHost.ActiveEntry;
+
+    private DataGrid? GetActivePanelGrid(bool left) => GetActivePanelCacheEntry(left)?.Grid;
+
+    private ListBox? GetActivePanelTilesList(bool left) => GetActivePanelCacheEntry(left)?.List;
+
+    private PanelVisualCacheEntry? GetPanelCacheEntryForPanel(PanelViewModel? panel)
+    {
+        if (panel is null)
+        {
+            return null;
+        }
+
+        return LeftPanelItemsCacheHost.GetEntry(panel) ?? RightPanelItemsCacheHost.GetEntry(panel);
+    }
+
+    private IReadOnlyList<PanelVisualCacheEntry> GetPanelCacheEntries(PanelViewModel panel)
+    {
+        return LeftPanelItemsCacheHost.Entries
+            .Concat(RightPanelItemsCacheHost.Entries)
+            .Where(entry => ReferenceEquals(entry.Panel, panel))
+            .ToArray();
     }
 
     private void RefreshShortcutGestureTexts()
@@ -743,6 +1184,14 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        CompositionTarget.Rendering -= OnPanelRendering;
+        _panelRenderingAttached = false;
+        LeftPanelItemsCacheHost.EntryRemoved -= OnPanelCacheEntryRemoved;
+        RightPanelItemsCacheHost.EntryRemoved -= OnPanelCacheEntryRemoved;
+        LeftPanelItemsCacheHost.VisualReady -= OnPanelCacheVisualReady;
+        RightPanelItemsCacheHost.VisualReady -= OnPanelCacheVisualReady;
+        LeftPanelItemsCacheHost.Clear();
+        RightPanelItemsCacheHost.Clear();
         _imagePreviewHoverTimer.Stop();
         HideImageHoverPreview();
         StopAllTerminalSessions();
@@ -994,6 +1443,7 @@ public partial class MainWindow : Window
         }
 
         Vm.SetViewModeForActivePanel(PanelViewMode.Details);
+        UpdatePanelFallbackVisibility(Vm.IsLeftPanelActive);
     }
 
     private void OnTilesViewClick(object sender, RoutedEventArgs e)
@@ -1015,6 +1465,7 @@ public partial class MainWindow : Window
         }
 
         Vm.SetViewModeForActivePanel(PanelViewMode.Tiles);
+        UpdatePanelFallbackVisibility(Vm.IsLeftPanelActive);
         Dispatcher.BeginInvoke(RefreshAdaptiveTileLayouts, DispatcherPriority.Background);
     }
 
@@ -1038,6 +1489,7 @@ public partial class MainWindow : Window
         }
 
         Vm.SetViewModeForActivePanel(PanelViewMode.CompactList);
+        UpdatePanelFallbackVisibility(Vm.IsLeftPanelActive);
         Dispatcher.BeginInvoke(RefreshAdaptiveTileLayouts, DispatcherPriority.Background);
     }
 
@@ -1131,8 +1583,17 @@ public partial class MainWindow : Window
 
     private void RefreshAdaptiveTileLayouts()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var fourPanelListCount = _fourPanelTileLists.Values.Sum(l => l.Count);
         UpdateAdaptiveTileSize(LeftPanelTilesList);
         UpdateAdaptiveTileSize(RightPanelTilesList);
+        foreach (var entry in LeftPanelItemsCacheHost.Entries.Concat(RightPanelItemsCacheHost.Entries))
+        {
+            if (entry.List is { } list)
+            {
+                UpdateAdaptiveTileSize(list);
+            }
+        }
 
         foreach (var lists in _fourPanelTileLists.Values)
         {
@@ -1141,6 +1602,13 @@ public partial class MainWindow : Window
                 UpdateAdaptiveTileSize(list);
             }
         }
+
+        LiveTrace.Write($"TileLayouts refreshed in {sw.ElapsedMilliseconds}ms lists=2+{fourPanelListCount} counters={GetSwitchCountersSafe()}");
+    }
+
+    private string GetSwitchCountersSafe()
+    {
+        return Vm?.GetSwitchCounters() ?? "n/a";
     }
 
     private void UpdateAdaptiveTileSize(ListBox list)
@@ -1313,6 +1781,11 @@ public partial class MainWindow : Window
 
     private bool IsCompactListMode(ListBox list)
     {
+        if (list.DataContext is PanelVisualCacheEntry entry)
+        {
+            return entry.Tab.IsCompactListViewEnabled;
+        }
+
         if (Vm is null)
         {
             return false;
@@ -1461,6 +1934,8 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        SyncSelectionFromControl(slot.Panel, sender, e);
 
         if (sender is DataGrid grid)
         {
@@ -1738,15 +2213,39 @@ public partial class MainWindow : Window
             return;
         }
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var previousPath = slot.SelectedTab?.Panel.CurrentPath ?? string.Empty;
+        var nextPath = slot.Panel.CurrentPath;
+        var itemCount = slot.Panel.Items.Count;
+        var totalTabs = Vm.LeftTabs.Count + Vm.RightTabs.Count + Vm.FourPanels.Sum(s => s.Tabs.Count);
+        LiveTrace.Write($"TabSwitch[4:{slot.SlotKey}] session={LiveTrace.CurrentSessionId} start '{previousPath}' -> '{nextPath}' tabs={slot.Tabs.Count}/{totalTabs} items={itemCount} mode=4split");
+        LiveTrace.WriteProcessSnapshot($"TabSwitch[4:{slot.SlotKey}] start", counters: Vm.GetSwitchCounters());
+
         var index = Vm.FourPanels.IndexOf(slot);
         if (index >= 0)
         {
             _activeFourPanelIndex = index;
             Vm.SetActiveFourPanel(index);
-            Vm.RefreshFreeSpaceIndicators();
-            _ = Vm.EnsureFourPanelTabLoadedAsync(slot);
-            Dispatcher.BeginInvoke(RefreshAdaptiveTileLayouts, DispatcherPriority.Background);
         }
+
+        var step = System.Diagnostics.Stopwatch.StartNew();
+        Vm.RefreshFreeSpaceIndicators();
+        LiveTrace.Write($"TabSwitch[4:{slot.SlotKey}] refresh-free-space {step.ElapsedMilliseconds}ms");
+
+        step.Restart();
+        var ensureStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        Vm.EnsureFourPanelTabLoadedAsync(slot).ContinueWith(_ =>
+        {
+            var ensureMs = System.Diagnostics.Stopwatch.GetElapsedTime(ensureStart).TotalMilliseconds;
+            LiveTrace.Write($"TabSwitch[4:{slot.SlotKey}] ensure-loaded {ensureMs:0.0}ms items={slot.SelectedTab?.Panel.Items.Count ?? 0}");
+            LiveTrace.WriteProcessSnapshot($"TabSwitch[4:{slot.SlotKey}] done", counters: Vm.GetSwitchCounters());
+            Application.Current?.Dispatcher?.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.ContextIdle,
+                () => LiveTrace.Write($"TabSwitch[4:{slot.SlotKey}] render-complete {sw.ElapsedMilliseconds}ms items={slot.SelectedTab?.Panel.Items.Count ?? 0}"));
+        }, TaskScheduler.Default);
+
+        Dispatcher.BeginInvoke(RefreshAdaptiveTileLayouts, DispatcherPriority.Background);
+        LiveTrace.Write($"TabSwitch[4:{slot.SlotKey}] tile-layout queued");
     }
 
     private void OnFourPanelTabPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -2035,7 +2534,7 @@ public partial class MainWindow : Window
 
     private void OnLeftPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_isDeletingFiles)
+        if (_isDeletingFiles || GetPanelCacheEntry(sender as DependencyObject) is not null || (sender as UIElement)?.IsVisible != true)
         {
             return;
         }
@@ -2047,15 +2546,26 @@ public partial class MainWindow : Window
 
         if (Vm is not null)
         {
+            var panel = Vm.LeftPanel;
+            SyncSelectionFromControl(panel, sender, e);
             var senderType = sender.GetType().Name;
-            var vmSelected = Vm.LeftPanel.SelectedItem;
-            LiveTrace.Write($"UI.Left.SelectionChanged sender={senderType} vmSelected='{vmSelected?.FullPath ?? "(null)"}' vmIsParent={vmSelected?.IsParentDirectory == true} guard={Vm.LeftPanel.IsParentSelectionSuppressionActive}");
-            if (Vm.LeftPanel.IsParentSelectionSuppressionActive && Vm.LeftPanel.TryRestoreNonParentSelection())
+            var vmSelected = panel.SelectedItem;
+            LiveTrace.Write($"UI.Left.SelectionChanged sender={senderType} vmSelected='{vmSelected?.FullPath ?? "(null)"}' vmIsParent={vmSelected?.IsParentDirectory == true} guard={panel.IsParentSelectionSuppressionActive}");
+            if (panel.IsParentSelectionSuppressionActive && panel.TryRestoreNonParentSelection())
             {
-                LiveTrace.Write($"UI.Left.SelectionChanged restored non-parent='{Vm.LeftPanel.SelectedItem?.FullPath ?? "(null)"}'");
+                LiveTrace.Write($"UI.Left.SelectionChanged restored non-parent='{panel.SelectedItem?.FullPath ?? "(null)"}'");
             }
 
-            EnsureGridCurrentCellMatchesSelection(LeftPanelGrid, Vm.LeftPanel.SelectedItem);
+            if (!IsListStylePanelView(true))
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (panel.SelectedItem is FileSystemItem selectedItem && panel.Items.Contains(selectedItem))
+                    {
+                        EnsureGridCurrentCellMatchesSelection(LeftPanelGrid, panel.SelectedItem);
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
         }
 
         QueueSelectionSummaryUpdate(left: true);
@@ -2064,7 +2574,7 @@ public partial class MainWindow : Window
 
     private void OnRightPanelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_isDeletingFiles)
+        if (_isDeletingFiles || GetPanelCacheEntry(sender as DependencyObject) is not null || (sender as UIElement)?.IsVisible != true)
         {
             return;
         }
@@ -2076,19 +2586,47 @@ public partial class MainWindow : Window
 
         if (Vm is not null)
         {
+            var panel = Vm.RightPanel;
+            SyncSelectionFromControl(panel, sender, e);
             var senderType = sender.GetType().Name;
-            var vmSelected = Vm.RightPanel.SelectedItem;
-            LiveTrace.Write($"UI.Right.SelectionChanged sender={senderType} vmSelected='{vmSelected?.FullPath ?? "(null)"}' vmIsParent={vmSelected?.IsParentDirectory == true} guard={Vm.RightPanel.IsParentSelectionSuppressionActive}");
-            if (Vm.RightPanel.IsParentSelectionSuppressionActive && Vm.RightPanel.TryRestoreNonParentSelection())
+            var vmSelected = panel.SelectedItem;
+            LiveTrace.Write($"UI.Right.SelectionChanged sender={senderType} vmSelected='{vmSelected?.FullPath ?? "(null)"}' vmIsParent={vmSelected?.IsParentDirectory == true} guard={panel.IsParentSelectionSuppressionActive}");
+            if (panel.IsParentSelectionSuppressionActive && panel.TryRestoreNonParentSelection())
             {
-                LiveTrace.Write($"UI.Right.SelectionChanged restored non-parent='{Vm.RightPanel.SelectedItem?.FullPath ?? "(null)"}'");
+                LiveTrace.Write($"UI.Right.SelectionChanged restored non-parent='{panel.SelectedItem?.FullPath ?? "(null)"}'");
             }
 
-            EnsureGridCurrentCellMatchesSelection(RightPanelGrid, Vm.RightPanel.SelectedItem);
+            if (!IsListStylePanelView(false))
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (panel.SelectedItem is FileSystemItem selectedItem && panel.Items.Contains(selectedItem))
+                    {
+                        EnsureGridCurrentCellMatchesSelection(RightPanelGrid, panel.SelectedItem);
+                    }
+                }, DispatcherPriority.ApplicationIdle);
+            }
         }
 
         QueueSelectionSummaryUpdate(left: false);
         ShowMemoListSelectionMemo(left: false, e);
+    }
+
+    private static void SyncSelectionFromControl(PanelViewModel panel, object sender, SelectionChangedEventArgs e)
+    {
+        var selectedItem = sender switch
+        {
+            DataGrid grid => grid.SelectedItem as FileSystemItem,
+            ListBox list => list.SelectedItem as FileSystemItem,
+            _ => e.AddedItems.Count > 0 ? e.AddedItems[0] as FileSystemItem : null
+        };
+
+        if (selectedItem is null && e.AddedItems.Count == 0 && e.RemovedItems.Count == 0)
+        {
+            return;
+        }
+
+        panel.SelectedItem = selectedItem;
     }
 
     private void QueueSelectionSummaryUpdate(bool left)
@@ -3428,6 +3966,7 @@ public partial class MainWindow : Window
 
     private void OnEditWithExternalEditorClick(object sender, RoutedEventArgs e)
     {
+        SetActivePanelByContextSender(sender);
         if (Vm is null)
         {
             return;
@@ -4555,7 +5094,7 @@ public partial class MainWindow : Window
             }
 
             grid.CurrentCell = new DataGridCellInfo(selectedItem, nameColumn);
-        }, DispatcherPriority.Background);
+        }, DispatcherPriority.ApplicationIdle);
     }
 
     private void OnWindowPreviewTextInput(object sender, TextCompositionEventArgs e)
@@ -5480,7 +6019,7 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void OnPanelTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnPanelTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!ReferenceEquals(e.Source, sender))
         {
@@ -5490,15 +6029,251 @@ public partial class MainWindow : Window
         DismissFavoriteFlyoutsForNavigation();
         _lastTabInteractionUtc = DateTime.UtcNow;
 
-        // Restored tabs are only listed once they are actually shown.
-        if (ReferenceEquals(sender, LeftTabsControl))
+        var left = ReferenceEquals(sender, LeftTabsControl);
+        var side = left ? "L" : "R";
+        var targetTab = left ? Vm?.SelectedLeftTab : Vm?.SelectedRightTab;
+        var sequence = left ? ++_leftTabSwitchSequence : ++_rightTabSwitchSequence;
+        var switchStarted = Stopwatch.GetTimestamp();
+        var visualWasReady = targetTab is not null &&
+            (left ? LeftPanelItemsCacheHost.GetEntry(targetTab) : RightPanelItemsCacheHost.GetEntry(targetTab))?.IsVisualReady == true;
+        var dataWasReady = targetTab is not null && targetTab.Panel.Items.Count > 0;
+
+        var tabCount = left
+            ? Vm?.LeftTabs.Count ?? 0
+            : Vm?.RightTabs.Count ?? 0;
+        var totalTabs = Vm is null ? 0 : Vm.LeftTabs.Count + Vm.RightTabs.Count + Vm.FourPanels.Sum(s => s.Tabs.Count);
+        var selectedPath = left
+            ? Vm?.SelectedLeftTab?.Panel.CurrentPath ?? string.Empty
+            : Vm?.SelectedRightTab?.Panel.CurrentPath ?? string.Empty;
+        LiveTrace.Write($"TabSelected[{side}] session={LiveTrace.CurrentSessionId} selected='{selectedPath}' tabs={tabCount}/{totalTabs}");
+
+        var vm = Vm;
+        if (vm is null)
         {
-            _ = Vm?.EnsurePanelTabLoadedAsync(left: true);
+            return;
         }
-        else if (ReferenceEquals(sender, RightTabsControl))
+
+        if (visualWasReady && dataWasReady)
         {
-            _ = Vm?.EnsurePanelTabLoadedAsync(left: false);
+            var currentTab = left ? Vm?.SelectedLeftTab : Vm?.SelectedRightTab;
+            if (ReferenceEquals(targetTab, currentTab) &&
+                sequence == (left ? _leftTabSwitchSequence : _rightTabSwitchSequence))
+            {
+                ActivatePanelCache(left);
+                RecordPanelFirstFrame(left, targetTab, switchStarted);
+                QueueAdjacentPanelPrewarm();
+                return;
+            }
         }
+
+        try
+        {
+            await vm.EnsurePanelTabLoadedAsync(left);
+        }
+        finally
+        {
+            ActivatePanelCaches();
+            QueueAdjacentPanelPrewarm();
+            await Dispatcher.InvokeAsync(
+                () =>
+                {
+                    var currentTab = left ? Vm?.SelectedLeftTab : Vm?.SelectedRightTab;
+                    if (ReferenceEquals(targetTab, currentTab) &&
+                        sequence == (left ? _leftTabSwitchSequence : _rightTabSwitchSequence))
+                    {
+                        RestorePanelViewState(left);
+                        RecordPanelFirstFrame(left, targetTab, switchStarted);
+                    }
+                },
+                DispatcherPriority.ContextIdle);
+        }
+    }
+
+    private void CapturePanelViewState(bool left, PanelTabViewModel? tab = null)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        tab ??= left ? Vm.SelectedLeftTab : Vm.SelectedRightTab;
+        if (tab is null)
+        {
+            return;
+        }
+
+        var entry = left ? LeftPanelItemsCacheHost.GetEntry(tab) : RightPanelItemsCacheHost.GetEntry(tab);
+        if (entry is null)
+        {
+            return;
+        }
+
+        CapturePanelViewState(tab, entry);
+    }
+
+    private void CapturePanelViewState(PanelTabViewModel tab)
+    {
+        var entry = LeftPanelItemsCacheHost.GetEntry(tab) ?? RightPanelItemsCacheHost.GetEntry(tab);
+        if (entry is not { Grid: { } grid, List: { } list })
+        {
+            return;
+        }
+
+        CapturePanelViewState(tab, grid, list);
+    }
+
+    private void CapturePanelViewState(PanelTabViewModel tab, PanelVisualCacheEntry entry)
+    {
+        var grid = entry.Grid ?? (entry.IsLeft ? LeftPanelGridFallback : RightPanelGridFallback);
+        var list = entry.List ?? (entry.IsLeft ? LeftPanelTilesListFallback : RightPanelTilesListFallback);
+        CapturePanelViewState(tab, grid, list);
+    }
+
+    private static void CapturePanelViewState(PanelTabViewModel tab, DataGrid grid, ListBox list)
+    {
+        tab.SelectedPaths.Clear();
+        if (tab.IsTileViewEnabled)
+        {
+            tab.SelectedPaths.UnionWith(list.SelectedItems.Cast<FileSystemItem>().Select(item => item.FullPath));
+            var wrapPanel = FindDescendant<VirtualizingWrapPanel>(list);
+            tab.ListVerticalOffset = wrapPanel?.VerticalOffset ?? 0;
+            tab.GridVerticalOffset = 0;
+            tab.GridHorizontalOffset = 0;
+            tab.CurrentCellPath = null;
+            return;
+        }
+
+        tab.SelectedPaths.UnionWith(grid.SelectedItems.Cast<FileSystemItem>().Select(item => item.FullPath));
+        var scrollViewer = FindDescendant<ScrollViewer>(grid);
+        tab.GridVerticalOffset = scrollViewer?.VerticalOffset ?? 0;
+        tab.GridHorizontalOffset = scrollViewer?.HorizontalOffset ?? 0;
+        tab.CurrentCellPath = (grid.CurrentCell.Item as FileSystemItem)?.FullPath;
+        var sortedColumn = grid.Columns.FirstOrDefault(column => column.SortDirection.HasValue);
+        tab.SortMemberPath = sortedColumn?.SortMemberPath;
+        tab.SortDirection = sortedColumn?.SortDirection;
+    }
+
+    private void RestorePanelViewState(bool left)
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        var tab = left ? Vm.SelectedLeftTab : Vm.SelectedRightTab;
+        if (tab is null)
+        {
+            return;
+        }
+
+        var entry = left ? LeftPanelItemsCacheHost.GetEntry(tab) : RightPanelItemsCacheHost.GetEntry(tab);
+        if (entry is not null)
+        {
+            RestorePanelViewState(entry);
+        }
+    }
+
+    private void RestorePanelViewState(PanelVisualCacheEntry entry)
+    {
+        var grid = entry.Grid ?? (entry.IsLeft ? LeftPanelGridFallback : RightPanelGridFallback);
+        var list = entry.List ?? (entry.IsLeft ? LeftPanelTilesListFallback : RightPanelTilesListFallback);
+
+        var tab = entry.Tab;
+        var panel = entry.Panel;
+        if (tab.IsTileViewEnabled)
+        {
+            var availableListItems = list.Items.Cast<object>().OfType<FileSystemItem>().ToArray();
+            var selectedListItems = availableListItems
+                .Where(item => tab.SelectedPaths.Contains(item.FullPath))
+                .ToArray();
+            if (selectedListItems.Length == 0 &&
+                panel.SelectedItem is FileSystemItem listFallbackItem &&
+                availableListItems.Contains(listFallbackItem))
+            {
+                selectedListItems = [listFallbackItem];
+            }
+
+            if (selectedListItems.Length > 0)
+            {
+                list.SelectedItems.Clear();
+                foreach (var item in selectedListItems)
+                {
+                    list.SelectedItems.Add(item);
+                }
+
+                list.SelectedItem = selectedListItems[0];
+            }
+            else if (tab.SelectedPaths.Count == 0)
+            {
+                list.SelectedItems.Clear();
+                list.SelectedItem = null;
+            }
+
+            FindDescendant<VirtualizingWrapPanel>(list)?.SetVerticalOffset(tab.ListVerticalOffset);
+            return;
+        }
+
+        var availableItems = grid.Items.Cast<object>().OfType<FileSystemItem>().ToArray();
+        var selectedItems = availableItems
+            .Where(item => tab.SelectedPaths.Contains(item.FullPath))
+            .ToArray();
+        if (selectedItems.Length == 0 &&
+            panel.SelectedItem is FileSystemItem gridFallbackItem &&
+            availableItems.Contains(gridFallbackItem))
+        {
+            selectedItems = [gridFallbackItem];
+        }
+
+        if (selectedItems.Length > 0)
+        {
+            grid.SelectedItems.Clear();
+            foreach (var item in selectedItems)
+            {
+                grid.SelectedItems.Add(item);
+            }
+
+            grid.SelectedItem = selectedItems[0];
+        }
+        else if (tab.SelectedPaths.Count == 0)
+        {
+            grid.SelectedItems.Clear();
+            grid.SelectedItem = null;
+        }
+
+        var sortedColumn = tab.SortMemberPath is null
+            ? null
+            : grid.Columns.FirstOrDefault(column => string.Equals(column.SortMemberPath, tab.SortMemberPath, StringComparison.Ordinal));
+        foreach (var column in grid.Columns)
+        {
+            column.SortDirection = null;
+        }
+
+        if (sortedColumn is not null && tab.SortDirection.HasValue)
+        {
+            sortedColumn.SortDirection = tab.SortDirection;
+        }
+
+        if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)
+        {
+            view.CustomSort = sortedColumn is not null && tab.SortDirection.HasValue
+                ? new PanelItemComparer(sortedColumn.SortMemberPath, tab.SortDirection.Value)
+                : null;
+        }
+
+        UpdatePanelGridSortHeaderIndicators(grid, sortedColumn);
+        if (tab.CurrentCellPath is not null)
+        {
+            var current = availableItems.FirstOrDefault(item => string.Equals(item.FullPath, tab.CurrentCellPath, StringComparison.OrdinalIgnoreCase));
+            var column = sortedColumn ?? grid.Columns.FirstOrDefault();
+            if (current is not null && column is not null)
+            {
+                grid.CurrentCell = new DataGridCellInfo(current, column);
+            }
+        }
+
+        var scrollViewer = FindDescendant<ScrollViewer>(grid);
+        scrollViewer?.ScrollToVerticalOffset(tab.GridVerticalOffset);
+        scrollViewer?.ScrollToHorizontalOffset(tab.GridHorizontalOffset);
     }
 
     private void OnRightTabCloseToLeftClick(object sender, RoutedEventArgs e)
@@ -6682,6 +7457,12 @@ public partial class MainWindow : Window
 
     private bool? TryResolvePanelSide(DependencyObject? source)
     {
+        var entry = GetPanelCacheEntry(source);
+        if (entry is not null)
+        {
+            return entry.IsLeft;
+        }
+
         var current = source;
         while (current is not null)
         {
@@ -6749,6 +7530,11 @@ public partial class MainWindow : Window
             {
                 return dcSlot.Panel;
             }
+        }
+
+        if (GetPanelCacheEntry(source) is { } entry)
+        {
+            return entry.Panel;
         }
 
         var side = TryResolvePanelSide(source);
@@ -7771,7 +8557,7 @@ public partial class MainWindow : Window
         {
             if (_fourPanelTileLists.TryGetValue(slot, out var lists))
             {
-                var target = lists.FirstOrDefault();
+                var target = OrderControlsForSelection(lists).FirstOrDefault(control => control.IsVisible);
                 if (target is not null)
                 {
                     SelectAllInList(target);
@@ -7782,7 +8568,7 @@ public partial class MainWindow : Window
 
         if (_fourPanelGrids.TryGetValue(slot, out var grids))
         {
-            var target = grids.FirstOrDefault();
+            var target = OrderControlsForSelection(grids).FirstOrDefault(control => control.IsVisible);
             if (target is not null)
             {
                 SelectAllInGrid(target);
@@ -7802,7 +8588,7 @@ public partial class MainWindow : Window
         {
             if (_fourPanelTileLists.TryGetValue(slot, out var lists))
             {
-                var target = lists.FirstOrDefault();
+                var target = OrderControlsForSelection(lists).FirstOrDefault(control => control.IsVisible);
                 target?.SelectedItems.Clear();
             }
             return;
@@ -7810,7 +8596,7 @@ public partial class MainWindow : Window
 
         if (_fourPanelGrids.TryGetValue(slot, out var grids))
         {
-            var target = grids.FirstOrDefault();
+            var target = OrderControlsForSelection(grids).FirstOrDefault(control => control.IsVisible);
             target?.SelectedItems.Clear();
         }
     }
@@ -8656,6 +9442,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        var entry = GetPanelCacheEntry(sourceControl);
+        if (entry is not null)
+        {
+            Vm.SetActivePanelCommand.Execute(entry.IsLeft ? "Left" : "Right");
+            return;
+        }
+
         if (ReferenceEquals(sourceControl, LeftPanelGrid) || ReferenceEquals(sourceControl, LeftPanelTilesList))
         {
             Vm.SetActivePanelCommand.Execute("Left");
@@ -8687,6 +9480,17 @@ public partial class MainWindow : Window
         }
 
         e.Column.SortDirection = direction;
+        var activeTab = GetPanelCacheEntry(grid)?.Tab
+            ?? (ReferenceEquals(LeftPanelGrid, grid)
+                ? Vm?.SelectedLeftTab
+                : ReferenceEquals(RightPanelGrid, grid)
+                    ? Vm?.SelectedRightTab
+                    : null);
+        if (activeTab is not null)
+        {
+            activeTab.SortMemberPath = e.Column.SortMemberPath;
+            activeTab.SortDirection = direction;
+        }
 
         if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)
         {
@@ -8718,6 +9522,18 @@ public partial class MainWindow : Window
         foreach (var column in grid.Columns)
         {
             column.SortDirection = null;
+        }
+
+        var tab = GetPanelCacheEntry(grid)?.Tab
+            ?? (ReferenceEquals(grid, LeftPanelGrid)
+                ? Vm?.SelectedLeftTab
+                : ReferenceEquals(grid, RightPanelGrid)
+                    ? Vm?.SelectedRightTab
+                    : null);
+        if (tab is not null)
+        {
+            tab.SortMemberPath = null;
+            tab.SortDirection = null;
         }
 
         if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)

@@ -582,8 +582,45 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="SingleRowTabItemStyle" TargetType="TabItem">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{Binding Data.ThemeMenuForeground, Source={StaticResource SettingsProxy}}" />
+            <Setter Property="BorderBrush" Value="#C4CAD2" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"
+                                              TextElement.FontWeight="{TemplateBinding FontWeight}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{Binding Data.ThemeSelectionBackground, Source={StaticResource SettingsProxy}}" />
+                    <Setter Property="Foreground" Value="{Binding Data.ThemeSelectionForeground, Source={StaticResource SettingsProxy}}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style x:Key="SingleRowTabControlStyle" TargetType="TabControl">
-            <Setter Property="Background" Value="#D0D0D0" />
+            <Setter Property="Background" Value="{Binding Data.ThemeMenuBackground, Source={StaticResource SettingsProxy}}" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource SingleRowTabItemStyle}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabControl">
@@ -1480,6 +1517,255 @@
                 </Grid>
             </Border>
         </DataTemplate>
+
+        <DataTemplate x:Key="PanelItemsVisualTemplate">
+            <Grid>
+                <controls:AutomationQuietDataGrid x:Name="PanelGrid"
+                          helpers:PanelUi.IsActivePanel="{Binding IsSideActive}"
+                          ItemsSource="{Binding Panel.Items}"
+                          SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
+                          IsSynchronizedWithCurrentItem="False"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="False"
+                          SelectionMode="Extended"
+                          Sorting="OnPanelGridSorting"
+                          BeginningEdit="OnPanelGridBeginningEdit"
+                          CellEditEnding="OnPanelGridCellEditEnding"
+                          PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                          PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
+                          PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                          MouseLeave="OnPanelItemsPreviewMouseLeave"
+                          DragOver="OnPanelItemsDragOver"
+                          Drop="OnPanelItemsDrop"
+                          AllowDrop="True"
+                          PreviewMouseRightButtonUp="OnPanelItemsPreviewMouseRightButtonUp"
+                          MouseDoubleClick="OnPanelItemsDoubleClick"
+                          GotFocus="OnPanelItemsFocus"
+                          SelectionChanged="OnPanelItemsSelectionChanged">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="열기" Click="OnContextOpenClick" />
+                            <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
+                            <Separator />
+                            <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
+                            <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
+                            <MenuItem Header="붙여넣기(V)" Click="OnWinContextPasteClick" />
+                            <Separator />
+                            <MenuItem Header="삭제" Click="OnContextDeleteClick" />
+                            <MenuItem Header="이름 바꾸기" Click="OnContextRenameClick" />
+                            <Separator />
+                            <MenuItem Header="속성" Click="OnWinContextPropertiesClick" />
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="이름" Width="*" SortMemberPath="Name">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="1,0,0,0">
+                                        <TextBlock Text="📌" Margin="0,0,3,0" Visibility="Collapsed" Foreground="#FFD54A">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <Image Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                                        <TextBlock Style="{StaticResource ItemNameStyle}" Text="{Binding DisplayName}" Foreground="{Binding HighlightColor}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                            <DataGridTemplateColumn.CellEditingTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="1,0,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="📌" Margin="0,0,3,0" Visibility="Collapsed" Foreground="#FFD54A">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <Image Grid.Column="1" Style="{StaticResource ItemIconStyle}" Source="{Binding IconPath}" />
+                                        <TextBox Grid.Column="2"
+                                                 Text="{Binding RenameCandidate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 Loaded="OnInlineRenameTextBoxLoaded"
+                                                 PreviewKeyDown="OnGridInlineRenameTextBoxPreviewKeyDown"
+                                                 BorderThickness="1"
+                                                 VerticalAlignment="Center"
+                                                 FontFamily="{Binding DataContext.FileListFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                 FontSize="{Binding DataContext.FileListFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                 VerticalContentAlignment="Center"
+                                                 SnapsToDevicePixels="True"
+                                                 UseLayoutRounding="True"
+                                                 TextOptions.TextFormattingMode="Display"
+                                                 TextOptions.TextRenderingMode="ClearType"
+                                                 TextOptions.TextHintingMode="Fixed"
+                                                 SpellCheck.IsEnabled="False"
+                                                 AcceptsReturn="False"
+                                                 Padding="1,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellEditingTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="확장자" Width="70" SortMemberPath="Extension" IsReadOnly="True">
+                            <DataGridTemplateColumn.HeaderStyle>
+                                <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                    <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                </Style>
+                            </DataGridTemplateColumn.HeaderStyle>
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding ExtensionDisplay}" Foreground="{Binding HighlightColor}" HorizontalAlignment="Center" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="크기" Width="84" Binding="{Binding SizeDisplay}" IsReadOnly="True" />
+                        <DataGridTextColumn Header="날짜" Width="150" Binding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm:ss}" IsReadOnly="True" />
+                        <DataGridTemplateColumn Header="속성" Width="88" IsReadOnly="True" Visibility="{Binding Data.ShowPropertyColumn, Source={StaticResource SettingsProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="메모 편집" Click="OnPropertyMemoIconClick">
+                                            <TextBlock Text="📝" FontSize="11">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#666666" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                <Setter Property="Foreground" Value="#9FCBFF" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding HasMemo}" Value="True">
+                                                                <Setter Property="Foreground" Value="#66B3FF" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Button>
+                                        <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="핀 고정/해제" Click="OnPropertyPinIconClick">
+                                            <TextBlock Text="📌" FontSize="11">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#666666" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                <Setter Property="Foreground" Value="#FFE28A" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                                <Setter Property="Foreground" Value="#FFD54A" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Button>
+                                        <Button Style="{StaticResource PropertyIconButtonStyle}" ToolTip="파일 즐겨찾기/해제" Click="OnPropertyFavoriteIconClick">
+                                            <TextBlock Text="★" FontSize="11">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#666666" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=IsMouseOver}" Value="True">
+                                                                <Setter Property="Foreground" Value="#FF8FC0" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                <Setter Property="Foreground" Value="#FF4FA3" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Button>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                    <DataGrid.Style>
+                        <Style TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Tab.IsTileViewEnabled}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.Style>
+                </controls:AutomationQuietDataGrid>
+                <Border Background="{Binding DataContext.ThemeHeaderBackground, RelativeSource={RelativeSource AncestorType=Window}}"
+                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Width="{x:Static SystemParameters.VerticalScrollBarWidth}"
+                        Height="24"
+                        Margin="0,1,1,0"
+                        Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=PanelGrid}"
+                        IsHitTestVisible="False" />
+                <ListBox x:Name="PanelList"
+                          helpers:PanelUi.IsActivePanel="{Binding IsSideActive}"
+                          ItemsSource="{Binding Panel.Items}"
+                          SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
+                          SelectionMode="Extended"
+                          PreviewKeyDown="OnTileListPreviewKeyDown"
+                          PreviewMouseLeftButtonDown="OnPanelItemsPreviewMouseLeftButtonDown"
+                          PreviewMouseLeftButtonUp="OnPanelItemsPreviewMouseLeftButtonUp"
+                          PreviewMouseMove="OnPanelItemsPreviewMouseMove"
+                          MouseLeave="OnPanelItemsPreviewMouseLeave"
+                          DragOver="OnPanelItemsDragOver"
+                          Drop="OnPanelItemsDrop"
+                          AllowDrop="True"
+                          PreviewMouseRightButtonUp="OnPanelItemsPreviewMouseRightButtonUp"
+                          MouseDoubleClick="OnPanelItemsDoubleClick"
+                          GotFocus="OnPanelItemsFocus"
+                          Loaded="OnAdaptiveTileListLoaded"
+                          SizeChanged="OnAdaptiveTileListSizeChanged"
+                          SelectionChanged="OnPanelItemsSelectionChanged">
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="열기" Click="OnContextOpenClick" />
+                            <MenuItem Header="편집" InputGestureText="F4" Click="OnEditWithExternalEditorClick" />
+                            <Separator />
+                            <MenuItem Header="복사(C)" Click="OnWinContextCopyClick" />
+                            <MenuItem Header="잘라내기(X)" Click="OnWinContextCutClick" />
+                            <MenuItem Header="붙여넣기(V)" Click="OnWinContextPasteClick" />
+                            <Separator />
+                            <MenuItem Header="삭제" Click="OnContextDeleteClick" />
+                            <MenuItem Header="이름 바꾸기" Click="OnContextRenameClick" />
+                            <Separator />
+                            <MenuItem Header="속성" Click="OnWinContextPropertiesClick" />
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                    <ListBox.Style>
+                        <Style TargetType="ListBox" BasedOn="{StaticResource TileListStyle}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Setter Property="ItemTemplate" Value="{StaticResource TileItemTemplate}" />
+                            <Setter Property="ItemContainerStyle" Value="{StaticResource TileListItemStyle}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Tab.IsTileViewEnabled}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Tab.IsCompactListViewEnabled}" Value="True">
+                                    <Setter Property="ItemTemplate" Value="{StaticResource CompactListItemTemplate}" />
+                                    <Setter Property="ItemContainerStyle" Value="{StaticResource CompactListItemStyle}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ListBox.Style>
+                </ListBox>
+            </Grid>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid x:Name="RootGrid">
@@ -2092,8 +2378,16 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <controls:AutomationQuietDataGrid x:Name="LeftPanelGrid"
+                    <controls:PanelItemsCacheHost x:Name="LeftPanelItemsCacheHost"
+                                                Grid.Row="0"
+                                                Tabs="{Binding LeftTabs}"
+                                                ActiveTab="{Binding SelectedLeftTab}"
+                                                ItemTemplate="{StaticResource PanelItemsVisualTemplate}"
+                                                IsLeft="True"
+                                                IsSideActive="{Binding IsLeftPanelActive}" />
+                    <controls:AutomationQuietDataGrid x:Name="LeftPanelGridFallback"
                               Grid.Row="0"
+                              Visibility="Collapsed"
                               helpers:PanelUi.IsActivePanel="{Binding IsLeftPanelActive}"
                               ItemsSource="{Binding LeftPanel.Items}"
                               SelectedItem="{Binding LeftPanel.SelectedItem, Mode=TwoWay}"
@@ -2285,10 +2579,11 @@
                             Width="{x:Static SystemParameters.VerticalScrollBarWidth}"
                             Height="24"
                             Margin="0,1,1,0"
-                            Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=LeftPanelGrid}"
+                            Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=LeftPanelGridFallback}"
                             IsHitTestVisible="False" />
-                    <ListBox x:Name="LeftPanelTilesList"
+                    <ListBox x:Name="LeftPanelTilesListFallback"
                              Grid.Row="0"
+                             Visibility="Collapsed"
                              helpers:PanelUi.IsActivePanel="{Binding IsLeftPanelActive}"
                              ItemsSource="{Binding LeftPanel.Items}"
                              SelectedItem="{Binding LeftPanel.SelectedItem, Mode=TwoWay}"
@@ -2469,8 +2764,16 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <controls:AutomationQuietDataGrid x:Name="RightPanelGrid"
+                    <controls:PanelItemsCacheHost x:Name="RightPanelItemsCacheHost"
+                                                Grid.Row="0"
+                                                Tabs="{Binding RightTabs}"
+                                                ActiveTab="{Binding SelectedRightTab}"
+                                                ItemTemplate="{StaticResource PanelItemsVisualTemplate}"
+                                                IsLeft="False"
+                                                IsSideActive="{Binding IsRightPanelActive}" />
+                    <controls:AutomationQuietDataGrid x:Name="RightPanelGridFallback"
                               Grid.Row="0"
+                              Visibility="Collapsed"
                               helpers:PanelUi.IsActivePanel="{Binding IsRightPanelActive}"
                               ItemsSource="{Binding RightPanel.Items}"
                               SelectedItem="{Binding RightPanel.SelectedItem, Mode=TwoWay}"
@@ -2585,7 +2888,7 @@
                             </DataGridTemplateColumn>
                             <DataGridTextColumn Header="크기" Width="84" Binding="{Binding SizeDisplay}" IsReadOnly="True" />
                             <DataGridTextColumn Header="날짜" Width="150" Binding="{Binding LastModified, StringFormat=yyyy-MM-dd HH:mm:ss}" IsReadOnly="True" />
-                            <DataGridTemplateColumn Header="속성" Width="88" IsReadOnly="True" Visibility="{Binding Data.ShowPropertyColumn, Source={StaticResource SettingsProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <DataGridTemplateColumn Header="속성" Width="88" IsReadOnly="True" Visibility="{Binding Data.ShowPropertyColumn, Source={StaticResource SettingsProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
@@ -2662,10 +2965,11 @@
                             Width="{x:Static SystemParameters.VerticalScrollBarWidth}"
                             Height="24"
                             Margin="0,1,1,0"
-                            Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=RightPanelGrid}"
+                            Visibility="{Binding VerticalScrollBarVisibilityState, ElementName=RightPanelGridFallback}"
                             IsHitTestVisible="False" />
-                    <ListBox x:Name="RightPanelTilesList"
+                    <ListBox x:Name="RightPanelTilesListFallback"
                              Grid.Row="0"
+                             Visibility="Collapsed"
                              helpers:PanelUi.IsActivePanel="{Binding IsRightPanelActive}"
                              ItemsSource="{Binding RightPanel.Items}"
                              SelectedItem="{Binding RightPanel.SelectedItem, Mode=TwoWay}"

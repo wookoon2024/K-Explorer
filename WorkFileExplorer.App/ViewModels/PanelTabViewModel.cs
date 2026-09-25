@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.ComponentModel;
 
 namespace WorkFileExplorer.App.ViewModels;
 
@@ -46,6 +47,20 @@ public sealed class PanelTabViewModel : ObservableObject
     }
 
     public bool IsCompactListViewEnabled => _viewMode == PanelViewMode.CompactList;
+
+    public HashSet<string> SelectedPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public double GridVerticalOffset { get; set; }
+
+    public double GridHorizontalOffset { get; set; }
+
+    public double ListVerticalOffset { get; set; }
+
+    public string? CurrentCellPath { get; set; }
+
+    public string? SortMemberPath { get; set; }
+
+    public ListSortDirection? SortDirection { get; set; }
 
     public IReadOnlyList<string> HistoryCandidates => _historyCandidates;
 

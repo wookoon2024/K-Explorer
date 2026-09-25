@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -7,6 +8,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows;
 using WorkFileExplorer.App.Commands;
+using WorkFileExplorer.App.Converters;
 using WorkFileExplorer.App.Dialogs;
 using WorkFileExplorer.App.Helpers;
 using WorkFileExplorer.App.Models;
@@ -156,6 +158,16 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly object _watcherSync = new();
     private bool _watcherRefreshQueued;
 
+    private readonly Dictionary<PanelViewModel, TaskCompletionSource<object?>> _panelLoadCompletions = new();
+    private readonly object _panelLoadSync = new();
+    private readonly PanelItemsSource _leftPanelDetailsSource = new();
+    private readonly PanelItemsSource _leftPanelListSource = new();
+    private readonly PanelItemsSource _rightPanelDetailsSource = new();
+    private readonly PanelItemsSource _rightPanelListSource = new();
+    public event EventHandler<PanelViewModel>? PanelContentRefreshing;
+    public event EventHandler<PanelViewModel>? PanelContentRefreshed;
+    public event EventHandler? LeftTabSelectionChanging;
+    public event EventHandler? RightTabSelectionChanging;
     private static readonly TimeSpan DirectoryItemsCacheDuration = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan FreeSpaceCacheDuration = TimeSpan.FromSeconds(3);
     private const int MaxDirectoryItemsCacheEntries = 24;
@@ -205,6 +217,10 @@ public sealed class MainWindowViewModel : ObservableObject
         RightTabs.Add(new PanelTabViewModel("R1", new PanelViewModel()));
         SelectedLeftTab = LeftTabs[0];
         SelectedRightTab = RightTabs[0];
+        _leftPanelDetailsSource.SetSource(SelectedLeftTab.Panel.Items);
+        _leftPanelListSource.SetSource(SelectedLeftTab.Panel.Items);
+        _rightPanelDetailsSource.SetSource(SelectedRightTab.Panel.Items);
+        _rightPanelListSource.SetSource(SelectedRightTab.Panel.Items);
 
         NavigatePanelPathCommand = new RelayCommand(p => RunCommandSafely(() => NavigatePanelPathAsync(p as string)));
         GoUpCommand = new RelayCommand(_ => RunCommandSafely(GoUpAsync));
@@ -230,6 +246,18 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         _fourPanels[0].IsActive = true;
+
+        LeftTabs.CollectionChanged += OnPanelTabCollectionChanged;
+        RightTabs.CollectionChanged += OnPanelTabCollectionChanged;
+        foreach (var slot in _fourPanels)
+        {
+            slot.Tabs.CollectionChanged += OnPanelTabCollectionChanged;
+        }
+    }
+
+    private void OnPanelTabCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        TryUpdateDirectoryWatchers();
     }
 
     public ObservableCollection<PanelTabViewModel> LeftTabs { get; } = new();
@@ -242,48 +270,72 @@ public sealed class MainWindowViewModel : ObservableObject
         set
         {
             var sw = Stopwatch.StartNew();
-            var previousPath = _selectedLeftTab?.Panel.CurrentPath ?? string.Empty;
+            var previousTab = _selectedLeftTab;
+            var previousPath = previousTab?.Panel.CurrentPath ?? string.Empty;
             var nextPath = value?.Panel.CurrentPath ?? string.Empty;
+            var pathChanged = !string.Equals(previousPath, nextPath, StringComparison.OrdinalIgnoreCase);
+            var viewModeChanged = previousTab?.ViewMode != value?.ViewMode;
+            var itemCount = value?.Panel.Items.Count ?? 0;
+            var tabCount = LeftTabs.Count;
+            var totalTabs = LeftTabs.Count + RightTabs.Count + _fourPanels.Sum(slot => slot.Tabs.Count);
+            if (ReferenceEquals(_selectedLeftTab, value))
+            {
+                return;
+            }
+
+            LeftTabSelectionChanging?.Invoke(this, EventArgs.Empty);
             if (!SetProperty(ref _selectedLeftTab, value))
             {
                 return;
             }
-            LiveTrace.Write($"TabSwitch[L] start '{previousPath}' -> '{nextPath}'");
-            LiveTrace.WriteProcessSnapshot("TabSwitch[L] start");
 
-            var step = Stopwatch.StartNew();
-            OnPropertyChanged(nameof(LeftPanel));
-            OnPropertyChanged(nameof(LeftCurrentPath));
-            OnPropertyChanged(nameof(LeftPathHistory));
-            OnPropertyChanged(nameof(LeftCanGoBack));
-            OnPropertyChanged(nameof(LeftCanGoForward));
-            OnPropertyChanged(nameof(LeftPanelIsTileViewEnabled));
-            OnPropertyChanged(nameof(LeftPanelIsCompactListViewEnabled));
-            OnPropertyChanged(nameof(LeftFavoriteButtonText));
-            LiveTrace.Write($"TabSwitch[L] notify-primary {step.ElapsedMilliseconds}ms");
-
-            step.Restart();
-            RefreshPanelFreeSpaceTexts();
-            LiveTrace.Write($"TabSwitch[L] refresh-free-space {step.ElapsedMilliseconds}ms");
-
-            step.Restart();
-            OnPropertyChanged(nameof(LeftFolderInfo));
-            OnPropertyChanged(nameof(StatusBarText));
-            LiveTrace.Write($"TabSwitch[L] notify-summary {step.ElapsedMilliseconds}ms");
-            if (IsLeftPanelActive)
-            {
-                step.Restart();
-                OnPropertyChanged(nameof(IsTileViewEnabled));
-                OnPropertyChanged(nameof(IsCompactListViewEnabled));
-                LiveTrace.Write($"TabSwitch[L] notify-active-view {step.ElapsedMilliseconds}ms");
-            }
-
+            LiveTrace.Write($"TabSwitch[L] session={LiveTrace.CurrentSessionId} start '{previousPath}' -> '{nextPath}' tabs={tabCount}/{totalTabs} items={itemCount}");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[L] start", counters: GetSwitchCounters());
+            LiveTrace.Write($"TabSwitch[L] notify-primary {sw.ElapsedMilliseconds}ms tabs={tabCount}/{totalTabs} items={itemCount} pathChanged={pathChanged} viewChanged={viewModeChanged}");
             LiveTrace.Write($"TabSwitch[L] done {sw.ElapsedMilliseconds}ms");
-            LiveTrace.WriteProcessSnapshot("TabSwitch[L] done");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[L] done", counters: GetSwitchCounters());
 
             Application.Current?.Dispatcher?.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.ContextIdle,
-                () => LiveTrace.Write($"TabSwitch[L] render-complete {sw.ElapsedMilliseconds}ms"));
+                System.Windows.Threading.DispatcherPriority.Background,
+                () =>
+                {
+                    if (!ReferenceEquals(_selectedLeftTab, value))
+                    {
+                        return;
+                    }
+
+                    var step = Stopwatch.StartNew();
+                    OnPropertyChanged(nameof(LeftPanel));
+                    OnPropertyChanged(nameof(LeftPathHistory));
+                    OnPropertyChanged(nameof(LeftCanGoBack));
+                    OnPropertyChanged(nameof(LeftCanGoForward));
+                    if (pathChanged)
+                    {
+                        OnPropertyChanged(nameof(LeftCurrentPath));
+                        OnPropertyChanged(nameof(LeftFavoriteButtonText));
+                    }
+                    if (viewModeChanged)
+                    {
+                        OnPropertyChanged(nameof(LeftPanelIsTileViewEnabled));
+                        OnPropertyChanged(nameof(LeftPanelIsCompactListViewEnabled));
+                    }
+                    LiveTrace.Write($"TabSwitch[L] notify-deferred {step.ElapsedMilliseconds}ms pathChanged={pathChanged} viewChanged={viewModeChanged}");
+
+                    if (pathChanged)
+                    {
+                        RefreshPanelFreeSpaceTexts(includeFourPanels: IsFourPanelMode);
+                    }
+
+                    OnPropertyChanged(nameof(LeftFolderInfo));
+                    OnPropertyChanged(nameof(StatusBarText));
+                    if (IsLeftPanelActive && viewModeChanged)
+                    {
+                        OnPropertyChanged(nameof(IsTileViewEnabled));
+                        OnPropertyChanged(nameof(IsCompactListViewEnabled));
+                    }
+
+                    LiveTrace.Write($"TabSwitch[L] render-complete {sw.ElapsedMilliseconds}ms items={itemCount}");
+                });
         }
     }
 
@@ -293,49 +345,78 @@ public sealed class MainWindowViewModel : ObservableObject
         set
         {
             var sw = Stopwatch.StartNew();
-            var previousPath = _selectedRightTab?.Panel.CurrentPath ?? string.Empty;
+            var previousTab = _selectedRightTab;
+            var previousPath = previousTab?.Panel.CurrentPath ?? string.Empty;
             var nextPath = value?.Panel.CurrentPath ?? string.Empty;
+            var pathChanged = !string.Equals(previousPath, nextPath, StringComparison.OrdinalIgnoreCase);
+            var viewModeChanged = previousTab?.ViewMode != value?.ViewMode;
+            var itemCount = value?.Panel.Items.Count ?? 0;
+            var tabCount = RightTabs.Count;
+            var totalTabs = LeftTabs.Count + RightTabs.Count + _fourPanels.Sum(slot => slot.Tabs.Count);
+            if (ReferenceEquals(_selectedRightTab, value))
+            {
+                return;
+            }
+
+            RightTabSelectionChanging?.Invoke(this, EventArgs.Empty);
             if (!SetProperty(ref _selectedRightTab, value))
             {
                 return;
             }
-            LiveTrace.Write($"TabSwitch[R] start '{previousPath}' -> '{nextPath}'");
-            LiveTrace.WriteProcessSnapshot("TabSwitch[R] start");
 
-            var step = Stopwatch.StartNew();
-            OnPropertyChanged(nameof(RightPanel));
-            OnPropertyChanged(nameof(RightCurrentPath));
-            OnPropertyChanged(nameof(RightPathHistory));
-            OnPropertyChanged(nameof(RightCanGoBack));
-            OnPropertyChanged(nameof(RightCanGoForward));
-            OnPropertyChanged(nameof(RightPanelIsTileViewEnabled));
-            OnPropertyChanged(nameof(RightPanelIsCompactListViewEnabled));
-            OnPropertyChanged(nameof(RightFavoriteButtonText));
-            LiveTrace.Write($"TabSwitch[R] notify-primary {step.ElapsedMilliseconds}ms");
-
-            step.Restart();
-            RefreshPanelFreeSpaceTexts();
-            LiveTrace.Write($"TabSwitch[R] refresh-free-space {step.ElapsedMilliseconds}ms");
-
-            step.Restart();
-            OnPropertyChanged(nameof(RightFolderInfo));
-            OnPropertyChanged(nameof(StatusBarText));
-            LiveTrace.Write($"TabSwitch[R] notify-summary {step.ElapsedMilliseconds}ms");
-            if (!IsLeftPanelActive)
-            {
-                step.Restart();
-                OnPropertyChanged(nameof(IsTileViewEnabled));
-                OnPropertyChanged(nameof(IsCompactListViewEnabled));
-                LiveTrace.Write($"TabSwitch[R] notify-active-view {step.ElapsedMilliseconds}ms");
-            }
-
+            LiveTrace.Write($"TabSwitch[R] session={LiveTrace.CurrentSessionId} start '{previousPath}' -> '{nextPath}' tabs={tabCount}/{totalTabs} items={itemCount}");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[R] start", counters: GetSwitchCounters());
+            LiveTrace.Write($"TabSwitch[R] notify-primary {sw.ElapsedMilliseconds}ms tabs={tabCount}/{totalTabs} items={itemCount} pathChanged={pathChanged} viewChanged={viewModeChanged}");
             LiveTrace.Write($"TabSwitch[R] done {sw.ElapsedMilliseconds}ms");
-            LiveTrace.WriteProcessSnapshot("TabSwitch[R] done");
+            LiveTrace.WriteProcessSnapshot("TabSwitch[R] done", counters: GetSwitchCounters());
 
             Application.Current?.Dispatcher?.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.ContextIdle,
-                () => LiveTrace.Write($"TabSwitch[R] render-complete {sw.ElapsedMilliseconds}ms"));
+                System.Windows.Threading.DispatcherPriority.Background,
+                () =>
+                {
+                    if (!ReferenceEquals(_selectedRightTab, value))
+                    {
+                        return;
+                    }
+
+                    var step = Stopwatch.StartNew();
+                    OnPropertyChanged(nameof(RightPanel));
+                    OnPropertyChanged(nameof(RightPathHistory));
+                    OnPropertyChanged(nameof(RightCanGoBack));
+                    OnPropertyChanged(nameof(RightCanGoForward));
+                    if (pathChanged)
+                    {
+                        OnPropertyChanged(nameof(RightCurrentPath));
+                        OnPropertyChanged(nameof(RightFavoriteButtonText));
+                    }
+                    if (viewModeChanged)
+                    {
+                        OnPropertyChanged(nameof(RightPanelIsTileViewEnabled));
+                        OnPropertyChanged(nameof(RightPanelIsCompactListViewEnabled));
+                    }
+                    LiveTrace.Write($"TabSwitch[R] notify-deferred {step.ElapsedMilliseconds}ms pathChanged={pathChanged} viewChanged={viewModeChanged}");
+
+                    if (pathChanged)
+                    {
+                        RefreshPanelFreeSpaceTexts(includeFourPanels: IsFourPanelMode);
+                    }
+
+                    OnPropertyChanged(nameof(RightFolderInfo));
+                    OnPropertyChanged(nameof(StatusBarText));
+                    if (!IsLeftPanelActive && viewModeChanged)
+                    {
+                        OnPropertyChanged(nameof(IsTileViewEnabled));
+                        OnPropertyChanged(nameof(IsCompactListViewEnabled));
+                    }
+
+                    LiveTrace.Write($"TabSwitch[R] render-complete {sw.ElapsedMilliseconds}ms items={itemCount}");
+                });
         }
+    }
+
+    internal string GetSwitchCounters()
+    {
+        return $"watchers={_directoryWatchers.Count} dirCache={_directoryItemsCache.Count} freeSpaceCache={_freeSpaceCache.Count} thumbCache={NonLockingImageSourceConverter.CacheCount} freeSpaceInflight={_freeSpaceRefreshInFlight.Count}";
     }
 
     public PanelViewModel LeftPanel => SelectedLeftTab?.Panel ?? _fallbackLeft;
@@ -480,8 +561,41 @@ public sealed class MainWindowViewModel : ObservableObject
         set => SetProperty(ref _rightFreeSpaceText, value);
     }
 
-    public string LeftFolderInfo => BuildFolderInfo(LeftPanel);
-    public string RightFolderInfo => BuildFolderInfo(RightPanel);
+    public string LeftFolderInfo => GetLeftFolderInfo();
+    public string RightFolderInfo => GetRightFolderInfo();
+
+    private string? _leftFolderInfoCache;
+    private string? _rightFolderInfoCache;
+    private PanelViewModel? _leftFolderInfoPanel;
+    private PanelViewModel? _rightFolderInfoPanel;
+
+    private string GetLeftFolderInfo()
+    {
+        if (_leftFolderInfoPanel == LeftPanel && _leftFolderInfoCache != null)
+        {
+            return _leftFolderInfoCache;
+        }
+        _leftFolderInfoCache = BuildFolderInfo(LeftPanel);
+        _leftFolderInfoPanel = LeftPanel;
+        return _leftFolderInfoCache;
+    }
+
+    private string GetRightFolderInfo()
+    {
+        if (_rightFolderInfoPanel == RightPanel && _rightFolderInfoCache != null)
+        {
+            return _rightFolderInfoCache;
+        }
+        _rightFolderInfoCache = BuildFolderInfo(RightPanel);
+        _rightFolderInfoPanel = RightPanel;
+        return _rightFolderInfoCache;
+    }
+
+    private void InvalidateFolderInfoCache()
+    {
+        _leftFolderInfoCache = null;
+        _rightFolderInfoCache = null;
+    }
 
     public RangeObservableCollection<QuickAccessItem> QuickAccessItems { get; } = new();
     public RangeObservableCollection<QuickAccessItem> FavoriteToolbarFolders { get; } = new();
@@ -567,6 +681,11 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool LeftPanelIsCompactListViewEnabled => SelectedLeftTab?.IsCompactListViewEnabled ?? false;
 
     public bool RightPanelIsCompactListViewEnabled => SelectedRightTab?.IsCompactListViewEnabled ?? false;
+
+    public IEnumerable<FileSystemItem> LeftPanelDetailsItems => _leftPanelDetailsSource;
+    public IEnumerable<FileSystemItem> LeftPanelListItems => _leftPanelListSource;
+    public IEnumerable<FileSystemItem> RightPanelDetailsItems => _rightPanelDetailsSource;
+    public IEnumerable<FileSystemItem> RightPanelListItems => _rightPanelListSource;
 
     public bool IsFourPanelMode
     {
@@ -1016,6 +1135,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         LiveTrace.Write("InitializeAsync end");
+        LiveTrace.Write($"Session baseline session={LiveTrace.CurrentSessionId} leftTabs={LeftTabs.Count} rightTabs={RightTabs.Count} fourSlots=[{string.Join(",", _fourPanels.Select(s => s.Tabs.Count))}] mode={(IsFourPanelMode ? "4split" : "2split")} {GetSwitchCounters()}");
     }
 
     private void RestoreFindFilesSearchHistory()
@@ -1435,6 +1555,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         var targetPanel = GetActivePanel();
+        var wasCutMode = _clipboardCutMode;
         var policy = GetTransferConflictPolicy();
         var items = _clipboardItems.ToArray();
         var applyAllChoice = (StyledDialogWindow.ConflictChoice?)null;
@@ -1629,7 +1750,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         var affectedPaths = new List<string?> { targetPanel.CurrentPath };
-        if (_clipboardCutMode)
+        if (wasCutMode)
         {
             affectedPaths.AddRange(movedPathEntries.Select(entry => Path.GetDirectoryName(entry.OldPath)));
         }
@@ -1732,8 +1853,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
 
             await CloseTabsForDeletedDirectoriesAsync(deletedItems);
-            await ReloadPanelsForPathsAsync([panel.CurrentPath]);
-            MarkPathSelfReloaded(panel.CurrentPath);
+            var affectedPaths = new List<string?> { panel.CurrentPath };
+            affectedPaths.AddRange(GetContainerPathsForSelection(deletedItems));
+            await ReloadPanelsForPathsAndDashboardAsync(affectedPaths);
             QueuePostMutationRefresh();
             SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
 
@@ -1846,7 +1968,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(name)) return;
         var dest = EnsureUniquePath(panel.CurrentPath, name, true);
         Directory.CreateDirectory(dest);
-        await ReloadPanelsAndDashboardAsync();
+        await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
         panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
             !entry.IsParentDirectory &&
             string.Equals(entry.FullPath, dest, StringComparison.OrdinalIgnoreCase));
@@ -1859,7 +1981,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(name)) return;
         var dest = EnsureUniquePath(panel.CurrentPath, name, false);
         File.WriteAllBytes(dest, Array.Empty<byte>());
-        await ReloadPanelsAndDashboardAsync();
+        await ReloadPanelsForPathAndDashboardAsync(panel.CurrentPath);
         panel.SelectedItem = panel.Items.FirstOrDefault(entry =>
             !entry.IsParentDirectory &&
             string.Equals(entry.FullPath, dest, StringComparison.OrdinalIgnoreCase));
@@ -2272,7 +2394,7 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var panel = GetActivePanel();
         InvalidateDirectoryItemsCache(panel.CurrentPath);
-        await LoadPanelAsync(panel, panel.CurrentPath, false);
+        await LoadPanelAsync(panel, panel.CurrentPath, false, forceItemsRefresh: true);
     }
 
     private async Task ApplySearchAsync()
@@ -2540,15 +2662,19 @@ public sealed class MainWindowViewModel : ObservableObject
     private void SetActivePanel(string? panelKey)
     {
         var nextLeft = !string.Equals(panelKey, "Right", StringComparison.OrdinalIgnoreCase);
-        if (nextLeft != IsLeftPanelActive)
+        var changed = nextLeft != IsLeftPanelActive;
+        if (changed)
         {
-            LiveTrace.Write($"VM.SetActivePanel change {(IsLeftPanelActive ? "L" : "R")} -> {(nextLeft ? "L" : "R")}\n{Environment.StackTrace}");
+            LiveTrace.Write($"VM.SetActivePanel change {(IsLeftPanelActive ? "L" : "R")} -> {(nextLeft ? "L" : "R")}");
         }
 
         IsLeftPanelActive = nextLeft;
         SearchStartDirectory = GetActivePanel().CurrentPath;
-        OnPropertyChanged(nameof(IsTileViewEnabled));
-        OnPropertyChanged(nameof(IsCompactListViewEnabled));
+        if (changed)
+        {
+            OnPropertyChanged(nameof(IsTileViewEnabled));
+            OnPropertyChanged(nameof(IsCompactListViewEnabled));
+        }
     }
 
     public bool IsTileViewEnabledForPanel(bool leftPanel) => leftPanel
@@ -3273,7 +3399,8 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
-        await LoadPanelAsync(panel, panel.CurrentPath, false);
+        InvalidateDirectoryItemsCache(panel.CurrentPath);
+        await LoadPanelAsync(panel, panel.CurrentPath, false, forceItemsRefresh: true);
     }
 
     public async Task OpenItemFromFourPanelAsync(PanelViewModel? panel)
@@ -3926,8 +4053,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
 
             await CloseTabsForDeletedDirectoriesAsync(deletedItems);
-            await ReloadPanelsForPathsAsync([panel.CurrentPath]);
-            MarkPathSelfReloaded(panel.CurrentPath);
+            var affectedPaths = new List<string?> { panel.CurrentPath };
+            affectedPaths.AddRange(GetContainerPathsForSelection(deletedItems));
+            await ReloadPanelsForPathsAndDashboardAsync(affectedPaths);
             QueuePostMutationRefresh();
             SelectNearestItemAfterDeletion(panel, nextSelectionIndex);
 
@@ -4299,6 +4427,7 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
+        var wasCutMode = _clipboardCutMode;
         var policy = GetTransferConflictPolicy();
         var items = _clipboardItems.ToArray();
         var applyAllChoice = (StyledDialogWindow.ConflictChoice?)null;
@@ -4483,8 +4612,8 @@ public sealed class MainWindowViewModel : ObservableObject
             }
         }
 
-        var affectedPaths = new List<string?> { panel.CurrentPath };
-        if (_clipboardCutMode)
+        var affectedPaths = new List<string?> { destinationRoot, panel.CurrentPath };
+        if (wasCutMode)
         {
             affectedPaths.AddRange(movedItems.Select(item => Path.GetDirectoryName(item.Path)));
         }
@@ -4533,7 +4662,12 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    private async Task LoadPanelAsync(PanelViewModel panel, string path, bool track, bool suppressHistoryRecord = false)
+    private async Task LoadPanelAsync(
+        PanelViewModel panel,
+        string path,
+        bool track,
+        bool suppressHistoryRecord = false,
+        bool forceItemsRefresh = false)
     {
         var sw = Stopwatch.StartNew();
         var side = ReferenceEquals(panel, LeftPanel) ? "L" : ReferenceEquals(panel, RightPanel) ? "R" : "?";
@@ -4677,14 +4811,32 @@ public sealed class MainWindowViewModel : ObservableObject
             var bindStart = Stopwatch.GetTimestamp();
             LiveTrace.Write($"LoadPanelAsync[{side}] items={items.Count}");
             UpdateHistoryForPanel(panel, normalized, suppressHistoryRecord);
-            panel.CurrentPath = normalized;
-            panel.SetItems(items);
-            panel.ApplyFilter(SearchText);
-            if (!_isDeleting)
+            var samePanelPath = string.Equals(panel.CurrentPath, normalized, StringComparison.OrdinalIgnoreCase);
+            var samePathAlreadyLoaded = !forceItemsRefresh
+                && samePanelPath
+                && HasSameVisibleItems(panel, items);
+            if (!samePathAlreadyLoaded)
             {
-                RestoreSelectionOrTopAfterLoad(panel, previousSelectedPath, previousSelectedWasParent);
+                if (samePanelPath)
+                {
+                    PanelContentRefreshing?.Invoke(this, panel);
+                }
+
+                panel.CurrentPath = normalized;
+                panel.SetItems(items);
+                panel.ApplyFilter(SearchText);
+                if (!_isDeleting)
+                {
+                    RestoreSelectionOrTopAfterLoad(panel, previousSelectedPath, previousSelectedWasParent);
+                }
+                UpdateTabTitleForPanel(panel);
+
+                if (samePanelPath)
+                {
+                    InvalidateFolderInfoCache();
+                    PanelContentRefreshed?.Invoke(this, panel);
+                }
             }
-            UpdateTabTitleForPanel(panel);
             var bindElapsed = Stopwatch.GetElapsedTime(bindStart);
             LiveTrace.Write(
                 $"LoadPanelAsync[{side}] perf fetch={fetchElapsed.TotalMilliseconds:0.0}ms, prioritize={prioritizeElapsed.TotalMilliseconds:0.0}ms, bind={bindElapsed.TotalMilliseconds:0.0}ms, cache={(cacheHit ? "hit" : "miss")}");
@@ -4701,15 +4853,15 @@ public sealed class MainWindowViewModel : ObservableObject
                 }
             }
 
-            if (ReferenceEquals(panel, LeftPanel)) OnPropertyChanged(nameof(LeftCurrentPath));
-            if (ReferenceEquals(panel, RightPanel)) OnPropertyChanged(nameof(RightCurrentPath));
+            if (!samePanelPath && ReferenceEquals(panel, LeftPanel)) OnPropertyChanged(nameof(LeftCurrentPath));
+            if (!samePanelPath && ReferenceEquals(panel, RightPanel)) OnPropertyChanged(nameof(RightCurrentPath));
             SyncSelectedDrivesFromPaths();
             RefreshPanelFreeSpaceTexts();
             OnPropertyChanged(nameof(LeftFolderInfo));
             OnPropertyChanged(nameof(RightFolderInfo));
             OnPropertyChanged(nameof(StatusBarText));
             StatusText = normalized;
-            LiveTrace.Write($"LoadPanelAsync[{side}] done in {sw.ElapsedMilliseconds}ms");
+            LiveTrace.Write($"LoadPanelAsync[{side}] done in {sw.ElapsedMilliseconds}ms session={LiveTrace.CurrentSessionId} cache={cacheHit} items={items.Count} counters=watchers={_directoryWatchers.Count};dirCache={_directoryItemsCache.Count};thumbCache={NonLockingImageSourceConverter.CacheCount}");
         }
         catch (Exception ex)
         {
@@ -4813,7 +4965,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
         foreach (var slot in _fourPanels)
         {
-            AddIfWatchable(slot.Panel.CurrentPath);
+            foreach (var tab in slot.Tabs)
+            {
+                AddIfWatchable(tab.Panel.CurrentPath);
+            }
         }
 
         return paths;
@@ -4821,22 +4976,19 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private bool TryNormalizeWatchableDirectory(string? path, out string normalized)
     {
-        normalized = string.Empty;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
+        return TryNormalizeWatcherPath(path, out normalized) && _fileSystemService.DirectoryExists(normalized);
+    }
 
-        if (string.Equals(path, DriveRootVirtualPath, StringComparison.Ordinal) ||
-            string.Equals(path, MemoListVirtualPath, StringComparison.Ordinal) ||
-            string.Equals(path, FrequentFoldersVirtualPath, StringComparison.Ordinal) ||
-            string.Equals(path, FrequentFilesVirtualPath, StringComparison.Ordinal))
+    private bool TryNormalizeWatcherPath(string? path, out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(path) || IsVirtualListPath(path))
         {
             return false;
         }
 
         normalized = _fileSystemService.NormalizePath(path);
-        return _fileSystemService.DirectoryExists(normalized);
+        return !string.IsNullOrWhiteSpace(normalized);
     }
 
     private void OnDirectoryWatcherChanged(object sender, FileSystemEventArgs e)
@@ -4861,7 +5013,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void QueueWatcherRefresh(string? path)
     {
-        if (!TryNormalizeWatchableDirectory(path, out var normalized))
+        if (!TryNormalizeWatcherPath(path, out var normalized))
         {
             return;
         }
@@ -4891,7 +5043,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         _ = dispatcher.BeginInvoke(async () =>
         {
-            await Task.Delay(250);
+            await Task.Delay(75);
 
             string[] targets;
             lock (_watcherSync)
@@ -5068,13 +5220,16 @@ public sealed class MainWindowViewModel : ObservableObject
             .ToArray();
     }
 
-    private void RefreshPanelFreeSpaceTexts(bool allowQueueRefresh = true)
+    private void RefreshPanelFreeSpaceTexts(bool allowQueueRefresh = true, bool includeFourPanels = true)
     {
         LeftFreeSpaceText = GetFreeSpaceText(LeftPanel.CurrentPath, SelectedLeftDrive, allowQueueRefresh);
         RightFreeSpaceText = GetFreeSpaceText(RightPanel.CurrentPath, SelectedRightDrive, allowQueueRefresh);
-        foreach (var slot in _fourPanels)
+        if (includeFourPanels)
         {
-            slot.FreeSpaceText = GetFreeSpaceText(slot.Panel.CurrentPath, fallbackDrive: null, allowQueueRefresh);
+            foreach (var slot in _fourPanels)
+            {
+                slot.FreeSpaceText = GetFreeSpaceText(slot.Panel.CurrentPath, fallbackDrive: null, allowQueueRefresh);
+            }
         }
         OnPropertyChanged(nameof(LeftFolderInfo));
         OnPropertyChanged(nameof(RightFolderInfo));
@@ -5581,6 +5736,11 @@ public sealed class MainWindowViewModel : ObservableObject
         await LoadPanelIfNeededAsync(left ? SelectedLeftTab?.Panel : SelectedRightTab?.Panel);
     }
 
+    public async Task EnsurePanelTabDataLoadedAsync(PanelTabViewModel? tab)
+    {
+        await LoadPanelIfNeededAsync(tab?.Panel);
+    }
+
     public async Task EnsureFourPanelTabLoadedAsync(FourPanelSlotViewModel? slot)
     {
         await LoadPanelIfNeededAsync(slot?.Panel);
@@ -5596,7 +5756,43 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
-        await LoadPanelAsync(panel, panel.CurrentPath, false);
+        TaskCompletionSource<object?> completion;
+        var shouldLoad = false;
+        lock (_panelLoadSync)
+        {
+            if (!_panelLoadCompletions.TryGetValue(panel, out completion!))
+            {
+                completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _panelLoadCompletions[panel] = completion;
+                shouldLoad = true;
+            }
+        }
+
+        if (!shouldLoad)
+        {
+            await completion.Task;
+            return;
+        }
+
+        try
+        {
+            await LoadPanelAsync(panel, panel.CurrentPath, false);
+            completion.TrySetResult(null);
+        }
+        catch (Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+        finally
+        {
+            lock (_panelLoadSync)
+            {
+                if (_panelLoadCompletions.TryGetValue(panel, out var currentCompletion) && ReferenceEquals(currentCompletion, completion))
+                {
+                    _panelLoadCompletions.Remove(panel);
+                }
+            }
+        }
     }
 
     private void CaptureSessionState()
@@ -6417,9 +6613,9 @@ public sealed class MainWindowViewModel : ObservableObject
     private async Task ReloadPanelsAndDashboardAsync()
     {
         _directoryItemsCache.Clear();
-        foreach (var tab in LeftTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
-        foreach (var tab in RightTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
-        foreach (var slot in _fourPanels) await LoadPanelAsync(slot.Panel, slot.Panel.CurrentPath, false);
+        foreach (var tab in LeftTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false, forceItemsRefresh: true);
+        foreach (var tab in RightTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false, forceItemsRefresh: true);
+        foreach (var slot in _fourPanels) await LoadPanelAsync(slot.Panel, slot.Panel.CurrentPath, false, forceItemsRefresh: true);
         await RefreshSidebarAndDashboardAsync();
         await PersistSettingsAsync();
     }
@@ -6435,12 +6631,11 @@ public sealed class MainWindowViewModel : ObservableObject
         // from the watcher, so the folders we refresh here are the ones the watcher is about
         // to report; skipping that duplicate refresh avoids a visible list/selection blink.
         var targetPaths = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path!).ToArray();
+        await ReloadPanelsForPathsAsync(targetPaths);
         foreach (var path in targetPaths)
         {
             MarkPathSelfReloaded(path);
         }
-
-        await ReloadPanelsForPathsAsync(targetPaths);
         await RefreshSidebarAndDashboardAsync();
         await PersistSettingsAsync();
     }
@@ -6457,7 +6652,13 @@ public sealed class MainWindowViewModel : ObservableObject
             _directoryItemsCache.Clear();
             foreach (var tab in LeftTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
             foreach (var tab in RightTabs) await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
-            foreach (var slot in _fourPanels) await LoadPanelAsync(slot.Panel, slot.Panel.CurrentPath, false);
+            foreach (var slot in _fourPanels)
+            {
+                foreach (var tab in slot.Tabs)
+                {
+                    await LoadPanelAsync(tab.Panel, tab.Panel.CurrentPath, false);
+                }
+            }
             return;
         }
 
@@ -6476,9 +6677,12 @@ public sealed class MainWindowViewModel : ObservableObject
             await ReloadPanelIfChangedAsync(tab.Panel, IsTargetPath);
         }
 
-        foreach (var slot in _fourPanels.Where(slot => IsTargetPath(slot.Panel.CurrentPath)))
+        foreach (var slot in _fourPanels)
         {
-            await ReloadPanelIfChangedAsync(slot.Panel, IsTargetPath);
+            foreach (var tab in slot.Tabs.Where(tab => IsTargetPath(tab.Panel.CurrentPath)))
+            {
+                await ReloadPanelIfChangedAsync(tab.Panel, IsTargetPath);
+            }
         }
     }
 
@@ -6501,22 +6705,33 @@ public sealed class MainWindowViewModel : ObservableObject
         }
         catch
         {
+            if (_fileSystemService.DirectoryExists(normalized))
+            {
+                return;
+            }
+
+            var fallbackPath = ResolveFallbackPathForDeletedTab(normalized);
+            if (!string.Equals(fallbackPath, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                await LoadPanelAsync(panel, fallbackPath, false);
+            }
+
             return;
         }
 
         SetDirectoryItemsCache(normalized, items);
 
-        if (HasSameVisibleItems(panel, items))
+        if (HasSameVisibleItems(panel, ApplyPinnedPriority(items)))
         {
             return;
         }
 
-        await LoadPanelAsync(panel, normalized, false);
+        await LoadPanelAsync(panel, normalized, false, forceItemsRefresh: true);
     }
 
     private static bool HasSameVisibleItems(PanelViewModel panel, IReadOnlyList<FileSystemItem> items)
     {
-        var current = panel.Items;
+        var current = panel.GetAllItems();
         if (current.Count != items.Count)
         {
             return false;
@@ -6529,7 +6744,10 @@ public sealed class MainWindowViewModel : ObservableObject
             if (!string.Equals(existing.FullPath, incoming.FullPath, StringComparison.OrdinalIgnoreCase) ||
                 existing.IsDirectory != incoming.IsDirectory ||
                 existing.SizeBytes != incoming.SizeBytes ||
-                existing.LastModified != incoming.LastModified)
+                existing.LastModified != incoming.LastModified ||
+                existing.IsPinned != incoming.IsPinned ||
+                existing.IsFavorite != incoming.IsFavorite ||
+                !string.Equals(existing.Memo, incoming.Memo, StringComparison.Ordinal))
             {
                 return false;
             }

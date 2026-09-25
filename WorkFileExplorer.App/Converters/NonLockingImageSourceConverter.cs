@@ -23,6 +23,17 @@ public sealed class NonLockingImageSourceConverter : IValueConverter
 
     private readonly record struct CachedImage(DateTime LastWriteUtc, long Length, ImageSource Image);
 
+    public static int CacheCount
+    {
+        get
+        {
+            lock (CacheGate)
+            {
+                return Cache.Count;
+            }
+        }
+    }
+
     public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         if (value is not string source || string.IsNullOrWhiteSpace(source))

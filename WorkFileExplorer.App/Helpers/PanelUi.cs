@@ -2,11 +2,6 @@ using System.Windows;
 
 namespace WorkFileExplorer.App.Helpers;
 
-/// <summary>
-/// Attached property that marks a panel's item controls (DataGrid/ListBox) as
-/// belonging to the active panel. It inherits down the visual tree, so row and
-/// cell styles can dim the selection highlight in inactive panels.
-/// </summary>
 public static class PanelUi
 {
     public static readonly DependencyProperty IsActivePanelProperty =
@@ -16,7 +11,18 @@ public static class PanelUi
             typeof(PanelUi),
             new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.Inherits));
 
+    public static readonly DependencyProperty PanelEntryProperty =
+        DependencyProperty.RegisterAttached(
+            "PanelEntry",
+            typeof(object),
+            typeof(PanelUi),
+            new FrameworkPropertyMetadata(null));
+
     public static bool GetIsActivePanel(DependencyObject obj) => (bool)obj.GetValue(IsActivePanelProperty);
 
     public static void SetIsActivePanel(DependencyObject obj, bool value) => obj.SetValue(IsActivePanelProperty, value);
+
+    public static object? GetPanelEntry(DependencyObject obj) => obj.GetValue(PanelEntryProperty);
+
+    public static void SetPanelEntry(DependencyObject obj, object? value) => obj.SetValue(PanelEntryProperty, value);
 }
