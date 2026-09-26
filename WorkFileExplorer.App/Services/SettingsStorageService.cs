@@ -66,8 +66,19 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.EnableImageHoverPreview = ParseBool(GetOrDefault(values, "enable_image_hover_preview", "0"), defaultValue: false);
             settings.ShowPropertyColumn = ParseBool(GetOrDefault(values, "show_property_column", "1"), defaultValue: true);
             settings.EnablePanelListAutomation = ParseBool(GetOrDefault(values, "enable_panel_list_automation", "0"), defaultValue: false);
+            settings.ImageViewerFitMode = ParseBool(GetOrDefault(values, "image_viewer_fit_mode", "1"), defaultValue: true);
+            settings.ImageViewerWheelZoom = ParseBool(GetOrDefault(values, "image_viewer_wheel_zoom", "0"), defaultValue: false);
+            settings.ImageViewerNearestNeighbor = ParseBool(GetOrDefault(values, "image_viewer_nearest_neighbor", "0"), defaultValue: false);
+            settings.ImageViewerCheckerBackground = ParseBool(GetOrDefault(values, "image_viewer_checker_background", "0"), defaultValue: false);
+            settings.ImageViewerShowFolderList = ParseBool(GetOrDefault(values, "image_viewer_show_folder_list", "1"), defaultValue: true);
+            settings.ImageViewerThumbnailSize = ParseDouble(GetOrDefault(values, "image_viewer_thumbnail_size", "90"), 90);
+            settings.ImageViewerJpegQuality = Math.Clamp(ParseInt(GetOrDefault(values, "image_viewer_jpeg_quality", "92")), 40, 100);
+            settings.ImageViewerSlideshowInterval = Math.Clamp(ParseInt(GetOrDefault(values, "image_viewer_slideshow_interval", "3")), 1, 60);
 
             var lists = await LoadListsAsync(connection, cancellationToken);
+            settings.ImageViewerExtensions = lists.TryGetValue("image_viewer_extensions", out var imageExts) && imageExts.Count > 0
+                ? imageExts
+                : new List<string>(AppSettings.DefaultImageViewerExtensions);
             settings.LeftOpenTabPaths = lists.TryGetValue("left_open_tab_paths", out var leftTabs) ? leftTabs : new List<string>();
             settings.RightOpenTabPaths = lists.TryGetValue("right_open_tab_paths", out var rightTabs) ? rightTabs : new List<string>();
             settings.FourPanelPaths = lists.TryGetValue("four_panel_paths", out var fourPanelPaths) ? fourPanelPaths : new List<string>();
@@ -165,6 +176,8 @@ public sealed class SettingsStorageService : ISettingsStorageService
             {
                 await DeleteItemMemoAsync(connection, tx, staleMemoPath, cancellationToken);
             }
+
+            await SyncImageViewerSettingsAsync(connection, tx, settings, cancellationToken);
 
             await tx.CommitAsync(cancellationToken);
             _cachedValues = new Dictionary<string, string>(targetValues, StringComparer.OrdinalIgnoreCase);
@@ -396,6 +409,48 @@ public sealed class SettingsStorageService : ISettingsStorageService
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task SyncImageViewerSettingsAsync(
+        SqliteConnection connection,
+        SqliteTransaction tx,
+        AppSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS image_viewer_settings (
+                setting_key TEXT NOT NULL PRIMARY KEY,
+                setting_value TEXT NOT NULL,
+                updated_utc TEXT NOT NULL
+            );
+
+            INSERT INTO image_viewer_settings (setting_key, setting_value, updated_utc)
+            VALUES
+                ('fit', $fit, $utc),
+                ('wheelzoom', $wheelzoom, $utc),
+                ('nearest', $nearest, $utc),
+                ('checker', $checker, $utc),
+                ('folderlist', $folderlist, $utc),
+                ('thumbsize', $thumbsize, $utc),
+                ('jpegquality', $jpegquality, $utc),
+                ('slideshow_interval', $slideshow_interval, $utc)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                setting_value = excluded.setting_value,
+                updated_utc = excluded.updated_utc;
+            """;
+        var utc = DateTime.UtcNow.ToString("O");
+        command.Parameters.AddWithValue("$fit", settings.ImageViewerFitMode ? "1" : "0");
+        command.Parameters.AddWithValue("$wheelzoom", settings.ImageViewerWheelZoom ? "1" : "0");
+        command.Parameters.AddWithValue("$nearest", settings.ImageViewerNearestNeighbor ? "1" : "0");
+        command.Parameters.AddWithValue("$checker", settings.ImageViewerCheckerBackground ? "1" : "0");
+        command.Parameters.AddWithValue("$folderlist", settings.ImageViewerShowFolderList ? "1" : "0");
+        command.Parameters.AddWithValue("$thumbsize", settings.ImageViewerThumbnailSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$jpegquality", settings.ImageViewerJpegQuality.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$slideshow_interval", settings.ImageViewerSlideshowInterval.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$utc", utc);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static Dictionary<string, string> BuildSettingValues(AppSettings settings)
     {
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -431,7 +486,15 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["command_prompt_startup_commands"] = settings.CommandPromptStartupCommands ?? string.Empty,
             ["enable_image_hover_preview"] = settings.EnableImageHoverPreview ? "1" : "0",
             ["show_property_column"] = settings.ShowPropertyColumn ? "1" : "0",
-            ["enable_panel_list_automation"] = settings.EnablePanelListAutomation ? "1" : "0"
+            ["enable_panel_list_automation"] = settings.EnablePanelListAutomation ? "1" : "0",
+            ["image_viewer_fit_mode"] = settings.ImageViewerFitMode ? "1" : "0",
+            ["image_viewer_wheel_zoom"] = settings.ImageViewerWheelZoom ? "1" : "0",
+            ["image_viewer_nearest_neighbor"] = settings.ImageViewerNearestNeighbor ? "1" : "0",
+            ["image_viewer_checker_background"] = settings.ImageViewerCheckerBackground ? "1" : "0",
+            ["image_viewer_show_folder_list"] = settings.ImageViewerShowFolderList ? "1" : "0",
+            ["image_viewer_thumbnail_size"] = settings.ImageViewerThumbnailSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["image_viewer_jpeg_quality"] = settings.ImageViewerJpegQuality.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["image_viewer_slideshow_interval"] = settings.ImageViewerSlideshowInterval.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
     }
 
@@ -439,6 +502,7 @@ public sealed class SettingsStorageService : ISettingsStorageService
     {
         return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
         {
+            ["image_viewer_extensions"] = NormalizeListValues(settings.ImageViewerExtensions, keepDuplicates: false),
             ["left_open_tab_paths"] = NormalizeListValues(settings.LeftOpenTabPaths, keepDuplicates: true),
             ["right_open_tab_paths"] = NormalizeListValues(settings.RightOpenTabPaths, keepDuplicates: true),
             ["four_panel_paths"] = NormalizeListValues(settings.FourPanelPaths, keepDuplicates: true),

@@ -11,15 +11,22 @@ using System.Windows.Media.Imaging;
 using System.Windows.Controls;
 using Microsoft.Data.Sqlite;
 using WorkFileExplorer.App.Helpers;
+using WorkFileExplorer.App.Models;
 
 namespace WorkFileExplorer.App.Dialogs;
 
 public partial class ImageViewerWindow : Window
 {
-    private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    private static HashSet<string> _supportedExtensions = new(AppSettings.DefaultImageViewerExtensions, StringComparer.OrdinalIgnoreCase);
+    public static HashSet<string> SupportedExtensions => _supportedExtensions;
+
+    public static void UpdateSupportedExtensions(IEnumerable<string>? extensions)
     {
-        ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff"
-    };
+        var list = extensions?.Where(e => !string.IsNullOrWhiteSpace(e)).ToList();
+        _supportedExtensions = list is not null && list.Count > 0
+            ? new HashSet<string>(list, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(AppSettings.DefaultImageViewerExtensions, StringComparer.OrdinalIgnoreCase);
+    }
 
     private const double MinZoom = 0.05;
     private const double MaxZoom = 12.0;
@@ -179,12 +186,11 @@ public partial class ImageViewerWindow : Window
         }
 
         UpdateZoomCombo();
-        SlideshowIntervalText.Text = _slideshowIntervalSeconds + "초";
-
         InitializeImageList(imagePath);
         BuildThumbnailItems();
         BuildFolderList();
         LoadViewerScalePreference();
+        SlideshowIntervalText.Text = _slideshowIntervalSeconds + "초";
         ApplyFolderListVisibility();
         if (Math.Abs(SliderThumbSize.Value - _thumbnailSize) > 0.01)
         {
@@ -197,7 +203,6 @@ public partial class ImageViewerWindow : Window
         CheckWheelZoom.IsChecked = _wheelZooms;
         ApplyImageOptions();
         ApplyStoredWindowPlacement();
-        _fitMode = true; // Always start in Fit mode on initial open.
         ShowCurrentImage();
         // Slider value labels start empty when the stored value already matches the default,
         // in which case no ValueChanged fires.
@@ -416,7 +421,17 @@ public partial class ImageViewerWindow : Window
         // metadata and the pixels have to be taken here, on the decoding thread: a frame
         // backed by a live decoder refuses metadata queries from any other thread.
         using var stream = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var frame = BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        BitmapFrame frame;
+        var ext = Path.GetExtension(imagePath);
+        if (string.Equals(ext, ".ico", StringComparison.OrdinalIgnoreCase))
+        {
+            var decoder = new IconBitmapDecoder(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            frame = decoder.Frames.OrderByDescending(f => f.PixelWidth * f.PixelHeight).FirstOrDefault() ?? decoder.Frames[0];
+        }
+        else
+        {
+            frame = BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        }
         var (rotation, flip) = ReadExifOrientation(frame);
         var description = TryDescribeExif(frame);
         return new LoadedImage(DetachPixels(frame), rotation, flip, description);
@@ -481,6 +496,15 @@ public partial class ImageViewerWindow : Window
     {
         try
         {
+            var ext = Path.GetExtension(imagePath);
+            if (string.Equals(ext, ".ico", StringComparison.OrdinalIgnoreCase))
+            {
+                using var icoStream = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var decoder = new IconBitmapDecoder(icoStream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                var bestFrame = decoder.Frames.OrderByDescending(f => f.PixelWidth * f.PixelHeight).FirstOrDefault() ?? decoder.Frames[0];
+                return DetachPixels(bestFrame);
+            }
+
             var bitmap = new BitmapImage();
             using var stream = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             bitmap.BeginInit();
@@ -856,8 +880,9 @@ public partial class ImageViewerWindow : Window
         var scaleX = ImageScrollViewer.ViewportWidth / Math.Max(1, width);
         var scaleY = ImageScrollViewer.ViewportHeight / Math.Max(1, height);
         _fitMode = true;
-        // Show the whole image: large images shrink, small ones grow to the same fit.
-        SetZoom(Math.Min(scaleX, scaleY), keepMode: true);
+        // 창보다 큰 이미지는 화면에 맞게 축소하고, 창보다 작은 이미지는 100%(원본 크기)로 표시
+        var targetScale = Math.Min(1.0, Math.Min(scaleX, scaleY));
+        SetZoom(targetScale, keepMode: true);
 
         // When entering fit mode, reset stale scroll offsets from previous zoom/pan.
         ImageScrollViewer.ScrollToHorizontalOffset(0);
@@ -881,6 +906,7 @@ public partial class ImageViewerWindow : Window
             UpsertViewerSetting(connection, "thumbsize", _thumbnailSize.ToString(CultureInfo.InvariantCulture));
             UpsertViewerSetting(connection, "jpegquality", _jpegQuality.ToString(CultureInfo.InvariantCulture));
             UpsertViewerSetting(connection, "folderlist", _folderListVisible ? "1" : "0");
+            UpsertViewerSetting(connection, "slideshow_interval", _slideshowIntervalSeconds.ToString(CultureInfo.InvariantCulture));
         }
         catch
         {
@@ -987,6 +1013,13 @@ public partial class ImageViewerWindow : Window
                     int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var jpegQuality))
                 {
                     _jpegQuality = Math.Clamp(jpegQuality, 40, 100);
+                    continue;
+                }
+
+                if (string.Equals(key, "slideshow_interval", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intervalSeconds))
+                {
+                    _slideshowIntervalSeconds = Math.Clamp(intervalSeconds, 1, 60);
                     continue;
                 }
 

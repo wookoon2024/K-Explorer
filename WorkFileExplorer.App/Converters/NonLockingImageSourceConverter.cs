@@ -19,6 +19,7 @@ public sealed class NonLockingImageSourceConverter : IValueConverter
     private const int ThumbnailDecodeWidth = 256;
     private static readonly object CacheGate = new();
     private static readonly Dictionary<string, CachedImage> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, ImageSource> ResourceCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Queue<string> CacheOrder = new();
 
     private readonly record struct CachedImage(DateTime LastWriteUtc, long Length, ImageSource Image);
@@ -96,19 +97,48 @@ public sealed class NonLockingImageSourceConverter : IValueConverter
                 }
             }
 
-            var uri = new Uri(source, UriKind.RelativeOrAbsolute);
-            var fallback = new BitmapImage();
-            fallback.BeginInit();
-            fallback.CacheOption = BitmapCacheOption.OnLoad;
-            fallback.UriSource = uri;
-            fallback.EndInit();
-            fallback.Freeze();
-            return fallback;
+            return GetOrLoadResourceImage(source);
         }
         catch
         {
             return null;
         }
+    }
+
+    private static ImageSource GetOrLoadResourceImage(string source)
+    {
+        lock (CacheGate)
+        {
+            if (ResourceCache.TryGetValue(source, out var cached))
+            {
+                return cached;
+            }
+        }
+
+        Uri uri;
+        if (source.StartsWith("pack://", StringComparison.OrdinalIgnoreCase))
+        {
+            uri = new Uri(source, UriKind.Absolute);
+        }
+        else
+        {
+            var relative = source.StartsWith('/') ? source : "/" + source;
+            uri = new Uri($"pack://application:,,,/WorkFileExplorer.App;component{relative}", UriKind.Absolute);
+        }
+
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.UriSource = uri;
+        image.EndInit();
+        image.Freeze();
+
+        lock (CacheGate)
+        {
+            ResourceCache[source] = image;
+        }
+
+        return image;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

@@ -147,6 +147,7 @@ public partial class SettingsWindow : Window
             .FirstOrDefault(option => string.Equals(option.Value, snapshot.SearchScope, StringComparison.OrdinalIgnoreCase))
             ?? Vm.SearchScopeDisplayOptions.FirstOrDefault();
         LoadShortcuts(snapshot.ShortcutOverrides);
+        LoadImageViewerSettings(snapshot);
         ShowSection("general");
         _isInitializing = false;
     }
@@ -215,7 +216,16 @@ public partial class SettingsWindow : Window
             EnableImageHoverPreview = CheckEnableImageHoverPreview.IsChecked == true,
             ShowPropertyColumn = CheckShowPropertyColumn.IsChecked == true,
             EnablePanelListAutomation = CheckPanelListAutomation.IsChecked == true,
-            ShortcutOverrides = BuildShortcutOverrides()
+            ShortcutOverrides = BuildShortcutOverrides(),
+            ImageViewerExtensions = BuildImageViewerExtensions(),
+            ImageViewerFitMode = RadioViewerFitMode.IsChecked == true,
+            ImageViewerWheelZoom = RadioViewerWheelZoom.IsChecked == true,
+            ImageViewerNearestNeighbor = RadioViewerInterpolationNearest.IsChecked == true,
+            ImageViewerCheckerBackground = CheckViewerCheckerBackground.IsChecked == true,
+            ImageViewerShowFolderList = CheckViewerShowFolderList.IsChecked == true,
+            ImageViewerThumbnailSize = SliderViewerThumbnailSize.Value,
+            ImageViewerJpegQuality = int.TryParse((ComboViewerJpegQuality.SelectedItem as ComboBoxItem)?.Tag as string, out var jq) ? jq : 92,
+            ImageViewerSlideshowInterval = int.TryParse((ComboViewerSlideshowInterval.SelectedItem as ComboBoxItem)?.Tag as string, out var ssi) ? ssi : 3
         };
     }
 
@@ -252,6 +262,7 @@ public partial class SettingsWindow : Window
             SectionFilePanel is null ||
             SectionSearchPanel is null ||
             SectionColorPanel is null ||
+            SectionImageViewerPanel is null ||
             SectionShortcutPanel is null)
         {
             return;
@@ -261,6 +272,7 @@ public partial class SettingsWindow : Window
         SectionFilePanel.Visibility = Visibility.Collapsed;
         SectionSearchPanel.Visibility = Visibility.Collapsed;
         SectionColorPanel.Visibility = Visibility.Collapsed;
+        SectionImageViewerPanel.Visibility = Visibility.Collapsed;
         SectionShortcutPanel.Visibility = Visibility.Collapsed;
 
         switch ((sectionKey ?? "general").ToLowerInvariant())
@@ -273,6 +285,9 @@ public partial class SettingsWindow : Window
                 break;
             case "color":
                 SectionColorPanel.Visibility = Visibility.Visible;
+                break;
+            case "imageviewer":
+                SectionImageViewerPanel.Visibility = Visibility.Visible;
                 break;
             case "shortcut":
                 SectionShortcutPanel.Visibility = Visibility.Visible;
@@ -952,6 +967,107 @@ public partial class SettingsWindow : Window
         var current = ParseDoubleInRange(textBox.Text, min, min, max);
         var next = Math.Clamp(current + step, min, max);
         textBox.Text = next.ToString("0", CultureInfo.InvariantCulture);
+    }
+
+    private void LoadImageViewerSettings(MainWindowViewModel.UiSettingsSnapshot snapshot)
+    {
+        var exts = new HashSet<string>(snapshot.ImageViewerExtensions ?? (IEnumerable<string>)AppSettings.DefaultImageViewerExtensions, StringComparer.OrdinalIgnoreCase);
+        CheckExtPng.IsChecked = exts.Contains(".png");
+        CheckExtJpg.IsChecked = exts.Contains(".jpg") || exts.Contains(".jpeg");
+        CheckExtBmp.IsChecked = exts.Contains(".bmp");
+        CheckExtGif.IsChecked = exts.Contains(".gif");
+        CheckExtWebp.IsChecked = exts.Contains(".webp");
+        CheckExtIco.IsChecked = exts.Contains(".ico");
+        CheckExtTif.IsChecked = exts.Contains(".tif") || exts.Contains(".tiff");
+
+        RadioViewerFitMode.IsChecked = snapshot.ImageViewerFitMode;
+        RadioViewerOriginalMode.IsChecked = !snapshot.ImageViewerFitMode;
+
+        CheckViewerCheckerBackground.IsChecked = snapshot.ImageViewerCheckerBackground;
+
+        RadioViewerInterpolationNearest.IsChecked = snapshot.ImageViewerNearestNeighbor;
+        RadioViewerInterpolationHighQuality.IsChecked = !snapshot.ImageViewerNearestNeighbor;
+
+        RadioViewerWheelZoom.IsChecked = snapshot.ImageViewerWheelZoom;
+        RadioViewerWheelNavigate.IsChecked = !snapshot.ImageViewerWheelZoom;
+
+        CheckViewerShowFolderList.IsChecked = snapshot.ImageViewerShowFolderList;
+
+        SliderViewerThumbnailSize.Value = Math.Clamp(snapshot.ImageViewerThumbnailSize, 60, 160);
+        TextViewerThumbnailSize.Text = $"{(int)SliderViewerThumbnailSize.Value} px";
+
+        SelectComboItemByTag(ComboViewerSlideshowInterval, snapshot.ImageViewerSlideshowInterval.ToString(CultureInfo.InvariantCulture));
+        SelectComboItemByTag(ComboViewerJpegQuality, snapshot.ImageViewerJpegQuality.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static void SelectComboItemByTag(ComboBox combo, string tag)
+    {
+        foreach (ComboBoxItem item in combo.Items)
+        {
+            if (string.Equals(item.Tag as string, tag, StringComparison.OrdinalIgnoreCase))
+            {
+                combo.SelectedItem = item;
+                return;
+            }
+        }
+        if (combo.Items.Count > 0)
+        {
+            combo.SelectedIndex = 0;
+        }
+    }
+
+    private List<string> BuildImageViewerExtensions()
+    {
+        var list = new List<string>();
+        if (CheckExtPng.IsChecked == true) list.Add(".png");
+        if (CheckExtJpg.IsChecked == true) { list.Add(".jpg"); list.Add(".jpeg"); }
+        if (CheckExtBmp.IsChecked == true) list.Add(".bmp");
+        if (CheckExtGif.IsChecked == true) list.Add(".gif");
+        if (CheckExtWebp.IsChecked == true) list.Add(".webp");
+        if (CheckExtIco.IsChecked == true) list.Add(".ico");
+        if (CheckExtTif.IsChecked == true) { list.Add(".tif"); list.Add(".tiff"); }
+        return list;
+    }
+
+    private void OnSelectAllImageExtsClick(object sender, RoutedEventArgs e)
+    {
+        CheckExtPng.IsChecked = true;
+        CheckExtJpg.IsChecked = true;
+        CheckExtBmp.IsChecked = true;
+        CheckExtGif.IsChecked = true;
+        CheckExtWebp.IsChecked = true;
+        CheckExtIco.IsChecked = true;
+        CheckExtTif.IsChecked = true;
+    }
+
+    private void OnDeselectAllImageExtsClick(object sender, RoutedEventArgs e)
+    {
+        CheckExtPng.IsChecked = false;
+        CheckExtJpg.IsChecked = false;
+        CheckExtBmp.IsChecked = false;
+        CheckExtGif.IsChecked = false;
+        CheckExtWebp.IsChecked = false;
+        CheckExtIco.IsChecked = false;
+        CheckExtTif.IsChecked = false;
+    }
+
+    private void OnResetDefaultImageExtsClick(object sender, RoutedEventArgs e)
+    {
+        CheckExtPng.IsChecked = true;
+        CheckExtJpg.IsChecked = true;
+        CheckExtBmp.IsChecked = true;
+        CheckExtGif.IsChecked = true;
+        CheckExtWebp.IsChecked = true;
+        CheckExtIco.IsChecked = true;
+        CheckExtTif.IsChecked = true;
+    }
+
+    private void OnViewerThumbnailSizeValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (TextViewerThumbnailSize is not null)
+        {
+            TextViewerThumbnailSize.Text = $"{(int)e.NewValue} px";
+        }
     }
 
     private sealed class ExtensionColorRule

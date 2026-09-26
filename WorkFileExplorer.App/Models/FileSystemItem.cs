@@ -153,6 +153,34 @@ public sealed class FileSystemItem : INotifyPropertyChanged
     public static bool IsVideoExtension(string? extension) =>
         !string.IsNullOrEmpty(extension) && VideoExtensions.Contains(extension);
 
+    public static bool HasSameRenderedState(FileSystemItem? left, FileSystemItem? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        return string.Equals(left.FullPath, right.FullPath, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(left.Name, right.Name, StringComparison.Ordinal) &&
+               string.Equals(left.Extension, right.Extension, StringComparison.Ordinal) &&
+               left.IsParentDirectory == right.IsParentDirectory &&
+               left.IsDirectory == right.IsDirectory &&
+               left.IsPinned == right.IsPinned &&
+               left.IsFavorite == right.IsFavorite &&
+               string.Equals(left.Memo, right.Memo, StringComparison.Ordinal) &&
+               left.SizeBytes == right.SizeBytes &&
+               string.Equals(left.SizeDisplay, right.SizeDisplay, StringComparison.Ordinal) &&
+               left.LastModified == right.LastModified &&
+               string.Equals(left.TypeDisplay, right.TypeDisplay, StringComparison.Ordinal) &&
+               string.Equals(left.RenameCandidate, right.RenameCandidate, StringComparison.Ordinal) &&
+               left.IsInlineRenaming == right.IsInlineRenaming;
+    }
+
     public string NameColor
     {
         get

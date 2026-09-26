@@ -1522,7 +1522,6 @@
             <Grid>
                 <controls:AutomationQuietDataGrid x:Name="PanelGrid"
                           helpers:PanelUi.IsActivePanel="{Binding IsSideActive}"
-                          ItemsSource="{Binding Panel.Items}"
                           SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
                           IsSynchronizedWithCurrentItem="False"
                           AutoGenerateColumns="False"
@@ -1698,9 +1697,11 @@
                     <DataGrid.Style>
                         <Style TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
                             <Setter Property="Visibility" Value="Visible" />
+                            <Setter Property="ItemsSource" Value="{Binding Panel.Items}" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding Tab.IsTileViewEnabled}" Value="True">
                                     <Setter Property="Visibility" Value="Collapsed" />
+                                    <Setter Property="ItemsSource" Value="{x:Null}" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -1715,7 +1716,6 @@
                         IsHitTestVisible="False" />
                 <ListBox x:Name="PanelList"
                           helpers:PanelUi.IsActivePanel="{Binding IsSideActive}"
-                          ItemsSource="{Binding Panel.Items}"
                           SelectedItem="{Binding Panel.SelectedItem, Mode=TwoWay}"
                           SelectionMode="Extended"
                           PreviewKeyDown="OnTileListPreviewKeyDown"
@@ -1750,11 +1750,13 @@
                     <ListBox.Style>
                         <Style TargetType="ListBox" BasedOn="{StaticResource TileListStyle}">
                             <Setter Property="Visibility" Value="Collapsed" />
+                            <Setter Property="ItemsSource" Value="{x:Null}" />
                             <Setter Property="ItemTemplate" Value="{StaticResource TileItemTemplate}" />
                             <Setter Property="ItemContainerStyle" Value="{StaticResource TileListItemStyle}" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding Tab.IsTileViewEnabled}" Value="True">
                                     <Setter Property="Visibility" Value="Visible" />
+                                    <Setter Property="ItemsSource" Value="{Binding Panel.Items}" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding Tab.IsCompactListViewEnabled}" Value="True">
                                     <Setter Property="ItemTemplate" Value="{StaticResource CompactListItemTemplate}" />

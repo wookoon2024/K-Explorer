@@ -8,13 +8,32 @@ public sealed class RangeObservableCollection<T> : ObservableCollection<T>
 {
     private bool _suppressNotifications;
 
-    public void ReplaceRange(IEnumerable<T> items)
+    public bool ReplaceRange(IEnumerable<T> items)
     {
+        var incoming = items as IReadOnlyList<T> ?? items.ToList();
+        if (Items.Count == incoming.Count)
+        {
+            var sameReferences = true;
+            for (var index = 0; index < incoming.Count; index++)
+            {
+                if (!ReferenceEquals(Items[index], incoming[index]))
+                {
+                    sameReferences = false;
+                    break;
+                }
+            }
+
+            if (sameReferences)
+            {
+                return false;
+            }
+        }
+
         _suppressNotifications = true;
         try
         {
             Items.Clear();
-            foreach (var item in items)
+            foreach (var item in incoming)
             {
                 Items.Add(item);
             }
@@ -28,6 +47,7 @@ public sealed class RangeObservableCollection<T> : ObservableCollection<T>
         OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
         OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
         OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        return true;
     }
 
     protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)

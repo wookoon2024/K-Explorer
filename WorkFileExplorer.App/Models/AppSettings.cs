@@ -52,4 +52,19 @@ public sealed class AppSettings
     public bool ShowPropertyColumn { get; set; } = true;
     public bool EnablePanelListAutomation { get; set; } = false;
     public List<string> ShortcutOverrides { get; set; } = new();
+
+    // 이미지 뷰어 설정
+    public static readonly string[] DefaultImageViewerExtensions =
+    [
+        ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".ico"
+    ];
+    public List<string> ImageViewerExtensions { get; set; } = new(DefaultImageViewerExtensions);
+    public bool ImageViewerFitMode { get; set; } = true;
+    public bool ImageViewerWheelZoom { get; set; } = false;
+    public bool ImageViewerNearestNeighbor { get; set; } = false;
+    public bool ImageViewerCheckerBackground { get; set; } = false;
+    public bool ImageViewerShowFolderList { get; set; } = true;
+    public double ImageViewerThumbnailSize { get; set; } = 90;
+    public int ImageViewerJpegQuality { get; set; } = 92;
+    public int ImageViewerSlideshowInterval { get; set; } = 3;
 }

@@ -6,6 +6,9 @@ namespace WorkFileExplorer.App.ViewModels;
 public sealed class PanelViewModel : ObservableObject
 {
     private readonly List<FileSystemItem> _allItems = new();
+    private int _directoryCount;
+    private int _fileCount;
+    private long _totalFileBytes;
     private string _currentPath = string.Empty;
     private FileSystemItem? _selectedItem;
     private string? _lastNonParentSelectedPath;
@@ -191,12 +194,82 @@ public sealed class PanelViewModel : ObservableObject
 
     public void SetItems(IEnumerable<FileSystemItem> items)
     {
+        var incoming = items as IReadOnlyList<FileSystemItem> ?? items.ToList();
+        var reconciled = ReconcileItems(incoming, _allItems);
+        if (SameReferenceSequence(_allItems, reconciled))
+        {
+            return;
+        }
+
         _allItems.Clear();
-        _allItems.AddRange(items);
+        _allItems.AddRange(reconciled);
         ApplyFilterInternal();
     }
 
+    private static List<FileSystemItem> ReconcileItems(
+        IReadOnlyList<FileSystemItem> incoming,
+        IReadOnlyList<FileSystemItem> existing)
+    {
+        var byPath = new Dictionary<string, FileSystemItem>(StringComparer.OrdinalIgnoreCase);
+        var duplicatePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in existing)
+        {
+            if (string.IsNullOrWhiteSpace(item.FullPath))
+            {
+                continue;
+            }
+
+            if (!byPath.TryAdd(item.FullPath, item))
+            {
+                duplicatePaths.Add(item.FullPath);
+            }
+        }
+
+        var usedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<FileSystemItem>(incoming.Count);
+        foreach (var item in incoming)
+        {
+            if (!string.IsNullOrWhiteSpace(item.FullPath) &&
+                !duplicatePaths.Contains(item.FullPath) &&
+                usedPaths.Add(item.FullPath) &&
+                byPath.TryGetValue(item.FullPath, out var old) &&
+                FileSystemItem.HasSameRenderedState(old, item))
+            {
+                result.Add(old);
+            }
+            else
+            {
+                result.Add(item);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool SameReferenceSequence(
+        IReadOnlyList<FileSystemItem> left,
+        IReadOnlyList<FileSystemItem> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (!ReferenceEquals(left[index], right[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public IReadOnlyList<FileSystemItem> GetAllItems() => _allItems;
+
+    public (int DirectoryCount, int FileCount, long TotalFileBytes) GetStats() =>
+        (_directoryCount, _fileCount, _totalFileBytes);
 
     public void ApplyFilter(string keyword)
     {
@@ -279,6 +352,21 @@ public sealed class PanelViewModel : ObservableObject
             {
                 selectedByPath = item;
             }
+        }
+
+        _directoryCount = 0;
+        _fileCount = 0;
+        _totalFileBytes = 0;
+        foreach (var item in filteredItems)
+        {
+            if (item.IsDirectory)
+            {
+                _directoryCount++;
+                continue;
+            }
+
+            _fileCount++;
+            _totalFileBytes += item.SizeBytes;
         }
 
         Items.ReplaceRange(filteredItems);

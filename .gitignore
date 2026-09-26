@@ -32,3 +32,11 @@ Thumbs.db
 READ.ME
 
 .commandcode/
+
+# Local run/debug scratch files
+calculator.db
+*.db-shm
+*.db-wal
+run_*.txt
+release_build.txt
+settings.json

@@ -45,6 +45,15 @@ public sealed class MainWindowViewModel : ObservableObject
         public bool ShowPropertyColumn { get; init; } = true;
         public bool EnablePanelListAutomation { get; init; }
         public List<string> ShortcutOverrides { get; init; } = new();
+        public List<string> ImageViewerExtensions { get; init; } = new();
+        public bool ImageViewerFitMode { get; init; } = true;
+        public bool ImageViewerWheelZoom { get; init; }
+        public bool ImageViewerNearestNeighbor { get; init; }
+        public bool ImageViewerCheckerBackground { get; init; }
+        public bool ImageViewerShowFolderList { get; init; } = true;
+        public double ImageViewerThumbnailSize { get; init; } = 90;
+        public int ImageViewerJpegQuality { get; init; } = 92;
+        public int ImageViewerSlideshowInterval { get; init; } = 3;
     }
 
     private sealed class FourPanelTabsState
@@ -77,7 +86,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private const string DefaultFavoriteFileCategory = "기본";
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff"
+        ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".ico"
     };
     private readonly IFileSystemService _fileSystemService;
     private readonly ISettingsStorageService _settingsStorageService;
@@ -143,7 +152,11 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _sessionRestoreInProgress;
     private bool _isFourPanelGridLayout;
     private bool _usageRefreshQueued;
+    private bool _usageRefreshPending;
+    private bool _postNavigationStatusRefreshQueued;
+    private string? _pendingPostNavigationStatusPath;
     private bool _postMutationRefreshQueued;
+    private bool _watcherUpdateQueued;
     private readonly List<ClipboardTransferItem> _clipboardItems = new();
     private bool _clipboardCutMode;
     private bool _isDeleting;
@@ -168,7 +181,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public event EventHandler<PanelViewModel>? PanelContentRefreshed;
     public event EventHandler? LeftTabSelectionChanging;
     public event EventHandler? RightTabSelectionChanging;
-    private static readonly TimeSpan DirectoryItemsCacheDuration = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan DirectoryItemsCacheDuration = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan FreeSpaceCacheDuration = TimeSpan.FromSeconds(3);
     private const int MaxDirectoryItemsCacheEntries = 24;
     private static readonly IReadOnlyDictionary<string, string> BlackThemeDefaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -1061,6 +1074,7 @@ public sealed class MainWindowViewModel : ObservableObject
             LiveTrace.Write("Settings load failed; fallback defaults");
         }
 
+        ImageViewerWindow.UpdateSupportedExtensions(_settings.ImageViewerExtensions);
         RebuildShortcuts();
         OnPropertyChanged(nameof(ShowPropertyColumn));
         Controls.AutomationQuietDataGrid.Quiet = !_settings.EnablePanelListAutomation;
@@ -3007,7 +3021,16 @@ public sealed class MainWindowViewModel : ObservableObject
             EnableImageHoverPreview = _settings.EnableImageHoverPreview,
             ShowPropertyColumn = _settings.ShowPropertyColumn,
             EnablePanelListAutomation = _settings.EnablePanelListAutomation,
-            ShortcutOverrides = _settings.ShortcutOverrides.ToList()
+            ShortcutOverrides = _settings.ShortcutOverrides.ToList(),
+            ImageViewerExtensions = (_settings.ImageViewerExtensions ?? new List<string>()).ToList(),
+            ImageViewerFitMode = _settings.ImageViewerFitMode,
+            ImageViewerWheelZoom = _settings.ImageViewerWheelZoom,
+            ImageViewerNearestNeighbor = _settings.ImageViewerNearestNeighbor,
+            ImageViewerCheckerBackground = _settings.ImageViewerCheckerBackground,
+            ImageViewerShowFolderList = _settings.ImageViewerShowFolderList,
+            ImageViewerThumbnailSize = _settings.ImageViewerThumbnailSize,
+            ImageViewerJpegQuality = _settings.ImageViewerJpegQuality,
+            ImageViewerSlideshowInterval = _settings.ImageViewerSlideshowInterval
         };
     }
 
@@ -3056,6 +3079,17 @@ public sealed class MainWindowViewModel : ObservableObject
         Controls.AutomationQuietDataGrid.Quiet = !_settings.EnablePanelListAutomation;
         _settings.ShortcutOverrides = snapshot.ShortcutOverrides?.ToList() ?? new List<string>();
         RebuildShortcuts();
+
+        _settings.ImageViewerExtensions = snapshot.ImageViewerExtensions?.ToList() ?? new List<string>(AppSettings.DefaultImageViewerExtensions);
+        _settings.ImageViewerFitMode = snapshot.ImageViewerFitMode;
+        _settings.ImageViewerWheelZoom = snapshot.ImageViewerWheelZoom;
+        _settings.ImageViewerNearestNeighbor = snapshot.ImageViewerNearestNeighbor;
+        _settings.ImageViewerCheckerBackground = snapshot.ImageViewerCheckerBackground;
+        _settings.ImageViewerShowFolderList = snapshot.ImageViewerShowFolderList;
+        _settings.ImageViewerThumbnailSize = snapshot.ImageViewerThumbnailSize;
+        _settings.ImageViewerJpegQuality = snapshot.ImageViewerJpegQuality;
+        _settings.ImageViewerSlideshowInterval = snapshot.ImageViewerSlideshowInterval;
+        ImageViewerWindow.UpdateSupportedExtensions(_settings.ImageViewerExtensions);
 
         SelectedConflictPolicyDisplay = _settings.ConflictPolicyDisplay;
         SearchScope = _settings.DefaultSearchScope;
@@ -4841,6 +4875,7 @@ public sealed class MainWindowViewModel : ObservableObject
             LiveTrace.Write(
                 $"LoadPanelAsync[{side}] perf fetch={fetchElapsed.TotalMilliseconds:0.0}ms, prioritize={prioritizeElapsed.TotalMilliseconds:0.0}ms, bind={bindElapsed.TotalMilliseconds:0.0}ms, cache={(cacheHit ? "hit" : "miss")}");
 
+            var postNavigationStart = Stopwatch.GetTimestamp();
             if (track)
             {
                 try
@@ -4856,11 +4891,9 @@ public sealed class MainWindowViewModel : ObservableObject
             if (!samePanelPath && ReferenceEquals(panel, LeftPanel)) OnPropertyChanged(nameof(LeftCurrentPath));
             if (!samePanelPath && ReferenceEquals(panel, RightPanel)) OnPropertyChanged(nameof(RightCurrentPath));
             SyncSelectedDrivesFromPaths();
-            RefreshPanelFreeSpaceTexts();
-            OnPropertyChanged(nameof(LeftFolderInfo));
-            OnPropertyChanged(nameof(RightFolderInfo));
-            OnPropertyChanged(nameof(StatusBarText));
-            StatusText = normalized;
+            QueuePostNavigationStatusRefresh(normalized);
+            LiveTrace.Write(
+                $"LoadPanelAsync[{side}] post-nav {Stopwatch.GetElapsedTime(postNavigationStart).TotalMilliseconds:0.0}ms");
             LiveTrace.Write($"LoadPanelAsync[{side}] done in {sw.ElapsedMilliseconds}ms session={LiveTrace.CurrentSessionId} cache={cacheHit} items={items.Count} counters=watchers={_directoryWatchers.Count};dirCache={_directoryItemsCache.Count};thumbCache={NonLockingImageSourceConverter.CacheCount}");
         }
         catch (Exception ex)
@@ -4874,16 +4907,79 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
+    private void QueuePostNavigationStatusRefresh(string path)
+    {
+        _pendingPostNavigationStatusPath = path;
+        if (_postNavigationStatusRefreshQueued)
+        {
+            return;
+        }
+
+        _postNavigationStatusRefreshQueued = true;
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            _postNavigationStatusRefreshQueued = false;
+            StatusText = _pendingPostNavigationStatusPath;
+            _pendingPostNavigationStatusPath = null;
+            RefreshPanelFreeSpaceTexts(includeFourPanels: IsFourPanelMode);
+            OnPropertyChanged(nameof(LeftFolderInfo));
+            OnPropertyChanged(nameof(RightFolderInfo));
+            OnPropertyChanged(nameof(StatusBarText));
+            return;
+        }
+
+        _ = dispatcher.BeginInvoke(
+            () =>
+            {
+                _postNavigationStatusRefreshQueued = false;
+                StatusText = _pendingPostNavigationStatusPath;
+                _pendingPostNavigationStatusPath = null;
+                RefreshPanelFreeSpaceTexts(includeFourPanels: IsFourPanelMode);
+                OnPropertyChanged(nameof(LeftFolderInfo));
+                OnPropertyChanged(nameof(RightFolderInfo));
+                OnPropertyChanged(nameof(StatusBarText));
+            },
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+    }
+
     private void TryUpdateDirectoryWatchers()
     {
-        try
+        if (_watcherUpdateQueued)
         {
-            UpdateDirectoryWatchers();
+            return;
         }
-        catch (Exception ex)
+
+        _watcherUpdateQueued = true;
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
         {
-            LiveTrace.Write($"Watcher update failed: {ex.Message}");
+            _watcherUpdateQueued = false;
+            try
+            {
+                UpdateDirectoryWatchers();
+            }
+            catch (Exception ex)
+            {
+                LiveTrace.Write($"Watcher update failed: {ex.Message}");
+            }
+            return;
         }
+
+        _ = dispatcher.BeginInvoke(
+            () =>
+            {
+                _watcherUpdateQueued = false;
+                try
+                {
+                    UpdateDirectoryWatchers();
+                }
+                catch (Exception ex)
+                {
+                    LiveTrace.Write($"Watcher update failed: {ex.Message}");
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
     private void UpdateDirectoryWatchers()
@@ -6120,25 +6216,7 @@ public sealed class MainWindowViewModel : ObservableObject
         return $"폴더 {dirs} / 파일 {files} / 용량 {ToReadableSize(totalBytes)}";
     }
 
-    private static (int Dirs, int Files, long TotalFileBytes) GetPanelStats(PanelViewModel panel)
-    {
-        var dirs = 0;
-        var files = 0;
-        long totalBytes = 0;
-        foreach (var item in panel.Items)
-        {
-            if (item.IsDirectory)
-            {
-                dirs++;
-                continue;
-            }
-
-            files++;
-            totalBytes += item.SizeBytes;
-        }
-
-        return (dirs, files, totalBytes);
-    }
+    private static (int Dirs, int Files, long TotalFileBytes) GetPanelStats(PanelViewModel panel) => panel.GetStats();
 
     private async Task RefreshSidebarAndDashboardAsync()
     {
@@ -6209,6 +6287,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void QueueUsageRefreshAfterNavigation()
     {
+        _usageRefreshPending = true;
         if (_usageRefreshQueued)
         {
             return;
@@ -6219,6 +6298,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (dispatcher is null)
         {
             _usageRefreshQueued = false;
+            _usageRefreshPending = false;
             return;
         }
 
@@ -6226,8 +6306,13 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             try
             {
-                await _usageTrackingService.PersistAsync();
-                await RefreshSidebarAndDashboardAsync();
+                do
+                {
+                    _usageRefreshPending = false;
+                    await _usageTrackingService.PersistAsync();
+                    await RefreshSidebarAndDashboardAsync();
+                }
+                while (_usageRefreshPending);
             }
             catch
             {
@@ -6235,8 +6320,9 @@ public sealed class MainWindowViewModel : ObservableObject
             finally
             {
                 _usageRefreshQueued = false;
+                _usageRefreshPending = false;
             }
-        }, System.Windows.Threading.DispatcherPriority.Background);
+        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
     private static IReadOnlyList<QuickAccessItem> BuildFavoriteToolbarItems(
@@ -6739,15 +6825,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         for (var index = 0; index < items.Count; index++)
         {
-            var existing = current[index];
-            var incoming = items[index];
-            if (!string.Equals(existing.FullPath, incoming.FullPath, StringComparison.OrdinalIgnoreCase) ||
-                existing.IsDirectory != incoming.IsDirectory ||
-                existing.SizeBytes != incoming.SizeBytes ||
-                existing.LastModified != incoming.LastModified ||
-                existing.IsPinned != incoming.IsPinned ||
-                existing.IsFavorite != incoming.IsFavorite ||
-                !string.Equals(existing.Memo, incoming.Memo, StringComparison.Ordinal))
+            if (!FileSystemItem.HasSameRenderedState(current[index], items[index]))
             {
                 return false;
             }
@@ -8028,10 +8106,21 @@ public sealed class MainWindowViewModel : ObservableObject
         };
     }
 
-    private static bool IsImageFile(string path)
+    private bool IsImageFile(string path)
     {
         var extension = Path.GetExtension(path);
-        return !string.IsNullOrWhiteSpace(extension) && ImageExtensions.Contains(extension);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            return false;
+        }
+
+        var configured = _settings.ImageViewerExtensions;
+        if (configured is not null && configured.Count > 0)
+        {
+            return configured.Contains(extension, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ImageExtensions.Contains(extension);
     }
 
     private static WeakReference<ImageViewerWindow>? _imageViewerWindowRef;
