@@ -3290,6 +3290,10 @@
                     <ListView x:Name="SearchResultsList"
                               ItemsSource="{Binding SearchResults}"
                               SelectionMode="Extended"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              VirtualizingPanel.ScrollUnit="Item"
+                              ScrollViewer.CanContentScroll="True"
                               MouseDoubleClick="OnSearchResultDoubleClick">
                         <ListView.ContextMenu>
                             <ContextMenu>

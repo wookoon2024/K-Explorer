@@ -2478,12 +2478,6 @@ public sealed class MainWindowViewModel : ObservableObject
 
         return await Task.Run(() =>
         {
-            IEnumerable<FileSystemItem> items = options.SearchSubdirectories
-                ? EnumerateSearchCandidates(roots, options.MaxDepth, excludedDirectories, options.ExcludeHidden, cancellationToken)
-                : (string.Equals(SearchScope, "Both panels", StringComparison.OrdinalIgnoreCase)
-                    ? LeftPanel.GetAllItems().Concat(RightPanel.GetAllItems())
-                    : GetActivePanel().GetAllItems());
-
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var result = new List<FileSystemItem>(capacity: 256);
 
@@ -2492,60 +2486,96 @@ public sealed class MainWindowViewModel : ObservableObject
             var progressBatch = progress is null ? null : new List<FileSystemItem>(capacity: 256);
             var progressFlush = progress is null ? null : Stopwatch.StartNew();
 
-            foreach (var item in items)
+            if (options.SearchSubdirectories)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (item.IsDirectory && !options.IncludeDirectories)
+                foreach (var item in EnumerateSearchCandidates(roots, options, masks, excludedDirectories, excludedFiles, cancellationToken))
                 {
-                    continue;
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                if (!MatchesFileMasks(item, masks))
-                {
-                    continue;
-                }
-
-                if (MatchesAnyPattern(item.Name, excludedFiles))
-                {
-                    continue;
-                }
-
-                if (!FilterSize(item, options.MinSizeKb.HasValue, options.MinSizeKb ?? 0, options.MaxSizeKb.HasValue, options.MaxSizeKb ?? 0))
-                {
-                    continue;
-                }
-
-                if (!FilterDate(item, options.DateFrom, options.DateTo))
-                {
-                    continue;
-                }
-
-                if (!FilterTextContent(item, options, cancellationToken))
-                {
-                    continue;
-                }
-
-                if (!seen.Add(item.FullPath))
-                {
-                    continue;
-                }
-
-                result.Add(item);
-                if (progressBatch is not null)
-                {
-                    progressBatch.Add(item);
-                    if (progressBatch.Count >= 500 || progressFlush!.ElapsedMilliseconds >= 200)
+                    if (!seen.Add(item.FullPath))
                     {
-                        progress!.Report(progressBatch.ToArray());
-                        progressBatch.Clear();
-                        progressFlush!.Restart();
+                        continue;
+                    }
+
+                    result.Add(item);
+                    if (progressBatch is not null)
+                    {
+                        progressBatch.Add(item);
+                        if (progressBatch.Count >= 200 || progressFlush!.ElapsedMilliseconds >= 250)
+                        {
+                            progress!.Report(progressBatch.ToArray());
+                            progressBatch.Clear();
+                            progressFlush!.Restart();
+                        }
+                    }
+
+                    if (options.MaxResults is { } maxResults && result.Count >= maxResults)
+                    {
+                        break;
                     }
                 }
+            }
+            else
+            {
+                IEnumerable<FileSystemItem> panelItems = string.Equals(SearchScope, "Both panels", StringComparison.OrdinalIgnoreCase)
+                    ? LeftPanel.GetAllItems().Concat(RightPanel.GetAllItems())
+                    : GetActivePanel().GetAllItems();
 
-                if (options.MaxResults is { } maxResults && result.Count >= maxResults)
+                foreach (var item in panelItems)
                 {
-                    break;
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (item.IsDirectory && !options.IncludeDirectories)
+                    {
+                        continue;
+                    }
+
+                    if (!MatchesFileMasks(item, masks))
+                    {
+                        continue;
+                    }
+
+                    if (MatchesAnyPattern(item.Name, excludedFiles))
+                    {
+                        continue;
+                    }
+
+                    if (!FilterSize(item, options.MinSizeKb.HasValue, options.MinSizeKb ?? 0, options.MaxSizeKb.HasValue, options.MaxSizeKb ?? 0))
+                    {
+                        continue;
+                    }
+
+                    if (!FilterDate(item, options.DateFrom, options.DateTo))
+                    {
+                        continue;
+                    }
+
+                    if (!FilterTextContent(item, options, cancellationToken))
+                    {
+                        continue;
+                    }
+
+                    if (!seen.Add(item.FullPath))
+                    {
+                        continue;
+                    }
+
+                    result.Add(item);
+                    if (progressBatch is not null)
+                    {
+                        progressBatch.Add(item);
+                        if (progressBatch.Count >= 200 || progressFlush!.ElapsedMilliseconds >= 250)
+                        {
+                            progress!.Report(progressBatch.ToArray());
+                            progressBatch.Clear();
+                            progressFlush!.Restart();
+                        }
+                    }
+
+                    if (options.MaxResults is { } maxResults && result.Count >= maxResults)
+                    {
+                        break;
+                    }
                 }
             }
 
@@ -2556,20 +2586,6 @@ public sealed class MainWindowViewModel : ObservableObject
 
             return (IReadOnlyList<FileSystemItem>)result;
         }, cancellationToken);
-    }
-
-    private IEnumerable<FileSystemItem> EnumerateSearchCandidates(IEnumerable<string> roots, int? maxDepth, IReadOnlyList<string> excludedDirectories, bool excludeHidden, CancellationToken cancellationToken)
-    {
-        var attributesToSkip = excludeHidden ? FileAttributes.System | FileAttributes.Hidden : 0;
-        var options = new EnumerationOptions { RecurseSubdirectories = false, IgnoreInaccessible = true, ReturnSpecialDirectories = false, AttributesToSkip = attributesToSkip };
-        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
-            foreach (var item in EnumerateFromRoot(root, 0, maxDepth, excludedDirectories, options, cancellationToken))
-            {
-                yield return item;
-            }
-        }
     }
 
     public async Task RevealFileInActivePanelAsync(string? filePath)
@@ -2597,71 +2613,168 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    private static IEnumerable<FileSystemItem> EnumerateFromRoot(string root, int depth, int? maxDepth, IReadOnlyList<string> excludedDirectories, EnumerationOptions options, CancellationToken cancellationToken)
+    private static IEnumerable<FileSystemItem> EnumerateSearchCandidates(
+        IEnumerable<string> roots,
+        FindFilesOptions options,
+        IReadOnlyList<string> masks,
+        IReadOnlyList<string> excludedDirectories,
+        IReadOnlyList<string> excludedFiles,
+        CancellationToken cancellationToken)
+    {
+        var attributesToSkip = options.ExcludeHidden ? FileAttributes.System | FileAttributes.Hidden : 0;
+        var enumOptions = new EnumerationOptions
+        {
+            RecurseSubdirectories = false,
+            IgnoreInaccessible = true,
+            ReturnSpecialDirectories = false,
+            AttributesToSkip = attributesToSkip
+        };
+
+        var hasMin = options.MinSizeKb.HasValue;
+        var minKb = options.MinSizeKb ?? 0;
+        var hasMax = options.MaxSizeKb.HasValue;
+        var maxKb = options.MaxSizeKb ?? 0;
+
+        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
+
+            DirectoryInfo rootInfo;
+            try { rootInfo = new DirectoryInfo(root); } catch { continue; }
+
+            if (options.IncludeDirectories &&
+                MatchesFileMask(rootInfo.Name, true, masks) &&
+                !MatchesAnyPattern(rootInfo.Name, excludedFiles) &&
+                FilterDateDirect(rootInfo.LastWriteTime, options.DateFrom, options.DateTo))
+            {
+                yield return new FileSystemItem
+                {
+                    Name = rootInfo.Name,
+                    FullPath = rootInfo.FullName,
+                    IsDirectory = true,
+                    LastModified = rootInfo.LastWriteTime,
+                    TypeDisplay = "Folder"
+                };
+            }
+
+            foreach (var item in EnumerateFromDirectory(rootInfo, 0, options.MaxDepth, options, masks, excludedDirectories, excludedFiles, enumOptions, hasMin, minKb, hasMax, maxKb, cancellationToken))
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private static IEnumerable<FileSystemItem> EnumerateFromDirectory(
+        DirectoryInfo currentDir,
+        int depth,
+        int? maxDepth,
+        FindFilesOptions options,
+        IReadOnlyList<string> masks,
+        IReadOnlyList<string> excludedDirectories,
+        IReadOnlyList<string> excludedFiles,
+        EnumerationOptions enumOptions,
+        bool hasMin,
+        long minKb,
+        bool hasMax,
+        long maxKb,
+        CancellationToken cancellationToken)
     {
         if (maxDepth.HasValue && depth > maxDepth.Value)
         {
             yield break;
         }
 
-        DirectoryInfo rootInfo;
-        try { rootInfo = new DirectoryInfo(root); } catch { yield break; }
+        // 1. 하위 디렉터리 순회
+        IEnumerable<DirectoryInfo> subDirs;
+        try { subDirs = currentDir.EnumerateDirectories("*", enumOptions); }
+        catch { subDirs = Array.Empty<DirectoryInfo>(); }
 
-        yield return new FileSystemItem
-        {
-            Name = rootInfo.Name,
-            FullPath = rootInfo.FullName,
-            IsDirectory = true,
-            LastModified = rootInfo.LastWriteTime,
-            TypeDisplay = "Folder"
-        };
-
-        IEnumerable<string> directories;
-        try { directories = Directory.EnumerateDirectories(root, "*", options); } catch { directories = Array.Empty<string>(); }
-        foreach (var d in directories)
+        foreach (var dir in subDirs)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var dirName = Path.GetFileName(d);
-            if (MatchesAnyPattern(dirName, excludedDirectories))
+
+            if (MatchesAnyPattern(dir.Name, excludedDirectories))
             {
                 continue;
             }
 
-            DirectoryInfo info;
-            try { info = new DirectoryInfo(d); } catch { continue; }
-
-            yield return new FileSystemItem
+            if (options.IncludeDirectories &&
+                MatchesFileMask(dir.Name, true, masks) &&
+                !MatchesAnyPattern(dir.Name, excludedFiles) &&
+                FilterDateDirect(dir.LastWriteTime, options.DateFrom, options.DateTo))
             {
-                Name = info.Name,
-                FullPath = info.FullName,
-                IsDirectory = true,
-                LastModified = info.LastWriteTime,
-                TypeDisplay = "Folder"
-            };
+                yield return new FileSystemItem
+                {
+                    Name = dir.Name,
+                    FullPath = dir.FullName,
+                    IsDirectory = true,
+                    LastModified = dir.LastWriteTime,
+                    TypeDisplay = "Folder"
+                };
+            }
 
-            foreach (var nested in EnumerateFromRoot(d, depth + 1, maxDepth, excludedDirectories, options, cancellationToken))
+            if (!maxDepth.HasValue || depth < maxDepth.Value)
             {
-                yield return nested;
+                foreach (var nested in EnumerateFromDirectory(dir, depth + 1, maxDepth, options, masks, excludedDirectories, excludedFiles, enumOptions, hasMin, minKb, hasMax, maxKb, cancellationToken))
+                {
+                    yield return nested;
+                }
             }
         }
 
-        IEnumerable<string> files;
-        try { files = Directory.EnumerateFiles(root, "*", options); } catch { files = Array.Empty<string>(); }
-        foreach (var f in files)
+        // 2. 파일 순회: DirectoryInfo.EnumerateFiles는 OS 디렉터리 엔트리 캐시를 재활용하여 파일별 추가 stat I/O가 발생하지 않음
+        IEnumerable<FileInfo> files;
+        try { files = currentDir.EnumerateFiles("*", enumOptions); }
+        catch { files = Array.Empty<FileInfo>(); }
+
+        foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            FileInfo info;
-            try { info = new FileInfo(f); } catch { continue; }
+
+            // 조기 필터링 1: 파일명 마스크 검사 (일치하지 않으면 즉시 탈락)
+            if (!MatchesFileMask(file.Name, false, masks))
+            {
+                continue;
+            }
+
+            // 조기 필터링 2: 제외 파일 패턴 검사
+            if (MatchesAnyPattern(file.Name, excludedFiles))
+            {
+                continue;
+            }
+
+            // 조기 필터링 3: 파일 크기 검사 (file.Length는 OS 캐시에서 즉시 조회)
+            if (!FilterSizeDirect(file.Length, false, hasMin, minKb, hasMax, maxKb))
+            {
+                continue;
+            }
+
+            // 조기 필터링 4: 수정 날짜 검사
+            if (!FilterDateDirect(file.LastWriteTime, options.DateFrom, options.DateTo))
+            {
+                continue;
+            }
+
+            // 조기 필터링 5: 본문 텍스트 내용 검색 (필요한 경우에만 수행)
+            if (!string.IsNullOrWhiteSpace(options.TextQuery))
+            {
+                if (!FilterTextContentDirect(file.FullName, file.Length, options, cancellationToken))
+                {
+                    continue;
+                }
+            }
+
+            // 모든 조건을 만족한 항목만 모델 객체 및 문자열 생성
             yield return new FileSystemItem
             {
-                Name = info.Name,
-                Extension = info.Extension,
-                FullPath = info.FullName,
+                Name = file.Name,
+                Extension = file.Extension,
+                FullPath = file.FullName,
                 IsDirectory = false,
-                SizeBytes = info.Length,
-                SizeDisplay = ToReadableSize(info.Length),
-                LastModified = info.LastWriteTime,
-                TypeDisplay = string.IsNullOrWhiteSpace(info.Extension) ? "File" : $"{info.Extension.ToUpperInvariant()} File"
+                SizeBytes = file.Length,
+                SizeDisplay = ToReadableSize(file.Length),
+                LastModified = file.LastWriteTime,
+                TypeDisplay = string.IsNullOrWhiteSpace(file.Extension) ? "File" : $"{file.Extension.ToUpperInvariant()} File"
             };
         }
     }
@@ -7719,6 +7832,86 @@ public sealed class MainWindowViewModel : ObservableObject
                 return false;
             }
 
+            using var reader = new StreamReader(stream, ResolveEncoding(options.EncodingName), detectEncodingFromByteOrderMarks: true);
+            var content = reader.ReadToEnd();
+            if (options.UseRegex)
+            {
+                var regexOptions = options.CaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
+                return Regex.IsMatch(content, query, regexOptions);
+            }
+
+            return content.Contains(query, options.CaseSensitive ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool MatchesFileMask(string name, bool isDirectory, IReadOnlyList<string> masks)
+    {
+        if (masks.Count == 0)
+        {
+            return true;
+        }
+
+        if (isDirectory)
+        {
+            return masks.Any(mask =>
+                string.Equals(mask, "*", StringComparison.Ordinal) ||
+                string.Equals(mask, "*.*", StringComparison.Ordinal));
+        }
+
+        return masks.Any(mask => WildcardMatch(name, mask));
+    }
+
+    private static bool FilterSizeDirect(long sizeBytes, bool isDirectory, bool hasMin, long minKb, bool hasMax, long maxKb)
+    {
+        if (isDirectory) return !hasMin && !hasMax;
+        var kb = sizeBytes / 1024.0;
+        if (hasMin && kb < minKb) return false;
+        if (hasMax && kb > maxKb) return false;
+        return true;
+    }
+
+    private static bool FilterDateDirect(DateTime lastModified, DateTime? dateFrom, DateTime? dateTo)
+    {
+        if (!dateFrom.HasValue && !dateTo.HasValue)
+        {
+            return true;
+        }
+
+        var target = lastModified.Date;
+        if (dateFrom.HasValue && target < dateFrom.Value.Date)
+        {
+            return false;
+        }
+
+        if (dateTo.HasValue && target > dateTo.Value.Date)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool FilterTextContentDirect(string fullPath, long fileLength, FindFilesOptions options, CancellationToken cancellationToken)
+    {
+        var query = (options.TextQuery ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return true;
+        }
+
+        if (fileLength > 10 * 1024 * 1024)
+        {
+            return false;
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.SequentialScan);
             using var reader = new StreamReader(stream, ResolveEncoding(options.EncodingName), detectEncodingFromByteOrderMarks: true);
             var content = reader.ReadToEnd();
             if (options.UseRegex)

@@ -50,6 +50,32 @@ public sealed class RangeObservableCollection<T> : ObservableCollection<T>
         return true;
     }
 
+    public void AddRange(IEnumerable<T> items)
+    {
+        var incoming = items as IReadOnlyList<T> ?? items.ToList();
+        if (incoming.Count == 0)
+        {
+            return;
+        }
+
+        _suppressNotifications = true;
+        try
+        {
+            foreach (var item in incoming)
+            {
+                Items.Add(item);
+            }
+        }
+        finally
+        {
+            _suppressNotifications = false;
+        }
+
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
+
     protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
     {
         if (_suppressNotifications)

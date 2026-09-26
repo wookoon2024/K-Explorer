@@ -92,13 +92,11 @@ public partial class FindFilesWindow : Window
             await Vm.RecordFindFilesSearchHistoryAsync();
             var progress = new Progress<IReadOnlyList<FileSystemItem>>(batch =>
             {
-                foreach (var item in batch)
+                if (batch.Count > 0)
                 {
-                    session.Results.Add(item);
+                    session.Results.AddRange(batch);
+                    session.Summary = $"검색 중... 찾음: {session.Results.Count:N0}개";
                 }
-
-                session.Summary = $"검색 중... 찾음: {session.Results.Count}개";
-                AdjustVisibleResultColumns();
             });
 
             var results = await Vm.FindFilesAsync(options, run.Cancellation.Token, progress);
