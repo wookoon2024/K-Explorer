@@ -287,10 +287,10 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/general.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="일반" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="general">
-                        <TreeViewItem.Header><TextBlock Text="시작 패널 모드" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="시작 패널 모드" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="general">
-                        <TreeViewItem.Header><TextBlock Text="보기 설정" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="보기 설정" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="file">
@@ -298,10 +298,10 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/folder.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="파일 작업" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="file">
-                        <TreeViewItem.Header><TextBlock Text="충돌 처리 방식" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="충돌 처리 방식" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="file">
-                        <TreeViewItem.Header><TextBlock Text="삭제 확인" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="삭제 확인" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="search">
@@ -309,10 +309,10 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/search.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="검색" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="search">
-                        <TreeViewItem.Header><TextBlock Text="기본 검색 범위" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="기본 검색 범위" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="search">
-                        <TreeViewItem.Header><TextBlock Text="하위 폴더 검색 기본값" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="하위 폴더 검색 기본값" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="color">
@@ -320,13 +320,13 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/palette.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="색상/강조" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="color">
-                        <TreeViewItem.Header><TextBlock Text="테마" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="테마" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="color">
-                        <TreeViewItem.Header><TextBlock Text="확장자 색상" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="확장자 색상" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="color">
-                        <TreeViewItem.Header><TextBlock Text="핀 고정 강조" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="핀 고정 강조" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="imageviewer">
@@ -334,16 +334,16 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/eye.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="이미지 뷰어" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="imageviewer">
-                        <TreeViewItem.Header><TextBlock Text="연결 확장자" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="연결 확장자" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="imageviewer">
-                        <TreeViewItem.Header><TextBlock Text="화면 표시 및 렌더링" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="화면 표시 및 렌더링" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="imageviewer">
-                        <TreeViewItem.Header><TextBlock Text="마우스 및 탐색" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="마우스 및 탐색" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                     <TreeViewItem Tag="imageviewer">
-                        <TreeViewItem.Header><TextBlock Text="슬라이드쇼 및 저장" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="슬라이드쇼 및 저장" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="shortcut">
@@ -351,7 +351,7 @@
                         <StackPanel Orientation="Horizontal"><Image Source="pack://application:,,,/Assets/Icons/Emojis/dividers.png" Width="16" Height="16" Margin="0,0,6,0"/><TextBlock Text="단축키" VerticalAlignment="Center"/></StackPanel>
                     </TreeViewItem.Header>
                     <TreeViewItem Tag="shortcut">
-                        <TreeViewItem.Header><TextBlock Text="명령 단축키" Margin="2,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                        <TreeViewItem.Header><TextBlock Text="명령 단축키" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
                 </TreeViewItem>
             </TreeView>
