@@ -6255,9 +6255,19 @@ public partial class MainWindow : Window
 
         if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)
         {
-            view.CustomSort = sortedColumn is not null && tab.SortDirection.HasValue
-                ? new PanelItemComparer(sortedColumn.SortMemberPath, tab.SortDirection.Value)
-                : null;
+            // Avoid a full re-sort on every tab switch when the sort is unchanged.
+            if (sortedColumn is not null && tab.SortDirection.HasValue)
+            {
+                if (view.CustomSort is not PanelItemComparer existing ||
+                    !existing.IsEquivalent(sortedColumn.SortMemberPath, tab.SortDirection.Value))
+                {
+                    view.CustomSort = new PanelItemComparer(sortedColumn.SortMemberPath, tab.SortDirection.Value);
+                }
+            }
+            else if (view.CustomSort is not null)
+            {
+                view.CustomSort = null;
+            }
         }
 
         UpdatePanelGridSortHeaderIndicators(grid, sortedColumn);
@@ -9467,9 +9477,15 @@ public partial class MainWindow : Window
         }
 
         e.Handled = true;
-        var direction = e.Column.SortDirection == ListSortDirection.Ascending
-            ? ListSortDirection.Descending
-            : ListSortDirection.Ascending;
+        // First click: date column sorts newest-first; other columns ascending. Subsequent clicks toggle.
+        var direction = e.Column.SortDirection switch
+        {
+            ListSortDirection.Ascending => ListSortDirection.Descending,
+            ListSortDirection.Descending => ListSortDirection.Ascending,
+            _ => string.Equals(e.Column.SortMemberPath, nameof(FileSystemItem.LastModified), StringComparison.Ordinal)
+                ? ListSortDirection.Descending
+                : ListSortDirection.Ascending
+        };
 
         foreach (var column in grid.Columns)
         {
@@ -9555,14 +9571,14 @@ public partial class MainWindow : Window
                 _panelGridHeaderLabels[column] = baseLabel;
             }
 
-            if (ReferenceEquals(column, sortedColumn) && column.SortDirection.HasValue)
+            var newHeader = ReferenceEquals(column, sortedColumn) && column.SortDirection.HasValue
+                ? $"{baseLabel} {(column.SortDirection == ListSortDirection.Ascending ? "↑" : "↓")}"
+                : baseLabel;
+
+            // Only touch the header when the text actually changes (avoids header re-layout).
+            if (!string.Equals(column.Header as string, newHeader, StringComparison.Ordinal))
             {
-                var arrow = column.SortDirection == ListSortDirection.Ascending ? "↑" : "↓";
-                column.Header = $"{baseLabel} {arrow}";
-            }
-            else
-            {
-                column.Header = baseLabel;
+                column.Header = newHeader;
             }
         }
     }
@@ -9580,17 +9596,46 @@ public partial class MainWindow : Window
 
     private sealed class PanelItemComparer : IComparer
     {
-        private readonly string _sortMemberPath;
-        private readonly ListSortDirection _direction;
+        private enum SortKey { Name, Extension, Size, Date, Type }
+
+        private static readonly System.Globalization.CompareInfo NameCompareInfo = System.Globalization.CultureInfo.CurrentCulture.CompareInfo;
+        private const System.Globalization.CompareOptions NameCompareOptions = System.Globalization.CompareOptions.IgnoreCase;
+
+        private readonly SortKey _key;
+        private readonly bool _descending;
 
         public PanelItemComparer(string sortMemberPath, ListSortDirection direction)
         {
-            _sortMemberPath = sortMemberPath;
-            _direction = direction;
+            SortMemberPath = sortMemberPath;
+            Direction = direction;
+            _descending = direction == ListSortDirection.Descending;
+            _key = sortMemberPath switch
+            {
+                nameof(FileSystemItem.Extension) => SortKey.Extension,
+                nameof(FileSystemItem.SizeDisplay) => SortKey.Size,
+                nameof(FileSystemItem.LastModified) => SortKey.Date,
+                nameof(FileSystemItem.TypeDisplay) => SortKey.Type,
+                _ => SortKey.Name
+            };
         }
+
+        public string SortMemberPath { get; }
+
+        public ListSortDirection Direction { get; }
+
+        public bool IsEquivalent(string sortMemberPath, ListSortDirection direction) =>
+            Direction == direction && string.Equals(SortMemberPath, sortMemberPath, StringComparison.Ordinal);
+
+        private static int CompareText(string? a, string? b) =>
+            NameCompareInfo.Compare(a, b, NameCompareOptions);
 
         public int Compare(object? x, object? y)
         {
+            if (ReferenceEquals(x, y))
+            {
+                return 0;
+            }
+
             if (x is not FileSystemItem left || y is not FileSystemItem right)
             {
                 return 0;
@@ -9614,22 +9659,32 @@ public partial class MainWindow : Window
                 return left.IsPinned ? -1 : 1;
             }
 
-            var result = _sortMemberPath switch
+            int result;
+            switch (_key)
             {
-                nameof(FileSystemItem.Name) => StringComparer.CurrentCultureIgnoreCase.Compare(left.Name, right.Name),
-                nameof(FileSystemItem.Extension) => StringComparer.CurrentCultureIgnoreCase.Compare(left.Extension, right.Extension),
-                nameof(FileSystemItem.SizeDisplay) => left.SizeBytes.CompareTo(right.SizeBytes),
-                nameof(FileSystemItem.LastModified) => left.LastModified.CompareTo(right.LastModified),
-                nameof(FileSystemItem.TypeDisplay) => StringComparer.CurrentCultureIgnoreCase.Compare(left.TypeDisplay, right.TypeDisplay),
-                _ => StringComparer.CurrentCultureIgnoreCase.Compare(left.Name, right.Name)
-            };
+                case SortKey.Date:
+                    result = left.LastModified.Ticks.CompareTo(right.LastModified.Ticks);
+                    break;
+                case SortKey.Size:
+                    result = left.SizeBytes.CompareTo(right.SizeBytes);
+                    break;
+                case SortKey.Extension:
+                    result = CompareText(left.Extension, right.Extension);
+                    break;
+                case SortKey.Type:
+                    result = CompareText(left.TypeDisplay, right.TypeDisplay);
+                    break;
+                default:
+                    result = 0;
+                    break;
+            }
 
             if (result == 0)
             {
-                result = StringComparer.CurrentCultureIgnoreCase.Compare(left.Name, right.Name);
+                result = CompareText(left.Name, right.Name);
             }
 
-            return _direction == ListSortDirection.Descending ? -result : result;
+            return _descending ? -result : result;
         }
     }
 
