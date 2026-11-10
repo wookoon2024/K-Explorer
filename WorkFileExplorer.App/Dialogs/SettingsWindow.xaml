@@ -292,6 +292,9 @@
                     <TreeViewItem Tag="general">
                         <TreeViewItem.Header><TextBlock Text="보기 설정" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
                     </TreeViewItem>
+                    <TreeViewItem Tag="general">
+                        <TreeViewItem.Header><TextBlock Text="파일 목록 정렬" Margin="8,0,0,0" VerticalAlignment="Center"/></TreeViewItem.Header>
+                    </TreeViewItem>
                 </TreeViewItem>
                 <TreeViewItem Tag="file">
                     <TreeViewItem.Header>
@@ -493,6 +496,50 @@
                                           Content="파일 목록을 화면 낭독기/자동화 도구에 노출"
                                           ToolTip="켜면 각 행과 셀을 읽을 수 있습니다. 대신 큰 폴더에서 목록 갱신이 느려질 수 있고, 적용에는 앱 재시작이 필요합니다."
                                           IsChecked="False" />
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="파일 목록 정렬">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="기본 정렬 기준" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
+                                    <ComboBox x:Name="ComboDefaultSortColumn"
+                                              Width="170"
+                                              Height="26"
+                                              ToolTip="폴더를 열 때 적용할 정렬입니다. 열 제목을 눌러 바꾼 정렬은 그 탭에만 적용됩니다.">
+                                        <ComboBoxItem Content="정렬 안 함 (폴더 순서)" Tag="" />
+                                        <ComboBoxItem Content="이름" Tag="Name" />
+                                        <ComboBoxItem Content="확장자" Tag="Extension" />
+                                        <ComboBoxItem Content="크기" Tag="SizeDisplay" />
+                                        <ComboBoxItem Content="날짜" Tag="LastModified" />
+                                        <ComboBoxItem Content="종류" Tag="TypeDisplay" />
+                                    </ComboBox>
+                                    <RadioButton x:Name="RadioDefaultSortAscending" Content="오름차순" Margin="14,0,14,0" VerticalAlignment="Center" IsChecked="True" />
+                                    <RadioButton x:Name="RadioDefaultSortDescending" Content="내림차순" VerticalAlignment="Center" />
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,12,0,0" VerticalAlignment="Center" Text="첫 클릭 시 내림차순인 열" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,12,0,0" Orientation="Horizontal">
+                                    <CheckBox x:Name="CheckSortDescFirstName" Content="이름" Tag="Name" Margin="0,0,14,0" />
+                                    <CheckBox x:Name="CheckSortDescFirstExtension" Content="확장자" Tag="Extension" Margin="0,0,14,0" />
+                                    <CheckBox x:Name="CheckSortDescFirstSize" Content="크기" Tag="SizeDisplay" Margin="0,0,14,0" />
+                                    <CheckBox x:Name="CheckSortDescFirstDate" Content="날짜" Tag="LastModified" Margin="0,0,14,0" />
+                                    <CheckBox x:Name="CheckSortDescFirstType" Content="종류" Tag="TypeDisplay" />
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,8,0,0"
+                                           Foreground="#6B7785" FontSize="11.5" TextWrapping="Wrap"
+                                           Text="체크한 열은 열 제목을 처음 누를 때 내림차순(큰 값·최신 먼저)으로 정렬되고, 다시 누르면 방향이 바뀝니다. 열 제목을 더블클릭하면 기본 정렬로 돌아갑니다." />
                             </Grid>
                         </GroupBox>
                     </StackPanel>

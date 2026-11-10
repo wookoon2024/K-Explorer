@@ -4385,6 +4385,7 @@ public partial class MainWindow : Window
         };
 
         dialog.ShowDialog();
+        ReapplyPanelGridSorts();
     }
 
     private void OnSelectActiveMenuPanelClick(object sender, RoutedEventArgs e)
@@ -6148,9 +6149,88 @@ public partial class MainWindow : Window
         tab.GridVerticalOffset = scrollViewer?.VerticalOffset ?? 0;
         tab.GridHorizontalOffset = scrollViewer?.HorizontalOffset ?? 0;
         tab.CurrentCellPath = (grid.CurrentCell.Item as FileSystemItem)?.FullPath;
-        var sortedColumn = grid.Columns.FirstOrDefault(column => column.SortDirection.HasValue);
-        tab.SortMemberPath = sortedColumn?.SortMemberPath;
-        tab.SortDirection = sortedColumn?.SortDirection;
+        // Only a sort the user picked is remembered per tab; the settings default is re-applied on restore.
+        if (tab.HasExplicitSort)
+        {
+            var sortedColumn = grid.Columns.FirstOrDefault(column => column.SortDirection.HasValue);
+            tab.SortMemberPath = sortedColumn?.SortMemberPath;
+            tab.SortDirection = sortedColumn?.SortDirection;
+        }
+    }
+
+    /// <summary>
+    /// Applies the tab's own sort when the user picked one, otherwise the default sort from settings.
+    /// Returns the sorted column (null when the list keeps folder order).
+    /// </summary>
+    private DataGridColumn? ApplyPanelGridSort(DataGrid grid, PanelTabViewModel? tab)
+    {
+        string? sortPath;
+        ListSortDirection? sortDirection;
+        if (tab is not null && tab.HasExplicitSort)
+        {
+            sortPath = tab.SortMemberPath;
+            sortDirection = tab.SortDirection;
+        }
+        else
+        {
+            var defaultColumn = Vm?.DefaultSortColumn;
+            sortPath = string.IsNullOrWhiteSpace(defaultColumn) ? null : defaultColumn;
+            sortDirection = sortPath is null
+                ? null
+                : Vm!.DefaultSortDescending ? ListSortDirection.Descending : ListSortDirection.Ascending;
+        }
+
+        var sortedColumn = sortPath is null || !sortDirection.HasValue
+            ? null
+            : grid.Columns.FirstOrDefault(column => string.Equals(column.SortMemberPath, sortPath, StringComparison.Ordinal));
+        foreach (var column in grid.Columns)
+        {
+            column.SortDirection = null;
+        }
+
+        if (sortedColumn is not null)
+        {
+            sortedColumn.SortDirection = sortDirection;
+        }
+
+        if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)
+        {
+            // Avoid a full re-sort on every tab switch when the sort is unchanged.
+            if (sortedColumn is not null)
+            {
+                if (view.CustomSort is not PanelItemComparer existing ||
+                    !existing.IsEquivalent(sortedColumn.SortMemberPath, sortDirection!.Value))
+                {
+                    view.CustomSort = new PanelItemComparer(sortedColumn.SortMemberPath, sortDirection!.Value);
+                }
+            }
+            else if (view.CustomSort is not null)
+            {
+                view.CustomSort = null;
+            }
+        }
+
+        UpdatePanelGridSortHeaderIndicators(grid, sortedColumn);
+        return sortedColumn;
+    }
+
+    /// <summary>Re-applies the effective sort to the visible left/right grids (e.g. after settings change).</summary>
+    private void ReapplyPanelGridSorts()
+    {
+        if (Vm is null)
+        {
+            return;
+        }
+
+        foreach (var left in new[] { true, false })
+        {
+            var grid = left ? LeftPanelGrid : RightPanelGrid;
+            var tab = GetPanelCacheEntry(grid)?.Tab ?? (left ? Vm.SelectedLeftTab : Vm.SelectedRightTab);
+            if (grid.ItemsSource is not null)
+            {
+                ApplyPanelGridSort(grid, tab);
+            }
+        }
     }
 
     private void RestorePanelViewState(bool left)
@@ -6240,37 +6320,7 @@ public partial class MainWindow : Window
             grid.SelectedItem = null;
         }
 
-        var sortedColumn = tab.SortMemberPath is null
-            ? null
-            : grid.Columns.FirstOrDefault(column => string.Equals(column.SortMemberPath, tab.SortMemberPath, StringComparison.Ordinal));
-        foreach (var column in grid.Columns)
-        {
-            column.SortDirection = null;
-        }
-
-        if (sortedColumn is not null && tab.SortDirection.HasValue)
-        {
-            sortedColumn.SortDirection = tab.SortDirection;
-        }
-
-        if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)
-        {
-            // Avoid a full re-sort on every tab switch when the sort is unchanged.
-            if (sortedColumn is not null && tab.SortDirection.HasValue)
-            {
-                if (view.CustomSort is not PanelItemComparer existing ||
-                    !existing.IsEquivalent(sortedColumn.SortMemberPath, tab.SortDirection.Value))
-                {
-                    view.CustomSort = new PanelItemComparer(sortedColumn.SortMemberPath, tab.SortDirection.Value);
-                }
-            }
-            else if (view.CustomSort is not null)
-            {
-                view.CustomSort = null;
-            }
-        }
-
-        UpdatePanelGridSortHeaderIndicators(grid, sortedColumn);
+        var sortedColumn = ApplyPanelGridSort(grid, tab);
         if (tab.CurrentCellPath is not null)
         {
             var current = availableItems.FirstOrDefault(item => string.Equals(item.FullPath, tab.CurrentCellPath, StringComparison.OrdinalIgnoreCase));
@@ -9477,12 +9527,13 @@ public partial class MainWindow : Window
         }
 
         e.Handled = true;
-        // First click: date column sorts newest-first; other columns ascending. Subsequent clicks toggle.
+        // First click uses the per-column direction from settings (date: newest first by default).
+        // Subsequent clicks toggle.
         var direction = e.Column.SortDirection switch
         {
             ListSortDirection.Ascending => ListSortDirection.Descending,
             ListSortDirection.Descending => ListSortDirection.Ascending,
-            _ => string.Equals(e.Column.SortMemberPath, nameof(FileSystemItem.LastModified), StringComparison.Ordinal)
+            _ => Vm?.IsSortDescendingFirst(e.Column.SortMemberPath) == true
                 ? ListSortDirection.Descending
                 : ListSortDirection.Ascending
         };
@@ -9506,6 +9557,7 @@ public partial class MainWindow : Window
         {
             activeTab.SortMemberPath = e.Column.SortMemberPath;
             activeTab.SortDirection = direction;
+            activeTab.HasExplicitSort = true;
         }
 
         if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)
@@ -9535,11 +9587,6 @@ public partial class MainWindow : Window
 
     private void ResetPanelGridSorting(DataGrid grid)
     {
-        foreach (var column in grid.Columns)
-        {
-            column.SortDirection = null;
-        }
-
         var tab = GetPanelCacheEntry(grid)?.Tab
             ?? (ReferenceEquals(grid, LeftPanelGrid)
                 ? Vm?.SelectedLeftTab
@@ -9550,15 +9597,11 @@ public partial class MainWindow : Window
         {
             tab.SortMemberPath = null;
             tab.SortDirection = null;
+            tab.HasExplicitSort = false;
         }
 
-        if (CollectionViewSource.GetDefaultView(grid.ItemsSource) is ListCollectionView view)
-        {
-            view.CustomSort = null;
-            view.Refresh();
-        }
-
-        UpdatePanelGridSortHeaderIndicators(grid, null);
+        // Reset goes back to the default sort from settings (or folder order when none is set).
+        ApplyPanelGridSort(grid, tab);
     }
 
     private void UpdatePanelGridSortHeaderIndicators(DataGrid grid, DataGridColumn? sortedColumn)

@@ -702,7 +702,9 @@ public partial class ImageViewerWindow : Window
 
     private void OnFolderListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressFolderListSelectionChanged || FolderList.SelectedItem is not FolderListItem selected)
+        if (_suppressFolderListSelectionChanged ||
+            FolderList.SelectedItems.Count != 1 ||
+            FolderList.SelectedItem is not FolderListItem selected)
         {
             return;
         }
@@ -1732,7 +1734,7 @@ public partial class ImageViewerWindow : Window
         }
     }
 
-    private void OnDeleteImageMenuClick(object sender, RoutedEventArgs e) => DeleteCurrentImage();
+    private void OnDeleteImageMenuClick(object sender, RoutedEventArgs e) => DeleteSelectedImages();
 
     private string SuggestExportName(string suffix) =>
         (Path.GetFileNameWithoutExtension(CurrentImagePath) ?? "image") + suffix;
@@ -2613,7 +2615,7 @@ public partial class ImageViewerWindow : Window
 
         if (e.Key == Key.Delete)
         {
-            DeleteCurrentImage();
+            DeleteSelectedImages();
             e.Handled = true;
             return;
         }
@@ -2773,44 +2775,126 @@ public partial class ImageViewerWindow : Window
         }
     }
 
-    private void DeleteCurrentImage()
+    /// <summary>
+    /// Paths to delete: the multi-selection in the file list or thumbnail strip when more than
+    /// one item is selected there, otherwise just the image on screen.
+    /// </summary>
+    private List<string> GetDeletionTargets()
     {
-        var path = CurrentImagePath;
-        if (string.IsNullOrWhiteSpace(path) || _currentIndex < 0 || _currentIndex >= _imageFiles.Count)
+        IEnumerable<string> selected = Array.Empty<string>();
+        if (FolderList.SelectedItems.Count > 1)
+        {
+            selected = FolderList.SelectedItems.OfType<FolderListItem>().Select(item => item.Path);
+        }
+        else if (ThumbnailList.SelectedItems.Count > 1)
+        {
+            selected = ThumbnailList.SelectedItems.OfType<ThumbnailItem>().Select(item => item.Path);
+        }
+
+        var targets = selected
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (targets.Count == 0 && CurrentImagePath is { } current)
+        {
+            targets.Add(current);
+        }
+
+        return targets;
+    }
+
+    private void DeleteSelectedImages()
+    {
+        if (_imageFiles.Count == 0 || _currentIndex < 0 || _currentIndex >= _imageFiles.Count)
         {
             return;
         }
 
-        var fileName = Path.GetFileName(path);
-        if (!StyledDialogWindow.ShowConfirm(this, "삭제 확인", $"현재 이미지 '{fileName}'을(를) 휴지통으로 이동하시겠습니까?"))
+        var targets = GetDeletionTargets();
+        if (targets.Count == 0)
         {
             return;
         }
 
-        try
+        var message = targets.Count == 1
+            ? $"이미지 '{Path.GetFileName(targets[0])}'을(를) 휴지통으로 이동하시겠습니까?"
+            : $"선택한 이미지 {targets.Count}개를 휴지통으로 이동하시겠습니까?";
+        if (!StyledDialogWindow.ShowConfirm(this, "삭제 확인", message))
         {
+            return;
+        }
+
+        var currentPath = CurrentImagePath;
+        var deletingCurrent = currentPath is not null &&
+            targets.Contains(currentPath, StringComparer.OrdinalIgnoreCase);
+        if (deletingCurrent)
+        {
+            // Release the file handle of the image on screen before it is moved.
             StopAnimation();
             SetViewerImageSource(null);
-            if (File.Exists(path) && !TryMoveToRecycleBin(path, out var recycleError))
+        }
+
+        var deleted = new List<string>();
+        var failures = new List<string>();
+        foreach (var path in targets)
+        {
+            try
             {
-                StyledDialogWindow.ShowInfo(this, "삭제 실패", recycleError ?? "휴지통으로 이동하지 못했습니다.");
-                ShowCurrentImage();
-                return;
+                if (!File.Exists(path) || TryMoveToRecycleBin(path, out _))
+                {
+                    deleted.Add(path);
+                }
+                else
+                {
+                    failures.Add(Path.GetFileName(path));
+                }
+            }
+            catch
+            {
+                failures.Add(Path.GetFileName(path));
             }
         }
-        catch (Exception ex)
+
+        if (deleted.Count == 0)
         {
-            StyledDialogWindow.ShowInfo(this, "삭제 실패", ex.Message);
-            ShowCurrentImage();
+            StyledDialogWindow.ShowInfo(this, "삭제 실패", "휴지통으로 이동하지 못했습니다.");
+            if (deletingCurrent)
+            {
+                ShowCurrentImage();
+            }
+
             return;
         }
 
-        var removedIndex = _currentIndex;
-        _imageFiles.RemoveAt(removedIndex);
-        if (_thumbnailByPath.TryGetValue(path, out var thumbnail))
+        // Keep the viewer near where it was: the first surviving image at or after the
+        // earliest deleted position.
+        var deletedSet = new HashSet<string>(deleted, StringComparer.OrdinalIgnoreCase);
+        var firstRemovedIndex = _imageFiles.FindIndex(path => deletedSet.Contains(path));
+        var anchorIndex = deletingCurrent ? Math.Max(0, firstRemovedIndex) : _currentIndex;
+
+        var removedBeforeAnchor = 0;
+        for (var i = 0; i < anchorIndex && i < _imageFiles.Count; i++)
         {
-            _thumbnailByPath.Remove(path);
-            _thumbnailItems.Remove(thumbnail);
+            if (deletedSet.Contains(_imageFiles[i]))
+            {
+                removedBeforeAnchor++;
+            }
+        }
+
+        _imageFiles.RemoveAll(path => deletedSet.Contains(path));
+        var thumbnailsChanged = false;
+        foreach (var path in deleted)
+        {
+            if (_thumbnailByPath.TryGetValue(path, out var thumbnail))
+            {
+                _thumbnailByPath.Remove(path);
+                _thumbnailItems.Remove(thumbnail);
+                thumbnailsChanged = true;
+            }
+        }
+
+        if (thumbnailsChanged)
+        {
             ThumbnailList.Items.Refresh();
         }
 
@@ -2820,9 +2904,25 @@ public partial class ImageViewerWindow : Window
             return;
         }
 
-        _currentIndex = Math.Clamp(removedIndex, 0, _imageFiles.Count - 1);
+        if (deletingCurrent)
+        {
+            _currentIndex = Math.Clamp(anchorIndex - removedBeforeAnchor, 0, _imageFiles.Count - 1);
+        }
+        else
+        {
+            _currentIndex = Math.Max(0, _imageFiles.FindIndex(path => string.Equals(path, currentPath, StringComparison.OrdinalIgnoreCase)));
+        }
+
         BuildFolderList();
         ShowCurrentImage();
+
+        if (failures.Count > 0)
+        {
+            StyledDialogWindow.ShowInfo(
+                this,
+                "일부 삭제 실패",
+                $"{failures.Count}개 파일을 휴지통으로 이동하지 못했습니다.\n" + string.Join("\n", failures.Take(10)));
+        }
     }
 
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
@@ -2936,7 +3036,9 @@ public partial class ImageViewerWindow : Window
 
     private void OnThumbnailSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressThumbnailSelectionChanged || ThumbnailList.SelectedItem is not ThumbnailItem selected)
+        if (_suppressThumbnailSelectionChanged ||
+            ThumbnailList.SelectedItems.Count != 1 ||
+            ThumbnailList.SelectedItem is not ThumbnailItem selected)
         {
             return;
         }

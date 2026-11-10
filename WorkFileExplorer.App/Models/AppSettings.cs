@@ -46,6 +46,12 @@ public sealed class AppSettings
     public double FileListFontSize { get; set; } = 13;
     public double FileListRowHeight { get; set; } = 18;
     public string ExternalEditorPath { get; set; } = "notepad.exe";
+    // File list default sort: empty = folder order (no sort), otherwise a column sort path
+    // (Name, Extension, SizeDisplay, LastModified, TypeDisplay).
+    public string DefaultSortColumn { get; set; } = string.Empty;
+    public bool DefaultSortDescending { get; set; }
+    // Columns whose header sorts descending on the first click (comma separated sort paths).
+    public string SortDescendingFirstColumns { get; set; } = "LastModified";
     // Lines typed here run in the cmd window opened from the toolbar (one command per line).
     public string CommandPromptStartupCommands { get; set; } = string.Empty;
     public bool EnableImageHoverPreview { get; set; } = false;

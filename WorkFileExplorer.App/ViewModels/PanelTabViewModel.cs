@@ -62,6 +62,9 @@ public sealed class PanelTabViewModel : ObservableObject
 
     public ListSortDirection? SortDirection { get; set; }
 
+    /// <summary>True once the user picked a sort by clicking a header; otherwise the settings default applies.</summary>
+    public bool HasExplicitSort { get; set; }
+
     public IReadOnlyList<string> HistoryCandidates => _historyCandidates;
 
     public bool CanGoBack => _backStack.Count > 0;

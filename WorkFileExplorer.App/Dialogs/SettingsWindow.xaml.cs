@@ -129,6 +129,7 @@ public partial class SettingsWindow : Window
         CheckShowSystemItems.IsChecked = snapshot.ShowSystemItems;
         CheckConfirmDeleteFileSection.IsChecked = snapshot.ConfirmBeforeDelete;
         TextExternalEditorPath.Text = snapshot.ExternalEditorPath;
+        LoadSortSettings(snapshot);
         TextCommandPromptStartup.Text = snapshot.CommandPromptStartupCommands;
         CheckEnableImageHoverPreview.IsChecked = snapshot.EnableImageHoverPreview;
         CheckShowPropertyColumn.IsChecked = snapshot.ShowPropertyColumn;
@@ -212,6 +213,12 @@ public partial class SettingsWindow : Window
             FileListFontSize = ParseDoubleInRange(TextFileListFontSize.Text, vm.FileListFontSize, 9, 28),
             FileListRowHeight = ParseDoubleInRange(TextFileListRowHeight.Text, vm.FileListRowHeight, 16, 52),
             ExternalEditorPath = string.IsNullOrWhiteSpace(TextExternalEditorPath.Text) ? "notepad.exe" : TextExternalEditorPath.Text.Trim(),
+            DefaultSortColumn = (ComboDefaultSortColumn.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty,
+            DefaultSortDescending = RadioDefaultSortDescending.IsChecked == true,
+            SortDescendingFirstColumns = string.Join(",", SortDescendingFirstCheckBoxes()
+                .Where(check => check.IsChecked == true)
+                .Select(check => check.Tag as string)
+                .Where(tag => !string.IsNullOrEmpty(tag))),
             CommandPromptStartupCommands = TextCommandPromptStartup.Text ?? string.Empty,
             EnableImageHoverPreview = CheckEnableImageHoverPreview.IsChecked == true,
             ShowPropertyColumn = CheckShowPropertyColumn.IsChecked == true,
@@ -227,6 +234,33 @@ public partial class SettingsWindow : Window
             ImageViewerJpegQuality = int.TryParse((ComboViewerJpegQuality.SelectedItem as ComboBoxItem)?.Tag as string, out var jq) ? jq : 92,
             ImageViewerSlideshowInterval = int.TryParse((ComboViewerSlideshowInterval.SelectedItem as ComboBoxItem)?.Tag as string, out var ssi) ? ssi : 3
         };
+    }
+
+    private CheckBox[] SortDescendingFirstCheckBoxes() =>
+    [
+        CheckSortDescFirstName,
+        CheckSortDescFirstExtension,
+        CheckSortDescFirstSize,
+        CheckSortDescFirstDate,
+        CheckSortDescFirstType
+    ];
+
+    private void LoadSortSettings(MainWindowViewModel.UiSettingsSnapshot snapshot)
+    {
+        var column = snapshot.DefaultSortColumn ?? string.Empty;
+        ComboDefaultSortColumn.SelectedItem = ComboDefaultSortColumn.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag as string, column, StringComparison.Ordinal))
+            ?? ComboDefaultSortColumn.Items[0];
+        RadioDefaultSortDescending.IsChecked = snapshot.DefaultSortDescending;
+        RadioDefaultSortAscending.IsChecked = !snapshot.DefaultSortDescending;
+
+        var descFirst = (snapshot.SortDescendingFirstColumns ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var check in SortDescendingFirstCheckBoxes())
+        {
+            check.IsChecked = descFirst.Contains(check.Tag as string, StringComparer.Ordinal);
+        }
     }
 
     private void OnFontSizeIncreaseClick(object sender, RoutedEventArgs e)

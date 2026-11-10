@@ -62,6 +62,9 @@ public sealed class SettingsStorageService : ISettingsStorageService
             settings.FileListFontSize = ParseDouble(GetOrDefault(values, "file_list_font_size", settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListFontSize);
             settings.FileListRowHeight = ParseDouble(GetOrDefault(values, "file_list_row_height", settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)), settings.FileListRowHeight);
             settings.ExternalEditorPath = GetOrDefault(values, "external_editor_path", settings.ExternalEditorPath);
+            settings.DefaultSortColumn = GetOrDefault(values, "default_sort_column", settings.DefaultSortColumn);
+            settings.DefaultSortDescending = ParseBool(GetOrDefault(values, "default_sort_descending", "0"), defaultValue: false);
+            settings.SortDescendingFirstColumns = GetOrDefault(values, "sort_descending_first_columns", settings.SortDescendingFirstColumns);
             settings.CommandPromptStartupCommands = GetOrDefault(values, "command_prompt_startup_commands", string.Empty);
             settings.EnableImageHoverPreview = ParseBool(GetOrDefault(values, "enable_image_hover_preview", "0"), defaultValue: false);
             settings.ShowPropertyColumn = ParseBool(GetOrDefault(values, "show_property_column", "1"), defaultValue: true);
@@ -483,6 +486,9 @@ public sealed class SettingsStorageService : ISettingsStorageService
             ["file_list_font_size"] = settings.FileListFontSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["file_list_row_height"] = settings.FileListRowHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["external_editor_path"] = settings.ExternalEditorPath ?? string.Empty,
+            ["default_sort_column"] = settings.DefaultSortColumn ?? string.Empty,
+            ["default_sort_descending"] = settings.DefaultSortDescending ? "1" : "0",
+            ["sort_descending_first_columns"] = settings.SortDescendingFirstColumns ?? string.Empty,
             ["command_prompt_startup_commands"] = settings.CommandPromptStartupCommands ?? string.Empty,
             ["enable_image_hover_preview"] = settings.EnableImageHoverPreview ? "1" : "0",
             ["show_property_column"] = settings.ShowPropertyColumn ? "1" : "0",

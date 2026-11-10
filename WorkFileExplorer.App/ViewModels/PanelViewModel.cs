@@ -359,6 +359,12 @@ public sealed class PanelViewModel : ObservableObject
         _totalFileBytes = 0;
         foreach (var item in filteredItems)
         {
+            // [..] is a navigation row, not a folder inside this one.
+            if (item.IsParentDirectory)
+            {
+                continue;
+            }
+
             if (item.IsDirectory)
             {
                 _directoryCount++;

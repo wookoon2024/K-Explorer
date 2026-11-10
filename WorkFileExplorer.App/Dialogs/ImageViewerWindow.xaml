@@ -9,7 +9,7 @@
         MinHeight="460"
         Background="#1E1E1E"
         Foreground="#F0F0F0"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="CenterScreen"
         AllowDrop="True"
         Drop="OnWindowDrop"
         KeyDown="OnWindowKeyDown"
@@ -567,6 +567,7 @@
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             SelectionMode="Extended"
                              SelectionChanged="OnFolderListSelectionChanged">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
@@ -636,7 +637,7 @@
                     <MenuItem Header="현재 파일에 덮어쓰기" Click="OnOverwriteImageClick" />
                     <Separator />
                     <MenuItem Header="이름 바꾸기(F2)" Click="OnRenameImageClick" />
-                    <MenuItem Header="휴지통으로 이동(Del)" Click="OnDeleteImageMenuClick" />
+                    <MenuItem Header="휴지통으로 이동(Del) - 선택 항목" Click="OnDeleteImageMenuClick" />
                     <Separator />
                     <MenuItem Header="폴더 열기" Click="OnOpenFolderClick" />
                     <MenuItem Header="연결 프로그램으로 열기" Click="OnOpenWithDefaultAppClick" />
@@ -733,6 +734,7 @@
                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
                      ScrollViewer.CanContentScroll="True"
+                     SelectionMode="Extended"
                      SelectionChanged="OnThumbnailSelectionChanged"
                      PreviewMouseWheel="OnThumbnailPreviewMouseWheel">
                 <ListBox.ItemContainerStyle>

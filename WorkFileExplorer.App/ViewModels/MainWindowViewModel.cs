@@ -40,6 +40,9 @@ public sealed class MainWindowViewModel : ObservableObject
         public double FileListFontSize { get; init; } = 13;
         public double FileListRowHeight { get; init; } = 18;
         public string ExternalEditorPath { get; init; } = "notepad.exe";
+        public string DefaultSortColumn { get; init; } = string.Empty;
+        public bool DefaultSortDescending { get; init; }
+        public string SortDescendingFirstColumns { get; init; } = "LastModified";
         public string CommandPromptStartupCommands { get; init; } = string.Empty;
         public bool EnableImageHoverPreview { get; init; }
         public bool ShowPropertyColumn { get; init; } = true;
@@ -579,29 +582,32 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private string? _leftFolderInfoCache;
     private string? _rightFolderInfoCache;
-    private PanelViewModel? _leftFolderInfoPanel;
-    private PanelViewModel? _rightFolderInfoPanel;
+    private (int Dirs, int Files, long Bytes) _leftFolderInfoStats;
+    private (int Dirs, int Files, long Bytes) _rightFolderInfoStats;
 
-    private string GetLeftFolderInfo()
-    {
-        if (_leftFolderInfoPanel == LeftPanel && _leftFolderInfoCache != null)
-        {
-            return _leftFolderInfoCache;
-        }
-        _leftFolderInfoCache = BuildFolderInfo(LeftPanel);
-        _leftFolderInfoPanel = LeftPanel;
-        return _leftFolderInfoCache;
-    }
+    // The cache is keyed on the panel's current counts, so a folder change always shows fresh
+    // numbers even when the caller only raised PropertyChanged without invalidating.
+    private string GetLeftFolderInfo() =>
+        GetCachedFolderInfo(LeftPanel, ref _leftFolderInfoCache, ref _leftFolderInfoStats);
 
-    private string GetRightFolderInfo()
+    private string GetRightFolderInfo() =>
+        GetCachedFolderInfo(RightPanel, ref _rightFolderInfoCache, ref _rightFolderInfoStats);
+
+    private static string GetCachedFolderInfo(
+        PanelViewModel panel,
+        ref string? cache,
+        ref (int Dirs, int Files, long Bytes) cachedStats)
     {
-        if (_rightFolderInfoPanel == RightPanel && _rightFolderInfoCache != null)
+        var stats = GetPanelStats(panel);
+        var key = (stats.Dirs, stats.Files, stats.TotalFileBytes);
+        if (cache is not null && cachedStats == key)
         {
-            return _rightFolderInfoCache;
+            return cache;
         }
-        _rightFolderInfoCache = BuildFolderInfo(RightPanel);
-        _rightFolderInfoPanel = RightPanel;
-        return _rightFolderInfoCache;
+
+        cache = $"폴더 {stats.Dirs} / 파일 {stats.Files} / 용량 {ToReadableSize(stats.TotalFileBytes)}";
+        cachedStats = key;
+        return cache;
     }
 
     private void InvalidateFolderInfoCache()
@@ -1039,6 +1045,30 @@ public sealed class MainWindowViewModel : ObservableObject
     public double FileListRowHeight => NormalizeFileListRowHeight(_settings.FileListRowHeight);
 
     public string ExternalEditorPath => _settings.ExternalEditorPath;
+
+    /// <summary>Default sort column for file lists; empty means folder order (no sort).</summary>
+    public string DefaultSortColumn => _settings.DefaultSortColumn ?? string.Empty;
+
+    public bool DefaultSortDescending => _settings.DefaultSortDescending;
+
+    /// <summary>True when clicking this column's header the first time should sort descending.</summary>
+    public bool IsSortDescendingFirst(string? sortMemberPath)
+    {
+        if (string.IsNullOrWhiteSpace(sortMemberPath) || string.IsNullOrWhiteSpace(_settings.SortDescendingFirstColumns))
+        {
+            return false;
+        }
+
+        foreach (var part in _settings.SortDescendingFirstColumns.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (string.Equals(part, sortMemberPath, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public string CommandPromptStartupCommands => _settings.CommandPromptStartupCommands;
 
@@ -3130,6 +3160,9 @@ public sealed class MainWindowViewModel : ObservableObject
             FileListFontSize = FileListFontSize,
             FileListRowHeight = FileListRowHeight,
             ExternalEditorPath = _settings.ExternalEditorPath,
+            DefaultSortColumn = _settings.DefaultSortColumn,
+            DefaultSortDescending = _settings.DefaultSortDescending,
+            SortDescendingFirstColumns = _settings.SortDescendingFirstColumns,
             CommandPromptStartupCommands = _settings.CommandPromptStartupCommands,
             EnableImageHoverPreview = _settings.EnableImageHoverPreview,
             ShowPropertyColumn = _settings.ShowPropertyColumn,
@@ -3184,6 +3217,9 @@ public sealed class MainWindowViewModel : ObservableObject
         _settings.FileListFontSize = NormalizeFileListFontSize(snapshot.FileListFontSize);
         _settings.FileListRowHeight = NormalizeFileListRowHeight(snapshot.FileListRowHeight);
         _settings.ExternalEditorPath = string.IsNullOrWhiteSpace(snapshot.ExternalEditorPath) ? "notepad.exe" : snapshot.ExternalEditorPath.Trim();
+        _settings.DefaultSortColumn = snapshot.DefaultSortColumn?.Trim() ?? string.Empty;
+        _settings.DefaultSortDescending = snapshot.DefaultSortDescending;
+        _settings.SortDescendingFirstColumns = snapshot.SortDescendingFirstColumns ?? string.Empty;
         _settings.CommandPromptStartupCommands = snapshot.CommandPromptStartupCommands ?? string.Empty;
         _settings.EnableImageHoverPreview = snapshot.EnableImageHoverPreview;
         _settings.ShowPropertyColumn = snapshot.ShowPropertyColumn;
@@ -6323,12 +6359,6 @@ public sealed class MainWindowViewModel : ObservableObject
         return $"{prefix}: {dirs}D/{files}F {ToReadableSize(totalBytes)}";
     }
 
-    private static string BuildFolderInfo(PanelViewModel panel)
-    {
-        var (dirs, files, totalBytes) = GetPanelStats(panel);
-        return $"폴더 {dirs} / 파일 {files} / 용량 {ToReadableSize(totalBytes)}";
-    }
-
     private static (int Dirs, int Files, long TotalFileBytes) GetPanelStats(PanelViewModel panel) => panel.GetStats();
 
     private async Task RefreshSidebarAndDashboardAsync()
@@ -8347,10 +8377,36 @@ public sealed class MainWindowViewModel : ObservableObject
                     return;
                 }
 
-                var viewer = new ImageViewerWindow(imagePath)
+                // No Owner: an owned window always stays above its owner, so the explorer
+                // could never be brought in front of the viewer. Center it on the explorer instead.
+                var viewer = new ImageViewerWindow(imagePath);
+                if (owner is not null && owner.IsLoaded && owner.WindowState == WindowState.Normal)
                 {
-                    Owner = owner
-                };
+                    viewer.WindowStartupLocation = WindowStartupLocation.Manual;
+                    viewer.Left = owner.Left + Math.Max(0, (owner.ActualWidth - viewer.Width) / 2);
+                    viewer.Top = owner.Top + Math.Max(0, (owner.ActualHeight - viewer.Height) / 2);
+                }
+                else
+                {
+                    viewer.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                }
+
+                // Without an owner the viewer would outlive the explorer; close it with the main window.
+                if (app.MainWindow is { } mainWindow && !ReferenceEquals(mainWindow, viewer))
+                {
+                    void OnMainWindowClosed(object? sender, EventArgs args)
+                    {
+                        mainWindow.Closed -= OnMainWindowClosed;
+                        if (viewer.IsLoaded)
+                        {
+                            viewer.Close();
+                        }
+                    }
+
+                    mainWindow.Closed += OnMainWindowClosed;
+                    viewer.Closed += (_, _) => mainWindow.Closed -= OnMainWindowClosed;
+                }
+
                 _imageViewerWindowRef = new WeakReference<ImageViewerWindow>(viewer);
                 viewer.Closed += (_, _) =>
                 {
